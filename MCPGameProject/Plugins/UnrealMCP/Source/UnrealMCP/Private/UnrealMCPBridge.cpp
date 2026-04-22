@@ -57,6 +57,7 @@
 #include "Commands/UnrealMCPProjectCommands.h"
 #include "Commands/UnrealMCPCommonUtils.h"
 #include "Commands/UnrealMCPUMGCommands.h"
+#include "Commands/UnrealMCPCharacterCommands.h"
 
 // Default settings
 #define MCP_SERVER_HOST "127.0.0.1"
@@ -69,6 +70,7 @@ UUnrealMCPBridge::UUnrealMCPBridge()
     BlueprintNodeCommands = MakeShared<FUnrealMCPBlueprintNodeCommands>();
     ProjectCommands = MakeShared<FUnrealMCPProjectCommands>();
     UMGCommands = MakeShared<FUnrealMCPUMGCommands>();
+    CharacterCommands = MakeShared<FUnrealMCPCharacterCommands>();
 }
 
 UUnrealMCPBridge::~UUnrealMCPBridge()
@@ -78,6 +80,7 @@ UUnrealMCPBridge::~UUnrealMCPBridge()
     BlueprintNodeCommands.Reset();
     ProjectCommands.Reset();
     UMGCommands.Reset();
+    CharacterCommands.Reset();
 }
 
 // Initialize subsystem
@@ -277,6 +280,32 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("add_widget_to_viewport"))
             {
                 ResultJson = UMGCommands->HandleCommand(CommandType, Params);
+            }
+            // Character Commands
+            else if (CommandType == TEXT("get_character_status") ||
+                     CommandType == TEXT("get_character_location") ||
+                     CommandType == TEXT("get_character_health") ||
+                     CommandType == TEXT("get_character_inventory") ||
+                     CommandType == TEXT("get_character_current_action") ||
+                     CommandType == TEXT("get_character_view") ||
+                     CommandType == TEXT("get_nearby_actors") ||
+                     CommandType == TEXT("get_heard_sounds") ||
+                     CommandType == TEXT("send_character_message") ||
+                     CommandType == TEXT("get_character_messages") ||
+                     CommandType == TEXT("set_character_memory") ||
+                     CommandType == TEXT("get_character_memory") ||
+                     CommandType == TEXT("command_character_move_to") ||
+                     CommandType == TEXT("command_character_follow") ||
+                     CommandType == TEXT("command_character_stop") ||
+                     CommandType == TEXT("command_character_look_at") ||
+                     CommandType == TEXT("command_character_pickup") ||
+                     CommandType == TEXT("command_character_drop") ||
+                     CommandType == TEXT("command_character_interact") ||
+                     CommandType == TEXT("command_character_play_animation") ||
+                     CommandType == TEXT("command_character_say") ||
+                     CommandType == TEXT("command_character_set_ai_state"))
+            {
+                ResultJson = CharacterCommands->HandleCommand(CommandType, Params);
             }
             else
             {

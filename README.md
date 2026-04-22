@@ -8,7 +8,11 @@
 [![Python](https://img.shields.io/badge/Python-3.12%2B-yellow)](https://www.python.org)
 [![Status](https://img.shields.io/badge/Status-Experimental-red)](https://github.com/chongdashu/unreal-mcp)
 
+**Fork of [chongdashu/unreal-mcp](https://github.com/chongdashu/unreal-mcp)**
+
 </div>
+
+> This is a fork of [chongdashu/unreal-mcp](https://github.com/chongdashu/unreal-mcp). Original work by [@chongdashu](https://www.x.com/chongdashu). This fork extends the base project with additional features — see [Changes from Upstream](#changes-from-upstream) below.
 
 This project enables AI assistant clients like Cursor, Windsurf and Claude Desktop to control Unreal Engine through natural language using the Model Context Protocol (MCP).
 
@@ -31,6 +35,7 @@ The Unreal MCP integration provides comprehensive tools for controlling Unreal E
 | **Blueprint Development** | • Create new Blueprint classes with custom components<br>• Add and configure components (mesh, camera, light, etc.)<br>• Set component properties and physics settings<br>• Compile Blueprints and spawn Blueprint actors<br>• Create input mappings for player controls |
 | **Blueprint Node Graph** | • Add event nodes (BeginPlay, Tick, etc.)<br>• Create function call nodes and connect them<br>• Add variables with custom types and default values<br>• Create component and self references<br>• Find and manage nodes in the graph |
 | **Editor Control** | • Focus viewport on specific actors or locations<br>• Control viewport camera orientation and distance |
+| **Character Interaction** | • Send and receive messages to/from NPC characters<br>• Query character status, health, inventory, location, and current action<br>• Command characters to move, follow, stop, look at targets<br>• Pick up and drop items (socket attachment)<br>• Set AI state, play animations, trigger dialogue<br>• Per-character key-value memory store<br>• Scan for nearby actors within a radius |
 
 All these capabilities are accessible through natural language commands via AI assistants, making it easy to automate and control Unreal Engine workflows.
 
@@ -146,6 +151,53 @@ Depending on which MCP client you're using, the configuration file location will
 Each client uses the same JSON format as shown in the example above. 
 Simply place the configuration in the appropriate location for your MCP client.
 
+
+## Changes from Upstream
+
+This fork adds the following on top of [chongdashu/unreal-mcp](https://github.com/chongdashu/unreal-mcp):
+
+### Character Interaction System
+A full NPC character command system built on a new `UMCPCharacterComponent`:
+- **Messaging** — send messages to characters and read their replies
+- **Memory** — per-character key-value fact store
+- **Status queries** — health, inventory, location, AI state, current action, nearby actors
+- **Action commands** — move to location/actor, follow, stop, look at, pickup, drop, say, play animation, set AI state
+- **Blueprint events** — `OnMessageReceived`, `OnSayRequested`, `OnAIStateChanged`, `OnInteractRequested`
+
+See [Docs/character_system.md](Docs/character_system.md) for full details.
+
+---
+
+## 🎭 Character Interaction System
+
+The plugin includes a full NPC character command system added on top of the base MCP tools.
+
+### Quick setup per NPC
+1. Add `UMCPCharacterComponent` to your NPC Blueprint
+2. Assign an AI Controller (required for move/follow/stop)
+3. Implement the Blueprint events you want: `OnMessageReceived`, `OnSayRequested`, `OnAIStateChanged`, `OnInteractRequested`
+
+### Example
+```python
+# Send a message to an NPC
+send_character_message("GuardNPC", "The player was spotted near the north gate")
+
+# Command the NPC to walk somewhere
+command_character_move_to("GuardNPC", location=[1000, 500, 0])
+
+# Make the NPC pick up a weapon
+command_character_pickup("GuardNPC", "Sword_01")
+
+# Make the NPC say something (fires OnSayRequested in Blueprint)
+command_character_say("GuardNPC", "Halt! Who goes there?")
+
+# Read replies the NPC has queued in their outbox
+get_character_messages("GuardNPC", source="outbox", clear=True)
+```
+
+See [Docs/character_system.md](Docs/character_system.md) for the full command reference, component property list, and setup checklist.
+
+---
 
 ## License
 MIT
