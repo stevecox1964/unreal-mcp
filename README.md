@@ -74,10 +74,21 @@ All these capabilities are accessible through natural language commands via AI a
 
 ## 🚀 Quick Start Guide
 
+### Startup Sequence
+
+Every session, start things in this order:
+
+1. **Run the Unreal project** — open and play the project in the editor. This starts the C++ TCP server (port 55557) that the Python server connects to.
+2. **Run Claude Code** — launching Claude Code starts the Python MCP server (`unreal_mcp_server.py`) via the `.mcp.json` config, which then connects to Unreal.
+
+> If Claude Code is started before Unreal, the Python server will fail to connect. Always start Unreal first.
+
 ### Prerequisites
 - Unreal Engine 5.5+
 - Python 3.12+
 - MCP Client (e.g., Claude Desktop, Cursor, Windsurf)
+
+> **Python setup:** Uninstall any existing Python versions before proceeding. Then install Python 3.12+ fresh from [python.org](https://www.python.org/downloads/). Having multiple Python versions can cause conflicts with the MCP server.
 
 ### Sample project
 
