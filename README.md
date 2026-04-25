@@ -36,6 +36,7 @@ The Unreal MCP integration provides comprehensive tools for controlling Unreal E
 | **Blueprint Node Graph** | • Add event nodes (BeginPlay, Tick, etc.)<br>• Create function call nodes and connect them<br>• Add variables with custom types and default values<br>• Create component and self references<br>• Find and manage nodes in the graph |
 | **Editor Control** | • Focus viewport on specific actors or locations<br>• Control viewport camera orientation and distance |
 | **Character Interaction** | • Send and receive messages to/from NPC characters<br>• Query character status, health, inventory, location, and current action<br>• Command characters to move, follow, stop, look at targets<br>• Pick up and drop items (socket attachment)<br>• Set AI state, play animations, trigger dialogue<br>• Per-character key-value memory store<br>• Scan for nearby actors within a radius |
+| **Camera Capture** | • Trigger a `CameraCaptureActor` to take a scene snapshot during PIE<br>• Images saved as `<ActorName>_<YYYYMMDD>_<HHMMSS>.png` in the project folder<br>• Auto-discovers the first camera in the level if no name is specified<br>• AI assistants can read the image and analyze the scene |
 
 All these capabilities are accessible through natural language commands via AI assistants, making it easy to automate and control Unreal Engine workflows.
 
@@ -176,6 +177,13 @@ A full NPC character command system built on a new `UMCPCharacterComponent`:
 - **Blueprint events** — `OnMessageReceived`, `OnSayRequested`, `OnAIStateChanged`, `OnInteractRequested`
 
 See [Docs/character_system.md](Docs/character_system.md) for full details.
+
+### Camera Capture System
+A `CameraCaptureActor` and MCP tool that lets AI assistants take and analyze in-game screenshots during PIE:
+- **Scene snapshots** — triggers a `SceneCaptureComponent2D` render and saves a PNG to the project folder
+- **Timestamped filenames** — each capture is saved as `<ActorName>_<YYYYMMDD>_<HHMMSS>.png`, so no captures are overwritten
+- **Auto-discovery** — if no actor name is passed, the first `CameraCaptureActor` in the level is used
+- **Image analysis** — AI clients can read the saved image and describe or reason about the scene
 
 ---
 

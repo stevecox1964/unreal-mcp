@@ -272,6 +272,7 @@ from tools.node_tools import register_blueprint_node_tools
 from tools.project_tools import register_project_tools
 from tools.umg_tools import register_umg_tools
 from tools.character_tools import register_character_tools
+from tools.camera_tools import register_camera_tools
 
 # Register tools
 register_editor_tools(mcp)
@@ -279,7 +280,8 @@ register_blueprint_tools(mcp)
 register_blueprint_node_tools(mcp)
 register_project_tools(mcp)
 register_umg_tools(mcp)
-register_character_tools(mcp)  
+register_character_tools(mcp)
+register_camera_tools(mcp)
 
 @mcp.prompt()
 def info():

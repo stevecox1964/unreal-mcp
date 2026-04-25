@@ -58,6 +58,7 @@
 #include "Commands/UnrealMCPCommonUtils.h"
 #include "Commands/UnrealMCPUMGCommands.h"
 #include "Commands/UnrealMCPCharacterCommands.h"
+#include "Commands/UnrealMCPCameraCommands.h"
 
 // Default settings
 #define MCP_SERVER_HOST "127.0.0.1"
@@ -71,6 +72,7 @@ UUnrealMCPBridge::UUnrealMCPBridge()
     ProjectCommands = MakeShared<FUnrealMCPProjectCommands>();
     UMGCommands = MakeShared<FUnrealMCPUMGCommands>();
     CharacterCommands = MakeShared<FUnrealMCPCharacterCommands>();
+    CameraCommands = MakeShared<FUnrealMCPCameraCommands>();
 }
 
 UUnrealMCPBridge::~UUnrealMCPBridge()
@@ -81,6 +83,7 @@ UUnrealMCPBridge::~UUnrealMCPBridge()
     ProjectCommands.Reset();
     UMGCommands.Reset();
     CharacterCommands.Reset();
+    CameraCommands.Reset();
 }
 
 // Initialize subsystem
@@ -306,6 +309,11 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("command_character_set_ai_state"))
             {
                 ResultJson = CharacterCommands->HandleCommand(CommandType, Params);
+            }
+            // Camera Commands
+            else if (CommandType == TEXT("capture_camera_image"))
+            {
+                ResultJson = CameraCommands->HandleCommand(CommandType, Params);
             }
             else
             {

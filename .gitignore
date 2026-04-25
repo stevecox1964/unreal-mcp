@@ -1,6 +1,10 @@
 # Unreal MCP
 Python/unreal_mcp.log
 
+# Camera capture images
+MCPGameProject/CapturedCameraView.png
+MCPGameProject/CameraCaptureActor_*.png
+
 # AI-related files
 .cursorrules
 .cursorignore
