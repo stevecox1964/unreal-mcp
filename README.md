@@ -185,6 +185,14 @@ A `CameraCaptureActor` and MCP tool that lets AI assistants take and analyze in-
 - **Auto-discovery** — if no actor name is passed, the first `CameraCaptureActor` in the level is used
 - **Image analysis** — AI clients can read the saved image and describe or reason about the scene
 
+### AI RPG Agent Simulation (planned)
+A full agentic NPC simulation layer driven by an LLM-controlled Agent Manager running inside the Python MCP server. See [`AI_RPG_Agent_Simulation_MASTER_PLAN.md`](AI_RPG_Agent_Simulation_MASTER_PLAN.md) for the complete design.
+- **Agent Manager** — start/stop/pause an autonomous simulation loop from the CLI
+- **Multi-tier agents** — Hero (full LLM), Simulated (event-driven LLM), and Lightweight (Behavior Tree) NPCs
+- **World-state driven** — agents observe Unreal structured data; screenshots used selectively
+- **Faction & director agents** — high-level agents that coordinate groups of NPCs
+- **Validated action pipeline** — LLM decisions are schema-validated before any Unreal command executes
+
 ---
 
 ## 🎭 Character Interaction System
@@ -215,6 +223,50 @@ get_character_messages("GuardNPC", source="outbox", clear=True)
 ```
 
 See [Docs/character_system.md](Docs/character_system.md) for the full command reference, component property list, and setup checklist.
+
+---
+
+## 🤖 AI RPG Agent Simulation
+
+> **Status: Planned** — See [`AI_RPG_Agent_Simulation_MASTER_PLAN.md`](AI_RPG_Agent_Simulation_MASTER_PLAN.md) for the full design document.
+
+The next major feature is an agentic NPC simulation layer that lets an LLM (Claude, OpenAI, or a local model) autonomously drive NPCs inside a live Unreal session via the MCP server.
+
+### Architecture
+
+```
+Claude / OpenAI CLI
+        │  MCP tool calls
+        ▼
+Python MCP Server  ─── Agent Manager + Simulation Harness
+        │              ├─ AgentRegistry / MemoryStore
+        │              ├─ LLMRouter (per-agent model selection)
+        │              └─ ActionValidator (schema + allowlist)
+        │  Unreal commands
+        ▼
+Unreal C++ MCP Plugin → Unreal Editor / PIE
+```
+
+### Key MCP tools (planned)
+
+| Tool | Description |
+|------|-------------|
+| `start_simulation` | Start the autonomous agent loop |
+| `stop_simulation` | Stop the loop |
+| `pause_simulation` / `resume_simulation` | Pause or resume without losing state |
+| `get_simulation_status` | Live status of the running sim |
+| `list_agents` / `inspect_agent` | Browse active agents |
+| `set_agent_goal` | Override an agent's current goal |
+| `force_agent_tick` | Manually pulse a single agent |
+| `get_recent_events` | Tail the world event log |
+
+### Agent tiers
+
+| Tier | Examples | LLM usage |
+|------|----------|-----------|
+| 1 — Hero | Gondolf, main villain, quest giver | Full memory + goal reasoning every tick |
+| 2 — Simulated | Innkeeper, blacksmith, guard captain | LLM only when near player or interrupted |
+| 3 — Lightweight | Villagers, animals, basic guards | Behavior Tree; LLM only on promotion |
 
 ---
 
