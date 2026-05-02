@@ -59,14 +59,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommand(const FString
 
 AActor* FUnrealMCPCharacterCommands::FindActorByName(const FString& Name) const
 {
-    TArray<AActor*> AllActors;
-    UGameplayStatics::GetAllActorsOfClass(GWorld, AActor::StaticClass(), AllActors);
-    for (AActor* Actor : AllActors)
-    {
-        if (Actor && Actor->GetName() == Name)
-            return Actor;
-    }
-    return nullptr;
+    return FUnrealMCPCommonUtils::FindActorByNameOrLabel(GWorld, Name);
 }
 
 UMCPCharacterComponent* FUnrealMCPCharacterCommands::GetMCPComponent(AActor* Actor) const
@@ -77,6 +70,7 @@ UMCPCharacterComponent* FUnrealMCPCharacterCommands::GetMCPComponent(AActor* Act
 
 // Shared param extraction: reads "character_name", finds actor, optionally gets component.
 // Returns nullptr actor on failure and fills OutError.
+// Resolves by GetName() OR GetActorLabel() so callers can use friendly Outliner names.
 static AActor* ResolveCharacter(const TSharedPtr<FJsonObject>& Params, FString& OutError)
 {
     FString CharacterName;
@@ -86,13 +80,8 @@ static AActor* ResolveCharacter(const TSharedPtr<FJsonObject>& Params, FString& 
         return nullptr;
     }
 
-    TArray<AActor*> AllActors;
-    UGameplayStatics::GetAllActorsOfClass(GWorld, AActor::StaticClass(), AllActors);
-    for (AActor* Actor : AllActors)
-    {
-        if (Actor && Actor->GetName() == CharacterName)
-            return Actor;
-    }
+    if (AActor* Actor = FUnrealMCPCommonUtils::FindActorByNameOrLabel(GWorld, CharacterName))
+        return Actor;
 
     OutError = FString::Printf(TEXT("Actor not found: %s"), *CharacterName);
     return nullptr;
@@ -596,7 +585,18 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommandDrop(const TSh
 
     for (AActor* Attached_Actor : Attached)
     {
-        if (!bDropSpecific || Attached_Actor->GetName() == ItemName)
+        bool bMatches = !bDropSpecific;
+        if (bDropSpecific && Attached_Actor)
+        {
+            bMatches = Attached_Actor->GetName() == ItemName;
+#if WITH_EDITOR
+            if (!bMatches)
+            {
+                bMatches = Attached_Actor->GetActorLabel().Equals(ItemName, ESearchCase::IgnoreCase);
+            }
+#endif
+        }
+        if (bMatches)
         {
             Attached_Actor->DetachFromActor(DetachRules);
             Dropped.Add(Attached_Actor->GetName());

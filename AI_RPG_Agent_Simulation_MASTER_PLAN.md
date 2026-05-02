@@ -347,16 +347,22 @@ Patrol the village square and observe newcomers.
 ```json
 {
   "agent_id": "gondolf",
+  "unreal_actor_name": "Gondolf",
+  "blueprint_class": "BP_Gondolf_C",
+  "tier": 1,
   "is_active": true,
   "is_busy": false,
   "current_goal": "patrol_village",
-  "current_location": "Village Square",
   "tick_interval_seconds": 10,
-  "last_tick_time": null,
   "speech_cooldown_seconds": 30,
+  "last_tick_time": null,
   "last_spoke_time": null
 }
 ```
+
+`unreal_actor_name` is the actor label in Unreal (what `find_actors_by_name` searches).
+`blueprint_class` is used if the actor is not found in the level and must be spawned.
+`tier` controls which LLM model is used (1 = high-end, 2 = light, 3 = none).
 
 ---
 
@@ -983,6 +989,19 @@ Screenshots are powerful but should be used selectively.
 
 Structured Unreal data should be the default.
 
+However, camera capture is not a secondary feature. The central long-term
+loop is:
+
+```txt
+agent camera capture -> scene analysis -> action decision -> Unreal command
+```
+
+The model used for scene analysis must be chosen for visual reasoning quality,
+not only for cheap text decisions. Small models are acceptable for simple
+idle/dialogue/routine movement decisions, but navigation from camera frames,
+object identification, spatial interpretation, and player/pose awareness should
+route to the best available vision-capable model configured for the project.
+
 Use screenshots when:
 
 - The agent is confused.
@@ -994,6 +1013,34 @@ Use screenshots when:
 
 Do not send screenshots every tick for every agent.
 
+Use separate model settings for text decisions and visual analysis:
+
+```env
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-5.4-mini
+
+VISION_PROVIDER=openai
+VISION_MODEL=gpt-5.4
+```
+
+The exact model names are configurable. The important design rule is that
+`LLM_MODEL` can optimize for cost/latency, while `VISION_MODEL` optimizes for
+scene understanding. Per-agent overrides should be allowed for special NPCs
+that need better perception.
+
+Screenshot pipeline requirements:
+
+- Preserve enough resolution and color fidelity for scene analysis.
+- Avoid over-compressing or thumbnailing the frame before the model sees it.
+- Attach camera metadata when available: actor name, world location, rotation,
+  FOV, timestamp, and any known nearby actors.
+- Cache the most recent frame per agent so repeated questions do not recapture
+  unnecessarily.
+- Rate-limit vision calls separately from text decision calls.
+- Log which provider/model analyzed each frame.
+- Allow a cheap first-pass decision model to request vision, then hand the
+  screenshot to the configured vision model for a final decision.
+
 Recommended flow:
 
 ```txt
@@ -1001,9 +1048,13 @@ Recommended flow:
 2. Agent decides it needs visual context.
 3. Agent returns ask_for_screenshot.
 4. Agent Manager asks Unreal for screenshot.
-5. Agent Manager sends visual observation to the LLM.
+5. Agent Manager sends visual observation to the configured vision model.
 6. Agent returns final action.
 ```
+
+For agents whose primary job is camera navigation, the Agent Manager may skip
+the first cheap text pass and call the vision model directly when a fresh camera
+frame is available.
 
 ---
 
@@ -1076,6 +1127,9 @@ Example state:
 ```json
 {
   "agent_id": "gondolf",
+  "unreal_actor_name": "Gondolf",
+  "blueprint_class": "BP_Gondolf_C",
+  "tier": 1,
   "last_llm_tick": "2026-04-29T16:05:00Z",
   "min_tick_interval_seconds": 10,
   "can_speak": true,
@@ -1141,6 +1195,36 @@ The Agent Manager should not assume every agent uses the same model.
 
 Use an `LLMRouter`.
 
+Routing must distinguish between:
+
+- **Decision model**: fast/cheap text reasoning for ordinary ticks.
+- **Vision model**: stronger multimodal scene analysis for camera frames.
+
+Provider and model should be configurable through environment variables and
+agent state:
+
+```txt
+LLM_PROVIDER        -> default text-decision provider
+LLM_MODEL           -> provider-agnostic text-decision model override
+OPENAI_MODEL        -> OpenAI text-decision default
+ANTHROPIC_MODEL     -> Anthropic text-decision default
+
+VISION_PROVIDER     -> default image-analysis provider
+VISION_MODEL        -> provider-agnostic image-analysis model override
+OPENAI_VISION_MODEL -> OpenAI image-analysis default
+```
+
+Agent `state.json` may override:
+
+```json
+{
+  "llm_provider": "openai",
+  "model": "gpt-5.4-mini",
+  "vision_provider": "openai",
+  "vision_model": "gpt-5.4"
+}
+```
+
 Example routing:
 
 ```txt
@@ -1157,16 +1241,26 @@ Minimal interface:
 ```python
 class LLMRouter:
     async def decide(self, agent, observation):
-        model = self.select_model(agent)
+        model = self.select_decision_model(agent)
         prompt = self.build_prompt(agent, observation)
         return await model.complete_json(prompt)
 
-    def select_model(self, agent):
+    async def decide_with_image(self, agent, observation, image):
+        model = self.select_vision_model(agent)
+        prompt = self.build_visual_prompt(agent, observation)
+        return await model.complete_json(prompt, image=image)
+
+    def select_decision_model(self, agent):
         if agent.tier == 1:
             return self.high_reasoning_model
         if agent.tier == 2:
             return self.light_model
         return self.local_or_none_model
+
+    def select_vision_model(self, agent):
+        if agent.state.get("vision_model"):
+            return agent.state["vision_model"]
+        return self.best_configured_vision_model
 ```
 
 ---
@@ -1344,6 +1438,10 @@ Add:
 ask_for_screenshot action
 take_agent_screenshot MCP call
 vision-specific prompt
+VISION_PROVIDER / VISION_MODEL routing
+optional image input to LLMRouter decisions
+camera metadata attached to image observations
+image quality controls for resolution/compression
 rate limiting
 ```
 
@@ -1542,6 +1640,226 @@ Agent Manager:
 13. Keep agent definitions human-editable.
 14. Keep runtime state machine-readable.
 15. Log every decision.
+
+---
+
+## 26. Actor Binding Contract
+
+Every agent must declare how it maps to a live Unreal actor.
+
+### 26.1 The Problem
+
+The agent file system uses `agent_id` strings (e.g. `"gondolf"`).
+Unreal actors have their own labels and internal names (e.g. `"Gondolf"`, `"BP_Gondolf_C_0"`).
+These are not automatically the same. The binding must be explicit.
+
+### 26.2 Required Fields in `state.json`
+
+```json
+{
+  "agent_id": "gondolf",
+  "unreal_actor_name": "Gondolf",
+  "blueprint_class": "BP_Gondolf_C",
+  "tier": 1
+}
+```
+
+`unreal_actor_name` — the display label of the Unreal actor as it appears in the Outliner.
+This is what `find_actors_by_name` searches for and what `command_character_*` uses.
+
+`blueprint_class` — the Blueprint class to spawn if the actor is not already in the level.
+
+`tier` — 1, 2, or 3. Controls which LLM model is routed to this agent.
+
+### 26.3 Binding Strategy at Simulation Start
+
+When `start_simulation()` is called, the AgentManager does the following for each active agent:
+
+```txt
+1. Call find_actors_by_name(agent.unreal_actor_name)
+2. If found → bind to that actor, store reference
+3. If not found → call spawn_blueprint_actor(agent.blueprint_class)
+                  → tag the spawned actor with agent_id
+                  → store reference
+4. If spawn fails → mark agent as inactive, log warning, continue
+```
+
+This means agents can work with pre-placed level actors (common case during dev)
+or with dynamically spawned actors (useful for runtime NPC generation).
+
+### 26.4 CLI-First Authoring
+
+Before a web UI, agents are authored using a CLI tool: `Python/npc_cli.py`.
+
+```bash
+python npc_cli.py create gondolf
+python npc_cli.py list
+python npc_cli.py show gondolf
+python npc_cli.py set gondolf current_goal patrol_village
+python npc_cli.py delete gondolf
+```
+
+The CLI prompts for `unreal_actor_name` and `blueprint_class` on create,
+ensuring every agent has a valid Unreal binding from the start.
+
+The web UI (Section 27) is a later layer on top of the same file format.
+
+---
+
+## 27. NPC Builder Web App
+
+### 26.1 Purpose
+
+A local web app for authoring and editing the agent definition files consumed by the Agent Manager.
+
+Targets the full file set for each agent:
+
+```txt
+character.md
+goals.md
+rules.md
+tools.json
+state.json
+memory.json
+```
+
+Editing raw files by hand is error-prone and slow. The NPC Builder provides a structured UI so designers can create and manage agents without touching JSON or Markdown directly.
+
+### 26.2 Architecture
+
+```txt
+React Frontend  <-->  FastAPI Backend  <-->  agents/ directory on disk
+```
+
+- React (Vite) runs on `localhost:5173`
+- FastAPI runs on `localhost:8001`
+- FastAPI reads and writes files directly under `Python/agents/`
+- No database — files are the source of truth
+
+### 26.3 Folder Structure
+
+```txt
+npc_builder/
+  backend/
+    main.py           # FastAPI app + CORS config
+    file_manager.py   # read/write agent files
+    models.py         # Pydantic models for request/response
+    requirements.txt  # fastapi, uvicorn, pydantic
+
+  frontend/
+    index.html
+    vite.config.ts
+    package.json
+    src/
+      App.tsx
+      api.ts                   # typed fetch wrappers
+      components/
+        AgentList.tsx           # sidebar: all agents
+        AgentEditor.tsx         # main panel with tabs
+        tabs/
+          CharacterTab.tsx      # edits character.md (textarea)
+          GoalsTab.tsx          # edits goals.md (textarea)
+          RulesTab.tsx          # edits rules.md (textarea)
+          ToolsTab.tsx          # edits tools.json allowed_actions (checkbox list)
+          StateTab.tsx          # edits state.json (form fields)
+          MemoryTab.tsx         # edits memory.json (list + add/remove)
+```
+
+### 26.4 FastAPI Endpoints
+
+```txt
+GET    /agents                     # list all agent IDs
+POST   /agents/{agent_id}          # create agent (scaffold empty files)
+DELETE /agents/{agent_id}          # delete agent folder
+
+GET    /agents/{agent_id}/character
+PUT    /agents/{agent_id}/character
+
+GET    /agents/{agent_id}/goals
+PUT    /agents/{agent_id}/goals
+
+GET    /agents/{agent_id}/rules
+PUT    /agents/{agent_id}/rules
+
+GET    /agents/{agent_id}/tools
+PUT    /agents/{agent_id}/tools
+
+GET    /agents/{agent_id}/state
+PUT    /agents/{agent_id}/state
+
+GET    /agents/{agent_id}/memory
+PUT    /agents/{agent_id}/memory
+```
+
+### 26.5 React UI
+
+```txt
+Left sidebar
+  - List of all agents
+  - "New Agent" button
+  - Delete agent button with confirmation
+
+Main panel — tabs per file:
+  Character   textarea (Markdown)
+  Goals       textarea (Markdown)
+  Rules       textarea (Markdown)
+  Tools       checkbox list of allowed actions
+  State       structured form fields
+  Memory      list of memory entries with add/remove
+
+Each tab has a Save button that PUTs to the backend.
+```
+
+#### State Tab Fields
+
+```txt
+is_active            toggle
+tick_interval_seconds  number input
+current_goal         text input
+speech_cooldown_seconds  number input
+```
+
+#### Memory Tab Fields
+
+```txt
+Each entry:
+  text          text input
+  importance    slider 0.0 – 1.0
+  timestamp     auto-filled on save
+
+Add entry button
+Remove entry button per row
+```
+
+### 26.6 Default Allowed Actions (ToolsTab Checkboxes)
+
+```txt
+idle
+walk_to
+speak_to
+inspect_object
+follow_character
+attack
+flee
+ask_for_screenshot
+remember
+```
+
+### 26.7 Running the App
+
+```bash
+# Backend
+cd npc_builder/backend
+pip install -r requirements.txt
+uvicorn main:app --port 8001 --reload
+
+# Frontend
+cd npc_builder/frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173` to use the builder.
 
 ---
 

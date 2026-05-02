@@ -108,19 +108,27 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleFindActorsByName(const T
     
     TArray<AActor*> AllActors;
     UGameplayStatics::GetAllActorsOfClass(GWorld, AActor::StaticClass(), AllActors);
-    
+
     TArray<TSharedPtr<FJsonValue>> MatchingActors;
     for (AActor* Actor : AllActors)
     {
-        if (Actor && Actor->GetName().Contains(Pattern))
+        if (!Actor) continue;
+        bool bMatches = Actor->GetName().Contains(Pattern, ESearchCase::IgnoreCase);
+#if WITH_EDITOR
+        if (!bMatches)
+        {
+            bMatches = Actor->GetActorLabel().Contains(Pattern, ESearchCase::IgnoreCase);
+        }
+#endif
+        if (bMatches)
         {
             MatchingActors.Add(FUnrealMCPCommonUtils::ActorToJson(Actor));
         }
     }
-    
+
     TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
     ResultObj->SetArrayField(TEXT("actors"), MatchingActors);
-    
+
     return ResultObj;
 }
 
@@ -228,26 +236,18 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleDeleteActor(const TShare
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'name' parameter"));
     }
 
-    TArray<AActor*> AllActors;
-    UGameplayStatics::GetAllActorsOfClass(GWorld, AActor::StaticClass(), AllActors);
-    
-    for (AActor* Actor : AllActors)
+    AActor* Actor = FUnrealMCPCommonUtils::FindActorByNameOrLabel(GWorld, ActorName);
+    if (!Actor)
     {
-        if (Actor && Actor->GetName() == ActorName)
-        {
-            // Store actor info before deletion for the response
-            TSharedPtr<FJsonObject> ActorInfo = FUnrealMCPCommonUtils::ActorToJsonObject(Actor);
-            
-            // Delete the actor
-            Actor->Destroy();
-            
-            TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-            ResultObj->SetObjectField(TEXT("deleted_actor"), ActorInfo);
-            return ResultObj;
-        }
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
     }
-    
-    return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+
+    TSharedPtr<FJsonObject> ActorInfo = FUnrealMCPCommonUtils::ActorToJsonObject(Actor);
+    Actor->Destroy();
+
+    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+    ResultObj->SetObjectField(TEXT("deleted_actor"), ActorInfo);
+    return ResultObj;
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorTransform(const TSharedPtr<FJsonObject>& Params)
@@ -259,20 +259,7 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorTransform(const 
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'name' parameter"));
     }
 
-    // Find the actor
-    AActor* TargetActor = nullptr;
-    TArray<AActor*> AllActors;
-    UGameplayStatics::GetAllActorsOfClass(GWorld, AActor::StaticClass(), AllActors);
-    
-    for (AActor* Actor : AllActors)
-    {
-        if (Actor && Actor->GetName() == ActorName)
-        {
-            TargetActor = Actor;
-            break;
-        }
-    }
-
+    AActor* TargetActor = FUnrealMCPCommonUtils::FindActorByNameOrLabel(GWorld, ActorName);
     if (!TargetActor)
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
@@ -310,20 +297,7 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetActorProperties(const
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'name' parameter"));
     }
 
-    // Find the actor
-    AActor* TargetActor = nullptr;
-    TArray<AActor*> AllActors;
-    UGameplayStatics::GetAllActorsOfClass(GWorld, AActor::StaticClass(), AllActors);
-    
-    for (AActor* Actor : AllActors)
-    {
-        if (Actor && Actor->GetName() == ActorName)
-        {
-            TargetActor = Actor;
-            break;
-        }
-    }
-
+    AActor* TargetActor = FUnrealMCPCommonUtils::FindActorByNameOrLabel(GWorld, ActorName);
     if (!TargetActor)
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
@@ -342,20 +316,7 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorProperty(const T
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'name' parameter"));
     }
 
-    // Find the actor
-    AActor* TargetActor = nullptr;
-    TArray<AActor*> AllActors;
-    UGameplayStatics::GetAllActorsOfClass(GWorld, AActor::StaticClass(), AllActors);
-    
-    for (AActor* Actor : AllActors)
-    {
-        if (Actor && Actor->GetName() == ActorName)
-        {
-            TargetActor = Actor;
-            break;
-        }
-    }
-
+    AActor* TargetActor = FUnrealMCPCommonUtils::FindActorByNameOrLabel(GWorld, ActorName);
     if (!TargetActor)
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
@@ -514,20 +475,7 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleFocusViewport(const TSha
     // If we have a target actor, focus on it
     if (HasTargetActor)
     {
-        // Find the actor
-        AActor* TargetActor = nullptr;
-        TArray<AActor*> AllActors;
-        UGameplayStatics::GetAllActorsOfClass(GWorld, AActor::StaticClass(), AllActors);
-        
-        for (AActor* Actor : AllActors)
-        {
-            if (Actor && Actor->GetName() == TargetActorName)
-            {
-                TargetActor = Actor;
-                break;
-            }
-        }
-
+        AActor* TargetActor = FUnrealMCPCommonUtils::FindActorByNameOrLabel(GWorld, TargetActorName);
         if (!TargetActor)
         {
             return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Actor not found: %s"), *TargetActorName));

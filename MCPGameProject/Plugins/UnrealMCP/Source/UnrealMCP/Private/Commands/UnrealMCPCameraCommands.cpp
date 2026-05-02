@@ -23,20 +23,13 @@ TSharedPtr<FJsonObject> FUnrealMCPCameraCommands::HandleCaptureImage(const TShar
 {
     ACameraCaptureActor* CaptureActor = nullptr;
 
-    // If caller specifies an actor name, find that one; otherwise grab the first in the level.
+    // If caller specifies an actor name, find that one (by internal name or Outliner label);
+    // otherwise grab the first CameraCaptureActor in the level.
     FString ActorName;
     if (Params->TryGetStringField(TEXT("actor_name"), ActorName))
     {
-        TArray<AActor*> AllActors;
-        UGameplayStatics::GetAllActorsOfClass(GWorld, ACameraCaptureActor::StaticClass(), AllActors);
-        for (AActor* Actor : AllActors)
-        {
-            if (Actor && Actor->GetName() == ActorName)
-            {
-                CaptureActor = Cast<ACameraCaptureActor>(Actor);
-                break;
-            }
-        }
+        AActor* Found = FUnrealMCPCommonUtils::FindActorByNameOrLabel(GWorld, ActorName);
+        CaptureActor = Cast<ACameraCaptureActor>(Found);
         if (!CaptureActor)
             return FUnrealMCPCommonUtils::CreateErrorResponse(
                 FString::Printf(TEXT("CameraCaptureActor not found: %s"), *ActorName));

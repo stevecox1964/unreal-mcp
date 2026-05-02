@@ -4,6 +4,9 @@ Python/unreal_mcp.log
 # Camera capture images
 MCPGameProject/CapturedCameraView.png
 MCPGameProject/CameraCaptureActor_*.png
+MCPGameProject/*CameraCaptureActor*.png
+MCPGameProject/*CameraMount*.png
+MCPGameProject/Old image captures/
 
 # AI-related files
 .cursorrules
@@ -18,6 +21,7 @@ CLAUDE.md
 # Python-generated files
 __pycache__/
 __pycache__.meta
+node_modules/
 build/
 dist/
 wheels/
@@ -128,6 +132,7 @@ MCPGAMEProject/Config/DefaultEditorPerProjectUserSettings.ini
 # MCP specific files
 MCP/logs/
 MCP/temp/
+Python/logs/
 *.mcp.json
 
 # Unreal Engine 5 specific

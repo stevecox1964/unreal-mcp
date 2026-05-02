@@ -58,6 +58,7 @@ All these capabilities are accessible through natural language commands via AI a
 - Provides error handling and connection management
 - Loads and registers tool modules from the `tools` directory
 - Uses the FastMCP library to implement the Model Context Protocol
+- Loads `Python/.env` for LLM-backed NPC simulation settings
 
 ## 📂 Directory Structure
 
@@ -83,6 +84,18 @@ Every session, start things in this order:
 2. **Run Claude Code** — launching Claude Code starts the Python MCP server (`unreal_mcp_server.py`) via the `.mcp.json` config, which then connects to Unreal.
 
 > If Claude Code is started before Unreal, the Python server will fail to connect. Always start Unreal first.
+
+### Restarting the MCP server without rebooting
+
+The MCP server runs over stdio, so the MCP client owns the live child process. If the transport gets stale, use the repo-root helper:
+
+```powershell
+.\restart_unreal_mcp_server.bat
+```
+
+Then reload or reconnect the `unrealMCP` server in your MCP client. This stops only this repo's `unreal_mcp_server.py` processes; it does not restart Unreal or Windows.
+
+For LLM key/model changes, a process restart should not be needed after the latest changes. The simulation layer reloads `Python/.env` before LLM decisions, and the MCP tool `reload_llm_environment()` can be used to reload and inspect masked LLM settings.
 
 ### Prerequisites
 - Unreal Engine 5.5+
@@ -127,6 +140,22 @@ See [Python/README.md](Python/README.md) for detailed Python setup instructions,
 - Setting up your Python environment
 - Running the MCP server
 - Using direct or server-based connections
+
+### LLM configuration for NPC simulation
+
+Create `Python/.env` with the provider and model you want the agent runtime to use. The file is ignored by git.
+
+```dotenv
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-5.4-mini
+
+# Optional Anthropic fallback
+ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_MODEL=claude-haiku-4-5-20251001
+```
+
+The OpenAI path uses the Responses HTTP API directly through `requests` instead of the OpenAI Python SDK. This avoids a Python 3.14 compatibility issue observed in the SDK/Pydantic stack while keeping the runtime behavior the same.
 
 ### Configuring your MCP Client
 
@@ -185,13 +214,14 @@ A `CameraCaptureActor` and MCP tool that lets AI assistants take and analyze in-
 - **Auto-discovery** — if no actor name is passed, the first `CameraCaptureActor` in the level is used
 - **Image analysis** — AI clients can read the saved image and describe or reason about the scene
 
-### AI RPG Agent Simulation (planned)
-A full agentic NPC simulation layer driven by an LLM-controlled Agent Manager running inside the Python MCP server. See [`AI_RPG_Agent_Simulation_MASTER_PLAN.md`](AI_RPG_Agent_Simulation_MASTER_PLAN.md) for the complete design.
+### AI RPG Agent Simulation
+A first-pass agentic NPC simulation layer driven by an LLM-controlled Agent Manager running inside the Python MCP server. See [`AI_RPG_Agent_Simulation_MASTER_PLAN.md`](AI_RPG_Agent_Simulation_MASTER_PLAN.md) for the complete design.
 - **Agent Manager** — start/stop/pause an autonomous simulation loop from the CLI
-- **Multi-tier agents** — Hero (full LLM), Simulated (event-driven LLM), and Lightweight (Behavior Tree) NPCs
+- **Live agent binding** — active agents bind to named Unreal actors or spawn from configured Blueprint classes
+- **Multi-tier agents** — Hero (full LLM), Simulated (event-driven LLM), and Lightweight (no LLM unless explicitly configured)
 - **World-state driven** — agents observe Unreal structured data; screenshots used selectively
-- **Faction & director agents** — high-level agents that coordinate groups of NPCs
 - **Validated action pipeline** — LLM decisions are schema-validated before any Unreal command executes
+- **Camera-mounted NPC acceptance path** — Bartleby is wired to `BP_CameraNPC` with a `CameraCaptureActor` child mount
 
 ---
 
@@ -228,9 +258,9 @@ See [Docs/character_system.md](Docs/character_system.md) for the full command re
 
 ## 🤖 AI RPG Agent Simulation
 
-> **Status: Planned** — See [`AI_RPG_Agent_Simulation_MASTER_PLAN.md`](AI_RPG_Agent_Simulation_MASTER_PLAN.md) for the full design document.
+> **Status: Prototype** — See [`AI_RPG_Agent_Simulation_MASTER_PLAN.md`](AI_RPG_Agent_Simulation_MASTER_PLAN.md) and [`still_todo.md`](still_todo.md) for the full design and current task list.
 
-The next major feature is an agentic NPC simulation layer that lets an LLM (Claude, OpenAI, or a local model) autonomously drive NPCs inside a live Unreal session via the MCP server.
+The simulation layer lets an LLM (Claude, OpenAI, or a local model) autonomously drive NPCs inside a live Unreal session via the MCP server.
 
 ### Architecture
 
@@ -247,7 +277,7 @@ Python MCP Server  ─── Agent Manager + Simulation Harness
 Unreal C++ MCP Plugin → Unreal Editor / PIE
 ```
 
-### Key MCP tools (planned)
+### Key MCP tools
 
 | Tool | Description |
 |------|-------------|
@@ -259,6 +289,22 @@ Unreal C++ MCP Plugin → Unreal Editor / PIE
 | `set_agent_goal` | Override an agent's current goal |
 | `force_agent_tick` | Manually pulse a single agent |
 | `get_recent_events` | Tail the world event log |
+| `reload_llm_environment` | Reload `Python/.env` and report masked LLM settings |
+
+### Bartleby acceptance smoke test
+
+With Unreal running in PIE and `unrealMCP` connected:
+
+```txt
+reload_llm_environment()
+start_simulation(tick_seconds=10, active_agents=["bartleby"])
+force_agent_tick("bartleby")
+capture_camera_image()
+get_recent_events(limit=10)
+stop_simulation()
+```
+
+Expected current behavior: Bartleby binds to the `Bartleby` actor, the camera capture tool saves a PNG from the `CameraMount` child actor, and the LLM decision loop returns a validated action or a logged error. Generated captures and decision logs are ignored by git.
 
 ### Agent tiers
 

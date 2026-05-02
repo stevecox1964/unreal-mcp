@@ -1,0 +1,17 @@
+{
+  "agent_id": "bartleby",
+  "unreal_actor_name": "Bartleby",
+  "blueprint_class": "/Game/Blueprints/BP_CameraNPC.BP_CameraNPC_C",
+  "tier": 2,
+  "is_active": true,
+  "is_busy": false,
+  "current_goal": "watch the village square and note strangers",
+  "tick_interval_seconds": 10,
+  "speech_cooldown_seconds": 30,
+  "last_tick_time": "2026-05-02T02:20:06.687519+00:00",
+  "last_spoke_time": null,
+  "bound_unreal_actor_name": "BP_CameraNPC_C_UAID_00155D038691EED602_1768519367",
+  "bound_unreal_actor_label": "Bartleby",
+  "bound_unreal_actor_class": "BP_CameraNPC_C",
+  "last_bound_time": "2026-05-02T02:19:09.648092+00:00"
+}

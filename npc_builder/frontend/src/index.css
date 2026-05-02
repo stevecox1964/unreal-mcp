@@ -1,0 +1,457 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#root {
+  height: 100vh;
+}
+
+/* ── Layout ─────────────────────────────────────────── */
+.app {
+  display: flex;
+  height: 100vh;
+}
+
+/* ── Sidebar ─────────────────────────────────────────── */
+.sidebar {
+  width: 220px;
+  min-width: 220px;
+  background: #16213e;
+  border-right: 1px solid #0f3460;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-header {
+  padding: 14px 16px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: #7a7a9a;
+  border-bottom: 1px solid #0f3460;
+}
+
+.agent-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.agent-item {
+  padding: 9px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #b0b0cc;
+  border-left: 3px solid transparent;
+  transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: #e0e0f0;
+}
+
+.agent-item.selected {
+  background: rgba(233, 69, 96, 0.1);
+  border-left-color: #e94560;
+  color: #fff;
+}
+
+.sidebar-footer {
+  padding: 12px;
+  border-top: 1px solid #0f3460;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ── Buttons ─────────────────────────────────────────── */
+.btn {
+  padding: 7px 14px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: opacity 0.15s;
+  text-align: center;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn:hover:not(:disabled) {
+  opacity: 0.82;
+}
+
+.btn-primary {
+  background: #e94560;
+  color: #fff;
+}
+
+.btn-secondary {
+  background: #0f3460;
+  color: #d0d0e8;
+}
+
+.btn-danger {
+  background: #7a2020;
+  color: #ffd0d0;
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.btn-full {
+  width: 100%;
+}
+
+/* ── Main area ───────────────────────────────────────── */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.empty-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #3a3a5a;
+  font-size: 15px;
+  letter-spacing: 0.5px;
+}
+
+/* ── Editor ──────────────────────────────────────────── */
+.editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.editor-header {
+  padding: 13px 20px;
+  background: #16213e;
+  border-bottom: 1px solid #0f3460;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.editor-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #e0e0f0;
+  text-transform: capitalize;
+}
+
+/* ── Tabs ────────────────────────────────────────────── */
+.tabs {
+  display: flex;
+  background: #16213e;
+  border-bottom: 1px solid #0f3460;
+  padding: 0 12px;
+  gap: 2px;
+}
+
+.tab {
+  padding: 10px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  color: #7a7a9a;
+  border-bottom: 2px solid transparent;
+  transition: color 0.12s, border-color 0.12s;
+  user-select: none;
+}
+
+.tab:hover {
+  color: #c0c0e0;
+}
+
+.tab.active {
+  color: #e94560;
+  border-bottom-color: #e94560;
+}
+
+/* ── Tab body ────────────────────────────────────────── */
+.tab-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.save-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.save-status {
+  font-size: 12px;
+  color: #4caf7d;
+}
+
+/* ── Textarea ────────────────────────────────────────── */
+.code-area {
+  width: 100%;
+  min-height: 320px;
+  background: #0d0d1f;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  color: #d0d0e8;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 12px;
+  resize: vertical;
+}
+
+.code-area:focus {
+  outline: none;
+  border-color: #e94560;
+}
+
+/* ── Form fields ─────────────────────────────────────── */
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.field-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #7a7a9a;
+}
+
+.field-input {
+  background: #0d0d1f;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+  color: #d0d0e8;
+  font-size: 14px;
+  padding: 8px 10px;
+}
+
+.field-input:focus {
+  outline: none;
+  border-color: #e94560;
+}
+
+.field-input-full {
+  grid-column: 1 / -1;
+}
+
+/* Toggle */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #b0b0cc;
+}
+
+.toggle {
+  width: 38px;
+  height: 20px;
+  background: #0f3460;
+  border-radius: 10px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+  border: none;
+  flex-shrink: 0;
+}
+
+.toggle.on {
+  background: #e94560;
+}
+
+.toggle::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  top: 3px;
+  left: 3px;
+  transition: left 0.2s;
+}
+
+.toggle.on::after {
+  left: 21px;
+}
+
+/* ── Checkboxes (Tools) ──────────────────────────────── */
+.checkbox-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: #0d0d1f;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+  padding: 7px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #8888aa;
+  transition: all 0.12s;
+  user-select: none;
+}
+
+.checkbox-item:hover {
+  border-color: #2a4a80;
+  color: #c0c0e0;
+}
+
+.checkbox-item.checked {
+  border-color: #e94560;
+  color: #fff;
+  background: rgba(233, 69, 96, 0.12);
+}
+
+.checkbox-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #0f3460;
+  flex-shrink: 0;
+  transition: background 0.12s;
+}
+
+.checkbox-item.checked .checkbox-dot {
+  background: #e94560;
+}
+
+/* ── Memory ──────────────────────────────────────────── */
+.memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.memory-entry {
+  background: #0d0d1f;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.memory-entry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.memory-timestamp {
+  font-size: 11px;
+  color: #5a5a7a;
+  font-family: monospace;
+}
+
+.importance-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #7a7a9a;
+}
+
+.importance-row input[type='range'] {
+  accent-color: #e94560;
+  flex: 1;
+}
+
+.memory-text-input {
+  background: #121230;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+  color: #d0d0e8;
+  font-size: 13px;
+  padding: 7px 10px;
+  resize: vertical;
+  min-height: 60px;
+  font-family: inherit;
+}
+
+.memory-text-input:focus {
+  outline: none;
+  border-color: #e94560;
+}
+
+/* ── Modal ───────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 8px;
+  padding: 24px;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e0e0f0;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}

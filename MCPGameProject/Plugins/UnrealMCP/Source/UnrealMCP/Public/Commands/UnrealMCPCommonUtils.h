@@ -5,6 +5,7 @@
 
 // Forward declarations
 class AActor;
+class UWorld;
 class UBlueprint;
 class UEdGraph;
 class UEdGraphNode;
@@ -35,6 +36,12 @@ public:
     // Actor utilities
     static TSharedPtr<FJsonValue> ActorToJson(AActor* Actor);
     static TSharedPtr<FJsonObject> ActorToJsonObject(AActor* Actor, bool bDetailed = false);
+
+    // Resolve an actor by either GetName() (internal name, exact)
+    // or GetActorLabel() (Outliner display name, case-insensitive exact).
+    // Used so agent state.json can store a friendly label like "Bartleby"
+    // rather than the volatile UAID-style internal name.
+    static AActor* FindActorByNameOrLabel(UWorld* World, const FString& Name);
     
     // Blueprint utilities
     static UBlueprint* FindBlueprint(const FString& BlueprintName);

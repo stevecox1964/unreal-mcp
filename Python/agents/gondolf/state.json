@@ -1,0 +1,13 @@
+{
+  "agent_id": "gondolf",
+  "unreal_actor_name": "Gondolf",
+  "blueprint_class": "/Game/Blueprints/BP_PlayerCharacter.BP_PlayerCharacter_C",
+  "tier": 1,
+  "is_active": true,
+  "is_busy": false,
+  "current_goal": "patrol_village",
+  "tick_interval_seconds": 10,
+  "speech_cooldown_seconds": 30,
+  "last_tick_time": "2026-05-01T22:31:18.323461+00:00",
+  "last_spoke_time": null
+}

@@ -9,7 +9,12 @@ import socket
 import sys
 import json
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator, Dict, Any, Optional
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env")
+
 from mcp.server.fastmcp import FastMCP
 
 # Configure logging with more detailed format
@@ -203,6 +208,33 @@ class UnrealConnection:
 # Global connection state
 _unreal_connection: UnrealConnection = None
 
+# Global AgentManager singleton
+_agent_manager = None
+
+def get_agent_manager():
+    """Return the singleton AgentManager, creating it on first call."""
+    global _agent_manager
+    if _agent_manager is None:
+        import os
+        from pathlib import Path
+        from agent_runtime.agent_manager import AgentManager
+        from agent_runtime.unreal_bridge import UnrealBridge
+        from agent_runtime.llm_router import LLMRouter
+        from agent_runtime.memory_store import MemoryStore
+
+        agents_dir = Path(__file__).parent / "agents"
+        bridge = UnrealBridge()
+        llm = LLMRouter()
+        memory = MemoryStore(agents_dir)
+        _agent_manager = AgentManager(
+            agents_dir=agents_dir,
+            llm_router=llm,
+            unreal_bridge=bridge,
+            memory_store=memory,
+        )
+        logger.info("AgentManager created")
+    return _agent_manager
+
 def get_unreal_connection() -> Optional[UnrealConnection]:
     """Get the connection to Unreal Engine."""
     global _unreal_connection
@@ -273,6 +305,8 @@ from tools.project_tools import register_project_tools
 from tools.umg_tools import register_umg_tools
 from tools.character_tools import register_character_tools
 from tools.camera_tools import register_camera_tools
+from tools.attachment_tools import register_attachment_tools
+from tools.simulation_tools import register_simulation_tools
 
 # Register tools
 register_editor_tools(mcp)
@@ -282,6 +316,8 @@ register_project_tools(mcp)
 register_umg_tools(mcp)
 register_character_tools(mcp)
 register_camera_tools(mcp)
+register_attachment_tools(mcp)
+register_simulation_tools(mcp)
 
 @mcp.prompt()
 def info():
@@ -378,4 +414,4 @@ def info():
 # Run the server
 if __name__ == "__main__":
     logger.info("Starting MCP server with stdio transport")
-    mcp.run(transport='stdio') 
+    mcp.run(transport='stdio')

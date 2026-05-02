@@ -1,5 +1,7 @@
 #include "Commands/UnrealMCPCommonUtils.h"
 #include "GameFramework/Actor.h"
+#include "Engine/World.h"
+#include "Kismet/GameplayStatics.h"
 #include "Engine/Blueprint.h"
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphNode.h"
@@ -418,15 +420,44 @@ UEdGraphPin* FUnrealMCPCommonUtils::FindPin(UEdGraphNode* Node, const FString& P
 }
 
 // Actor utilities
+AActor* FUnrealMCPCommonUtils::FindActorByNameOrLabel(UWorld* World, const FString& Name)
+{
+    if (!World || Name.IsEmpty()) return nullptr;
+
+    TArray<AActor*> AllActors;
+    UGameplayStatics::GetAllActorsOfClass(World, AActor::StaticClass(), AllActors);
+
+    // Pass 1: exact GetName() match (internal name — preserves prior behaviour).
+    for (AActor* Actor : AllActors)
+    {
+        if (Actor && Actor->GetName() == Name)
+            return Actor;
+    }
+
+#if WITH_EDITOR
+    // Pass 2: case-insensitive GetActorLabel() exact match (Outliner-friendly name).
+    for (AActor* Actor : AllActors)
+    {
+        if (Actor && Actor->GetActorLabel().Equals(Name, ESearchCase::IgnoreCase))
+            return Actor;
+    }
+#endif
+
+    return nullptr;
+}
+
 TSharedPtr<FJsonValue> FUnrealMCPCommonUtils::ActorToJson(AActor* Actor)
 {
     if (!Actor)
     {
         return MakeShared<FJsonValueNull>();
     }
-    
+
     TSharedPtr<FJsonObject> ActorObject = MakeShared<FJsonObject>();
     ActorObject->SetStringField(TEXT("name"), Actor->GetName());
+#if WITH_EDITOR
+    ActorObject->SetStringField(TEXT("label"), Actor->GetActorLabel());
+#endif
     ActorObject->SetStringField(TEXT("class"), Actor->GetClass()->GetName());
     
     FVector Location = Actor->GetActorLocation();
@@ -462,29 +493,32 @@ TSharedPtr<FJsonObject> FUnrealMCPCommonUtils::ActorToJsonObject(AActor* Actor, 
     
     TSharedPtr<FJsonObject> ActorObject = MakeShared<FJsonObject>();
     ActorObject->SetStringField(TEXT("name"), Actor->GetName());
+#if WITH_EDITOR
+    ActorObject->SetStringField(TEXT("label"), Actor->GetActorLabel());
+#endif
     ActorObject->SetStringField(TEXT("class"), Actor->GetClass()->GetName());
-    
+
     FVector Location = Actor->GetActorLocation();
     TArray<TSharedPtr<FJsonValue>> LocationArray;
     LocationArray.Add(MakeShared<FJsonValueNumber>(Location.X));
     LocationArray.Add(MakeShared<FJsonValueNumber>(Location.Y));
     LocationArray.Add(MakeShared<FJsonValueNumber>(Location.Z));
     ActorObject->SetArrayField(TEXT("location"), LocationArray);
-    
+
     FRotator Rotation = Actor->GetActorRotation();
     TArray<TSharedPtr<FJsonValue>> RotationArray;
     RotationArray.Add(MakeShared<FJsonValueNumber>(Rotation.Pitch));
     RotationArray.Add(MakeShared<FJsonValueNumber>(Rotation.Yaw));
     RotationArray.Add(MakeShared<FJsonValueNumber>(Rotation.Roll));
     ActorObject->SetArrayField(TEXT("rotation"), RotationArray);
-    
+
     FVector Scale = Actor->GetActorScale3D();
     TArray<TSharedPtr<FJsonValue>> ScaleArray;
     ScaleArray.Add(MakeShared<FJsonValueNumber>(Scale.X));
     ScaleArray.Add(MakeShared<FJsonValueNumber>(Scale.Y));
     ScaleArray.Add(MakeShared<FJsonValueNumber>(Scale.Z));
     ActorObject->SetArrayField(TEXT("scale"), ScaleArray);
-    
+
     return ActorObject;
 }
 

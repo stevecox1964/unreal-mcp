@@ -59,6 +59,7 @@
 #include "Commands/UnrealMCPUMGCommands.h"
 #include "Commands/UnrealMCPCharacterCommands.h"
 #include "Commands/UnrealMCPCameraCommands.h"
+#include "Commands/UnrealMCPAttachmentCommands.h"
 
 // Default settings
 #define MCP_SERVER_HOST "127.0.0.1"
@@ -73,6 +74,7 @@ UUnrealMCPBridge::UUnrealMCPBridge()
     UMGCommands = MakeShared<FUnrealMCPUMGCommands>();
     CharacterCommands = MakeShared<FUnrealMCPCharacterCommands>();
     CameraCommands = MakeShared<FUnrealMCPCameraCommands>();
+    AttachmentCommands = MakeShared<FUnrealMCPAttachmentCommands>();
 }
 
 UUnrealMCPBridge::~UUnrealMCPBridge()
@@ -84,6 +86,7 @@ UUnrealMCPBridge::~UUnrealMCPBridge()
     UMGCommands.Reset();
     CharacterCommands.Reset();
     CameraCommands.Reset();
+    AttachmentCommands.Reset();
 }
 
 // Initialize subsystem
@@ -314,6 +317,12 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
             else if (CommandType == TEXT("capture_camera_image"))
             {
                 ResultJson = CameraCommands->HandleCommand(CommandType, Params);
+            }
+            // Attachment Commands
+            else if (CommandType == TEXT("attach_actor_to_actor") ||
+                     CommandType == TEXT("detach_actor"))
+            {
+                ResultJson = AttachmentCommands->HandleCommand(CommandType, Params);
             }
             else
             {

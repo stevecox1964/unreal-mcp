@@ -15,6 +15,7 @@
 #include "Commands/UnrealMCPUMGCommands.h"
 #include "Commands/UnrealMCPCharacterCommands.h"
 #include "Commands/UnrealMCPCameraCommands.h"
+#include "Commands/UnrealMCPAttachmentCommands.h"
 #include "UnrealMCPBridge.generated.h"
 
 class FMCPServerRunnable;
@@ -65,4 +66,5 @@ private:
 	TSharedPtr<FUnrealMCPUMGCommands> UMGCommands;
 	TSharedPtr<FUnrealMCPCharacterCommands> CharacterCommands;
 	TSharedPtr<FUnrealMCPCameraCommands> CameraCommands;
-}; 
+	TSharedPtr<FUnrealMCPAttachmentCommands> AttachmentCommands;
+};
