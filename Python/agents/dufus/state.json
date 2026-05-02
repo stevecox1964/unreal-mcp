@@ -1,0 +1,17 @@
+{
+  "agent_id": "dufus",
+  "unreal_actor_name": "Dufus",
+  "blueprint_class": "/Game/Blueprints/BP_CameraNPC.BP_CameraNPC_C",
+  "tier": 2,
+  "is_active": true,
+  "is_busy": false,
+  "current_goal": "Wander the village square greeting passers-by",
+  "tick_interval_seconds": 10,
+  "speech_cooldown_seconds": 30,
+  "last_tick_time": "2026-05-02T03:47:08.094066+00:00",
+  "last_spoke_time": null,
+  "bound_unreal_actor_name": "BP_CameraNPC_C_1",
+  "bound_unreal_actor_label": "Dufus",
+  "bound_unreal_actor_class": "BP_CameraNPC_C",
+  "last_bound_time": "2026-05-02T03:46:42.612479+00:00"
+}

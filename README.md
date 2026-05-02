@@ -221,7 +221,7 @@ A first-pass agentic NPC simulation layer driven by an LLM-controlled Agent Mana
 - **Multi-tier agents** — Hero (full LLM), Simulated (event-driven LLM), and Lightweight (no LLM unless explicitly configured)
 - **World-state driven** — agents observe Unreal structured data; screenshots used selectively
 - **Validated action pipeline** — LLM decisions are schema-validated before any Unreal command executes
-- **Camera-mounted NPC acceptance path** — Bartleby is wired to `BP_CameraNPC` with a `CameraCaptureActor` child mount
+- **Camera-mounted NPC acceptance path** — Bartleby and Dufus are wired to `BP_CameraNPC` with a `CameraCaptureActor` child mount; `UMCPCharacterComponent` is present on the BP so all character tools work
 
 ---
 
@@ -291,20 +291,23 @@ Unreal C++ MCP Plugin → Unreal Editor / PIE
 | `get_recent_events` | Tail the world event log |
 | `reload_llm_environment` | Reload `Python/.env` and report masked LLM settings |
 
-### Bartleby acceptance smoke test
+### Smoke test
 
 With Unreal running in PIE and `unrealMCP` connected:
 
 ```txt
 reload_llm_environment()
-start_simulation(tick_seconds=10, active_agents=["bartleby"])
+start_simulation(tick_seconds=10, active_agents=["bartleby", "dufus"])
 force_agent_tick("bartleby")
+force_agent_tick("dufus")
 capture_camera_image()
 get_recent_events(limit=10)
 stop_simulation()
 ```
 
-Expected current behavior: Bartleby binds to the `Bartleby` actor, the camera capture tool saves a PNG from the `CameraMount` child actor, and the LLM decision loop returns a validated action or a logged error. Generated captures and decision logs are ignored by git.
+Expected: Bartleby and Dufus each bind to their respective `BP_CameraNPC` actors, the camera capture tool saves a PNG, and the LLM decision loop returns a validated action logged in `get_recent_events`. Generated captures and decision logs are ignored by git.
+
+See [`still_todo.md`](still_todo.md) for current open items and next-session pickup points.
 
 ### Agent tiers
 
