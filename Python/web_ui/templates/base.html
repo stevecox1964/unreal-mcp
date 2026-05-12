@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}NPC Builder{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <style>
+    body { max-width: 960px; margin: 0 auto; padding: 0 1rem; }
+    nav a { text-decoration: none; }
+    .flash-success { color: #2d6a4f; background: #d8f3dc; border: 1px solid #95d5b2; padding: .5rem 1rem; border-radius: 4px; margin-bottom: 1rem; }
+    .flash-error   { color: #9b2226; background: #f8d7da; border: 1px solid #f1aeb5; padding: .5rem 1rem; border-radius: 4px; margin-bottom: 1rem; }
+    .breadcrumb    { color: #666; margin-bottom: 1rem; font-size: .9rem; }
+    .breadcrumb a  { color: inherit; }
+    .danger        { background: #c0392b; border-color: #c0392b; }
+    .danger:hover  { background: #a93226; border-color: #a93226; }
+    label          { font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header>
+    <nav>
+      <ul><li><strong><a href="/">NPC Builder</a></strong></li></ul>
+      <ul><li><small>Python/worlds/</small></li></ul>
+    </nav>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

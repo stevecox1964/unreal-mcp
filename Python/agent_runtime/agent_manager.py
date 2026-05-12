@@ -15,12 +15,13 @@ logger = logging.getLogger("AgentRuntime")
 class AgentManager:
     def __init__(
         self,
-        agents_dir: Path,
+        worlds_dir: Path,
         llm_router,
         unreal_bridge,
         memory_store,
     ):
-        self.agents_dir = agents_dir
+        self.worlds_dir = worlds_dir
+        self._agents_dir: Path | None = None
         self.llm = llm_router
         self.bridge = unreal_bridge
         self.memory = memory_store
@@ -44,7 +45,7 @@ class AgentManager:
         self._load_agents(active_agents)
         if active_agents:
             for agent in self.agents.values():
-                agent.set_active(True, self.agents_dir)
+                agent.set_active(True, self._agents_dir)
         bound_count = self._bind_agents()
 
         active = [a for a in self.agents.values() if a.is_active and a.has_unreal_binding]
@@ -100,33 +101,50 @@ class AgentManager:
 
     def _load_agents(self, active_only: list[str] | None) -> None:
         self.agents.clear()
-        if not self.agents_dir.exists():
-            logger.warning(f"agents_dir does not exist: {self.agents_dir}")
+
+        current_level = self.bridge.get_current_level()
+        if not current_level:
+            logger.warning("Could not determine current level — no agents loaded")
             return
-        for path in sorted(self.agents_dir.iterdir()):
+
+        agents_dir = self.worlds_dir / current_level / "agents"
+        if not agents_dir.exists():
+            logger.warning(f"No agents directory for level '{current_level}': {agents_dir}")
+            return
+
+        self._agents_dir = agents_dir
+        self.memory.update_agents_dir(agents_dir)
+        logger.info(f"Loading agents for level '{current_level}' from {agents_dir}")
+
+        for path in sorted(agents_dir.iterdir()):
             if not path.is_dir():
                 continue
             agent_id = path.name
             if active_only and agent_id not in active_only:
                 continue
             try:
-                agent = Agent.load(self.agents_dir, agent_id)
-                self.agents[agent_id] = agent
-                logger.info(f"Loaded agent '{agent_id}' -> Unreal actor '{agent.unreal_actor_name}'")
+                agent = Agent.load(agents_dir, agent_id)
             except Exception as e:
                 logger.error(f"Failed to load agent '{agent_id}': {e}")
+                continue
+
+            self.agents[agent_id] = agent
+            logger.info(f"Loaded agent '{agent_id}' -> Unreal actor '{agent.unreal_actor_name}'")
 
     def _bind_agents(self) -> int:
         """Resolve each agent to a live Unreal actor (find or spawn)."""
+        for agent in self.agents.values():
+            agent.clear_unreal_binding(self._agents_dir)
+
         bound_count = 0
         for agent in self.agents.values():
             actor = self.bridge.find_actor(agent.bound_unreal_actor_name)
             if not actor and agent.bound_unreal_actor_name != agent.unreal_actor_name:
-                agent.clear_unreal_binding(self.agents_dir)
+                agent.clear_unreal_binding(self._agents_dir)
                 actor = self.bridge.find_actor(agent.unreal_actor_name)
 
             if actor:
-                agent.bind_unreal_actor(actor, self.agents_dir)
+                agent.bind_unreal_actor(actor, self._agents_dir)
                 logger.info(
                     f"[{agent.agent_id}] Bound to Unreal actor "
                     f"'{agent.bound_unreal_actor_name}' from hint '{agent.unreal_actor_name}'"
@@ -140,7 +158,7 @@ class AgentManager:
                     agent.unreal_actor_name,
                 )
                 if result.get("success") is not False and result.get("name"):
-                    agent.bind_unreal_actor(result, self.agents_dir)
+                    agent.bind_unreal_actor(result, self._agents_dir)
                     logger.info(
                         f"[{agent.agent_id}] Spawned '{agent.blueprint_class}' as "
                         f"'{agent.bound_unreal_actor_name}'"
@@ -150,13 +168,13 @@ class AgentManager:
                     logger.warning(
                         f"[{agent.agent_id}] Spawn failed: {result.get('error') or result.get('message')}"
                     )
-                    agent.clear_unreal_binding(self.agents_dir)
+                    agent.clear_unreal_binding(self._agents_dir)
             else:
                 logger.warning(
                     f"[{agent.agent_id}] Actor '{agent.unreal_actor_name}' not found "
                     f"and no blueprint_class set"
                 )
-                agent.clear_unreal_binding(self.agents_dir)
+                agent.clear_unreal_binding(self._agents_dir)
         return bound_count
 
     # Simulation loop
@@ -199,13 +217,13 @@ class AgentManager:
 
         if not decision:
             logger.warning(f"[{agent_id}] No decision - idling")
-            agent.mark_ticked(self.agents_dir)
+            agent.mark_ticked(self._agents_dir)
             return {"agent_id": agent_id, "action": "idle", "reason": "no_decision"}
 
         # Validate
         action = validate(agent, decision, observation)
         if not action:
-            agent.mark_ticked(self.agents_dir)
+            agent.mark_ticked(self._agents_dir)
             return {"agent_id": agent_id, "action": "idle", "reason": "validation_failed"}
 
         # Execute in Unreal
@@ -214,7 +232,7 @@ class AgentManager:
 
         # Track speech cooldown
         if action.get("type") == "speak_to":
-            agent.mark_spoke(self.agents_dir)
+            agent.mark_spoke(self._agents_dir)
 
         # Persist memory + log
         observation["_thought"] = decision.get("thought_summary")
@@ -227,13 +245,56 @@ class AgentManager:
             importance=float(decision.get("importance", 0.5)),
         )
 
-        agent.mark_ticked(self.agents_dir)
+        agent.mark_ticked(self._agents_dir)
 
         return {
             "agent_id":   agent_id,
             "thought":    decision.get("thought_summary"),
             "action":     action,
             "result":     result,
+        }
+
+    def resync(self) -> dict:
+        """Re-query the world and rebind agents without a full stop/restart cycle."""
+        was_paused = self.paused
+        self.paused = True
+
+        pre_bindings = {
+            a.agent_id: a.bound_unreal_actor_label
+            for a in self.agents.values()
+        }
+
+        active_ids = list(self.agents.keys()) if self.agents else None
+        self._load_agents(active_ids)
+        bound_count = self._bind_agents()
+
+        current_level = self.bridge.get_current_level()
+
+        added, removed, rebound, skipped_levels = [], [], [], []
+        all_ids = set(pre_bindings) | set(self.agents)
+        for aid in all_ids:
+            was_in = aid in pre_bindings
+            now_in = aid in self.agents
+            if not was_in and now_in:
+                added.append(aid)
+            elif was_in and not now_in:
+                removed.append(aid)
+            elif was_in and now_in:
+                old_label = pre_bindings[aid]
+                new_label = self.agents[aid].bound_unreal_actor_label
+                if old_label != new_label:
+                    rebound.append({"agent_id": aid, "old_label": old_label, "new_label": new_label})
+
+        self.paused = was_paused
+        logger.info(f"Resync complete — level='{current_level}' bound={bound_count}")
+        return {
+            "status": "resynced",
+            "level": current_level,
+            "bound_count": bound_count,
+            "added": added,
+            "removed": removed,
+            "rebound": rebound,
+            "skipped_levels": skipped_levels,
         }
 
     # Director commands
@@ -263,7 +324,7 @@ class AgentManager:
         a = self.agents.get(agent_id)
         if not a:
             return {"error": f"Agent '{agent_id}' not loaded"}
-        a.set_goal(goal, self.agents_dir)
+        a.set_goal(goal, self._agents_dir)
         logger.info(f"[{agent_id}] Goal updated -> '{goal}'")
         return {"status": "updated", "agent_id": agent_id, "goal": goal}
 

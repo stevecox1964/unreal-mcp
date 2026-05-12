@@ -57,7 +57,7 @@ def register_simulation_tools(mcp: FastMCP) -> None:
             active_agents: List of agent_ids to activate. Omit to load all agents.
 
         Example valid input:
-            {"tick_seconds": 10, "active_agents": ["gondolf", "bartleby"]}
+            {"tick_seconds": 10, "active_agents": ["dufus"]}
         """
         from unreal_mcp_server import get_agent_manager
         mgr = get_agent_manager()
@@ -118,10 +118,10 @@ def register_simulation_tools(mcp: FastMCP) -> None:
         """Get the full configuration and state for a specific agent.
 
         Args:
-            agent_id: The agent identifier (matches folder name in Python/agents/)
+            agent_id: The agent identifier (matches folder name in Python/worlds/<level>/agents/)
 
         Example valid input:
-            {"agent_id": "bartleby"}
+            {"agent_id": "dufus"}
         """
         from unreal_mcp_server import get_agent_manager
         return get_agent_manager().inspect_agent(agent_id)
@@ -135,7 +135,7 @@ def register_simulation_tools(mcp: FastMCP) -> None:
             goal: New goal string (e.g. 'follow_player', 'patrol_ruins')
 
         Example valid input:
-            {"agent_id": "bartleby", "goal": "greet the player"}
+            {"agent_id": "dufus", "goal": "greet the player"}
         """
         from unreal_mcp_server import get_agent_manager
         return get_agent_manager().set_agent_goal(agent_id, goal)
@@ -148,7 +148,7 @@ def register_simulation_tools(mcp: FastMCP) -> None:
             agent_id: The agent to tick now
 
         Example valid input:
-            {"agent_id": "bartleby"}
+            {"agent_id": "dufus"}
         """
         from unreal_mcp_server import get_agent_manager
         return await get_agent_manager().pulse_agent(agent_id)
@@ -166,5 +166,18 @@ def register_simulation_tools(mcp: FastMCP) -> None:
         from unreal_mcp_server import get_agent_manager
         mgr = get_agent_manager()
         return {"events": mgr.memory.get_recent_events(limit)}
+
+    @mcp.tool()
+    def resync_simulation() -> Dict[str, Any]:
+        """Re-query the current level and rebind agents without stopping the simulation.
+
+        Use this after: loading a new map, relabeling an actor in the Outliner,
+        editing an agent file on disk, or removing/adding an NPC body.
+
+        Example valid input:
+            {}
+        """
+        from unreal_mcp_server import get_agent_manager
+        return get_agent_manager().resync()
 
     logger.info("Simulation tools registered")

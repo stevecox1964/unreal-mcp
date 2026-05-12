@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}{% if is_new %}New NPC{% else %}{{ agent_id }}{% endif %} — {{ level }}{% endblock %}
+{% block content %}
+
+<p class="breadcrumb"><a href="/">Worlds</a> / {{ level }} / {% if is_new %}New NPC{% else %}{{ agent_id }}{% endif %}</p>
+<h2>{% if is_new %}New NPC in <em>{{ level }}</em>{% else %}{{ agent_id }}{% endif %}</h2>
+
+{% if saved %}
+<div class="flash-success">Saved successfully.</div>
+{% endif %}
+{% if error %}
+<div class="flash-error">{{ error }}</div>
+{% endif %}
+
+<form method="post" action="{% if is_new %}/worlds/{{ level }}/agents/new{% else %}/worlds/{{ level }}/agents/{{ agent_id }}{% endif %}">
+
+  <!-- Identity -->
+  <article>
+    <header><strong>Identity</strong></header>
+
+    {% if is_new %}
+    <label for="agent_id">Agent ID <small>(lowercase, no spaces — must match Unreal actor label)</small></label>
+    <input id="agent_id" name="agent_id" type="text" value="{{ agent_id }}" placeholder="e.g. dufus" pattern="[a-z0-9_]+" required>
+    {% else %}
+    <label>Agent ID</label>
+    <input type="text" value="{{ agent_id }}" disabled>
+    {% endif %}
+
+    <label for="unreal_actor_name">Unreal Actor Name <small>(Outliner label in Unreal — type or pick from live level)</small></label>
+    <input id="unreal_actor_name" name="unreal_actor_name" type="text" list="actor-list"
+      value="{{ state.unreal_actor_name if state.unreal_actor_name is defined else '' }}" placeholder="e.g. Dufus">
+    <datalist id="actor-list"></datalist>
+    <small id="actor-sync-status" style="color:#888"></small>
+
+    <label for="blueprint_class">Blueprint Class <small>(spawn fallback if actor not found)</small></label>
+    <input id="blueprint_class" name="blueprint_class" type="text"
+      value="{{ state.blueprint_class if state.blueprint_class is defined else '' }}"
+      placeholder="/Game/Blueprints/BP_CameraNPC.BP_CameraNPC_C">
+  </article>
+
+  <!-- Behaviour -->
+  <article>
+    <header><strong>Behaviour</strong></header>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:1rem">
+      <div>
+        <label for="tier">Tier</label>
+        <select id="tier" name="tier">
+          <option value="1" {% if state.tier == 1 %}selected{% endif %}>1 — Sonnet (lead NPC)</option>
+          <option value="2" {% if state.tier != 1 and state.tier != 3 %}selected{% endif %}>2 — Haiku (default)</option>
+          <option value="3" {% if state.tier == 3 %}selected{% endif %}>3 — No LLM (extra)</option>
+        </select>
+      </div>
+      <div>
+        <label for="tick_interval_seconds">Tick Interval (s)</label>
+        <input id="tick_interval_seconds" name="tick_interval_seconds" type="number" min="1"
+          value="{{ state.tick_interval_seconds if state.tick_interval_seconds is defined else 10 }}">
+      </div>
+      <div>
+        <label for="speech_cooldown_seconds">Speech Cooldown (s)</label>
+        <input id="speech_cooldown_seconds" name="speech_cooldown_seconds" type="number" min="0"
+          value="{{ state.speech_cooldown_seconds if state.speech_cooldown_seconds is defined else 30 }}">
+      </div>
+    </div>
+
+    <label for="current_goal">Current Goal</label>
+    <input id="current_goal" name="current_goal" type="text"
+      value="{{ state.current_goal if state.current_goal is defined else '' }}"
+      placeholder="What is this NPC doing right now?">
+
+    <label>
+      <input type="checkbox" name="is_active" role="switch"
+        {% if state.is_active %}checked{% endif %}>
+      Active (included in simulation)
+    </label>
+  </article>
+
+  <!-- Character -->
+  <article>
+    <header><strong>Character</strong></header>
+    <label for="character">character.md</label>
+    <textarea id="character" name="character" rows="10" placeholder="# Agent: Name&#10;&#10;## Role&#10;...">{{ character }}</textarea>
+  </article>
+
+  <!-- Goals -->
+  <article>
+    <header><strong>Goals</strong></header>
+    <label for="goals">goals.md</label>
+    <textarea id="goals" name="goals" rows="8" placeholder="# Goals&#10;&#10;## Long-Term Goals&#10;...">{{ goals }}</textarea>
+  </article>
+
+  <!-- Rules -->
+  <article>
+    <header><strong>Rules</strong></header>
+    <label for="rules">rules.md</label>
+    <textarea id="rules" name="rules" rows="6">{{ rules }}</textarea>
+  </article>
+
+  <!-- Actions -->
+  <article>
+    <header><strong>Allowed Actions</strong></header>
+    <label for="allowed_actions">One action per line</label>
+    <textarea id="allowed_actions" name="allowed_actions" rows="10">{{ allowed_actions }}</textarea>
+  </article>
+
+  <!-- Raw JSON viewer -->
+  {% if not is_new %}
+  <article>
+    <header><strong>Raw Files</strong> <small style="font-weight:normal;color:#888">(read-only)</small></header>
+    <details>
+      <summary><code>state.json</code></summary>
+      <pre style="background:#f4f4f4;padding:1rem;border-radius:4px;overflow-x:auto;font-size:.8rem">{{ raw_state }}</pre>
+    </details>
+    <details>
+      <summary><code>tools.json</code></summary>
+      <pre style="background:#f4f4f4;padding:1rem;border-radius:4px;overflow-x:auto;font-size:.8rem">{{ raw_tools }}</pre>
+    </details>
+    <details>
+      <summary><code>memory.json</code></summary>
+      <pre style="background:#f4f4f4;padding:1rem;border-radius:4px;overflow-x:auto;font-size:.8rem">{{ raw_memory }}</pre>
+    </details>
+  </article>
+  {% endif %}
+
+  <div style="display:flex; gap:1rem; align-items:center">
+    <button type="submit">{% if is_new %}Create NPC{% else %}Save Changes{% endif %}</button>
+    <a href="/">Cancel</a>
+
+    {% if not is_new %}
+    <span style="flex:1"></span>
+    <form method="post" action="/worlds/{{ level }}/agents/{{ agent_id }}/delete"
+          onsubmit="return confirm('Delete {{ agent_id }}? This cannot be undone.')">
+      <button type="submit" class="danger">Delete NPC</button>
+    </form>
+    {% endif %}
+  </div>
+
+</form>
+
+<script>
+  fetch('/api/unreal/actors')
+    .then(r => r.json())
+    .then(data => {
+      const status = document.getElementById('actor-sync-status');
+      if (data.online && data.actors.length) {
+        const list = document.getElementById('actor-list');
+        data.actors.forEach(name => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          list.appendChild(opt);
+        });
+        status.textContent = `Unreal online — ${data.actors.length} actors in level`;
+        status.style.color = '#2d6a4f';
+      } else {
+        status.textContent = 'Unreal offline — actor list unavailable';
+      }
+    })
+    .catch(() => {
+      document.getElementById('actor-sync-status').textContent = 'Could not reach Unreal';
+    });
+</script>
+{% endblock %}

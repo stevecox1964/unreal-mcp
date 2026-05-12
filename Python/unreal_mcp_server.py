@@ -222,12 +222,12 @@ def get_agent_manager():
         from agent_runtime.llm_router import LLMRouter
         from agent_runtime.memory_store import MemoryStore
 
-        agents_dir = Path(__file__).parent / "agents"
+        worlds_dir = Path(__file__).parent / "worlds"
         bridge = UnrealBridge()
         llm = LLMRouter()
-        memory = MemoryStore(agents_dir)
+        memory = MemoryStore(worlds_dir)
         _agent_manager = AgentManager(
-            agents_dir=agents_dir,
+            worlds_dir=worlds_dir,
             llm_router=llm,
             unreal_bridge=bridge,
             memory_store=memory,

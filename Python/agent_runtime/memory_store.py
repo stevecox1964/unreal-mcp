@@ -9,16 +9,24 @@ logger = logging.getLogger("AgentRuntime")
 
 
 class MemoryStore:
-    def __init__(self, agents_dir: Path):
+    def __init__(self, worlds_dir: Path):
+        self.worlds_dir = worlds_dir
+        self.agents_dir: Path | None = None
+        self.decisions_log: Path | None = None
+        self.events_log: Path | None = None
+
+    def update_agents_dir(self, agents_dir: Path) -> None:
         self.agents_dir = agents_dir
-        self.log_dir = agents_dir.parent / "logs"
-        self.log_dir.mkdir(parents=True, exist_ok=True)
-        self.decisions_log = self.log_dir / "agent_decisions.log"
-        self.events_log = self.log_dir / "world_events.log"
+        log_dir = agents_dir.parent / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        self.decisions_log = log_dir / "agent_decisions.log"
+        self.events_log = log_dir / "world_events.log"
 
     # ── Read ──────────────────────────────────────────────────────────────────
 
     def load_memories(self, agent_id: str) -> list[dict]:
+        if not self.agents_dir:
+            return []
         p = self.agents_dir / agent_id / "memory.json"
         if not p.exists():
             return []
@@ -33,7 +41,7 @@ class MemoryStore:
         return sorted(combined.values(), key=lambda m: m["timestamp"])
 
     def get_recent_events(self, limit: int = 20) -> list[dict]:
-        if not self.decisions_log.exists():
+        if not self.decisions_log or not self.decisions_log.exists():
             return []
         lines = self.decisions_log.read_text(encoding="utf-8").strip().splitlines()
         entries = []

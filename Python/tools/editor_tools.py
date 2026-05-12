@@ -366,4 +366,31 @@ def register_editor_tools(mcp: FastMCP):
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
 
+    @mcp.tool()
+    def get_current_level_name(ctx: Context) -> dict:
+        """Return the short name and package path of the currently loaded level.
+
+        Example response: {"name": "AAAAAA_Unreal_MCP_Demo", "package": "/Game/Maps/AAAAAA_Unreal_MCP_Demo"}
+        No parameters required.
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.warning("Failed to connect to Unreal Engine")
+                return {"name": "", "package": ""}
+
+            response = unreal.send_command("get_current_level_name", {})
+            if not response:
+                logger.warning("No response from Unreal Engine")
+                return {"name": "", "package": ""}
+
+            result = response.get("result", response)
+            return {"name": result.get("name", ""), "package": result.get("package", "")}
+
+        except Exception as e:
+            logger.error(f"Error getting current level name: {e}")
+            return {"name": "", "package": ""}
+
     logger.info("Editor tools registered successfully")

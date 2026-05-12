@@ -31,6 +31,13 @@ class UnrealBridge:
             logger.error(f"send_command {command} error: {e}")
             return {"success": False, "error": str(e)}
 
+    # ── Level info ────────────────────────────────────────────────────────────
+
+    def get_current_level(self) -> str:
+        """Return the short name of the currently loaded level, or '' on failure."""
+        result = self._send("get_current_level_name", {})
+        return result.get("name", "")
+
     # ── Actor binding ─────────────────────────────────────────────────────────
 
     def find_actor(self, actor_name: str) -> Optional[dict]:

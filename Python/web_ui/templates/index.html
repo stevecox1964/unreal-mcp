@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}NPC Builder — Worlds{% endblock %}
+{% block content %}
+
+<h2>Worlds</h2>
+<p>Each folder under <code>Python/worlds/</code> maps to an Unreal level. Place your NPC body in the level first, then configure it here.</p>
+{% if current_level %}
+<p>Unreal is <strong style="color:#2d6a4f">online</strong> — current level: <code>{{ current_level }}</code></p>
+{% else %}
+<p>Unreal is <strong style="color:#888">offline</strong> — open the editor to enable live sync.</p>
+{% endif %}
+
+{% if not worlds %}
+<article>
+  <p>No worlds found. Create one below to get started.</p>
+</article>
+{% endif %}
+
+{% for world in worlds %}
+<article>
+  <header style="display:flex; justify-content:space-between; align-items:center;">
+    <span>
+      <strong>{{ world }}</strong>
+      {% if world == current_level %}<small style="color:#2d6a4f"> ← active level</small>{% endif %}
+      &nbsp;<small style="color:#888">Python/worlds/{{ world }}/agents/</small>
+    </span>
+    <a href="/worlds/{{ world }}/agents/new" role="button">+ New NPC</a>
+  </header>
+
+  {% set agents = world_agents[world] %}
+  {% if agents %}
+  <table>
+    <thead>
+      <tr><th>Agent ID</th><th style="width:120px"></th></tr>
+    </thead>
+    <tbody>
+      {% for agent in agents %}
+      <tr>
+        <td>{{ agent }}</td>
+        <td><a href="/worlds/{{ world }}/agents/{{ agent }}" role="button" style="padding:.3rem .8rem; font-size:.85rem">Edit</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p><em>No agents yet — click + New NPC to add one.</em></p>
+  {% endif %}
+</article>
+{% endfor %}
+
+
+{% endblock %}

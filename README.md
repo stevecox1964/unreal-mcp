@@ -62,16 +62,25 @@ All these capabilities are accessible through natural language commands via AI a
 
 ## 📂 Directory Structure
 
-- **MCPGameProject/** - Example Unreal project
-  - **Plugins/UnrealMCP/** - C++ plugin source
-    - **Source/UnrealMCP/** - Plugin source code
-    - **UnrealMCP.uplugin** - Plugin definition
+- **MCPGameProject/** — Example Unreal project
+  - **Plugins/UnrealMCP/** — C++ plugin source
 
-- **Python/** - Python server and tools
-  - **tools/** - Tool modules for actor, editor, and blueprint operations
-  - **scripts/** - Example scripts and demos
+- **Python/** — Python MCP server and agent runtime
+  - **tools/** — MCP tool modules (editor, blueprint, character, simulation…)
+  - **agent_runtime/** — AgentManager, LLMRouter, MemoryStore, UnrealBridge
+  - **worlds/** — Level-scoped NPC data (one folder per Unreal level)
+    - **`<LevelName>`/agents/`<agent_id>`/** — per-NPC config files
+      - `state.json` — identity, binding, tier, goal, tick settings
+      - `character.md` — role, personality, backstory
+      - `goals.md` — long-term and current goals
+      - `rules.md` — decision constraints
+      - `tools.json` — allowed action list
+      - `memory.json` — accumulated runtime memories
+    - **`<LevelName>`/logs/** — per-world decision logs (runtime, git-ignored)
+  - **web_ui/** — Local NPC Builder web UI (FastAPI + Jinja2)
+  - `start_npc_builder.bat` — launcher for the web UI
 
-- **Docs/** - Comprehensive documentation
+- **Docs/** — Comprehensive documentation
   - See [Docs/README.md](Docs/README.md) for documentation index
 
 ## 🚀 Quick Start Guide
@@ -221,7 +230,8 @@ A first-pass agentic NPC simulation layer driven by an LLM-controlled Agent Mana
 - **Multi-tier agents** — Hero (full LLM), Simulated (event-driven LLM), and Lightweight (no LLM unless explicitly configured)
 - **World-state driven** — agents observe Unreal structured data; screenshots used selectively
 - **Validated action pipeline** — LLM decisions are schema-validated before any Unreal command executes
-- **Camera-mounted NPC acceptance path** — Bartleby and Dufus are wired to `BP_CameraNPC` with a `CameraCaptureActor` child mount; `UMCPCharacterComponent` is present on the BP so all character tools work
+- **Level-aware loading** — agents live under `Python/worlds/<LevelName>/agents/` and are loaded automatically based on the currently open Unreal level; no config field needed
+- **NPC Builder web UI** — local FastAPI app (`Python/web_ui/`) for creating and editing NPC agent files without touching the CLI; shows live actor list from the running editor; launch with `start_npc_builder.bat`
 
 ---
 
@@ -297,24 +307,21 @@ With Unreal running in PIE and `unrealMCP` connected:
 
 ```txt
 reload_llm_environment()
-start_simulation(tick_seconds=10, active_agents=["bartleby", "dufus"])
-force_agent_tick("bartleby")
+start_simulation(tick_seconds=10, active_agents=["dufus"])
 force_agent_tick("dufus")
 capture_camera_image()
 get_recent_events(limit=10)
 stop_simulation()
 ```
 
-Expected: Bartleby and Dufus each bind to their respective `BP_CameraNPC` actors, the camera capture tool saves a PNG, and the LLM decision loop returns a validated action logged in `get_recent_events`. Generated captures and decision logs are ignored by git.
-
-See [`still_todo.md`](still_todo.md) for current open items and next-session pickup points.
+Expected: Dufus binds to the `BP_CameraNPC_C_1` actor in MCP_World, the camera capture tool saves a PNG, and the LLM decision loop returns a validated action logged in `get_recent_events`. Generated captures and decision logs are ignored by git.
 
 ### Agent tiers
 
 | Tier | Examples | LLM usage |
 |------|----------|-----------|
-| 1 — Hero | Gondolf, main villain, quest giver | Full memory + goal reasoning every tick |
-| 2 — Simulated | Innkeeper, blacksmith, guard captain | LLM only when near player or interrupted |
+| 1 — Hero | Main villain, quest giver, lead NPC | Full memory + goal reasoning every tick |
+| 2 — Simulated | Dufus, innkeeper, guard captain | LLM on every tick at normal cadence |
 | 3 — Lightweight | Villagers, animals, basic guards | Behavior Tree; LLM only on promotion |
 
 ---
