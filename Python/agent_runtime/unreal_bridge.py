@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger("AgentRuntime")
@@ -82,16 +84,15 @@ class UnrealBridge:
 
     def get_observation(self, actor_name: str) -> dict:
         """Gather structured world state for one agent."""
-        location = self._send("get_character_location", {"character_name": actor_name})
-        nearby   = self._send("get_nearby_actors",      {"character_name": actor_name, "radius": 800.0})
-        status   = self._send("get_character_status",   {"character_name": actor_name})
+        location = self._send("get_character_location",    {"character_name": actor_name})
+        nearby   = self._send("get_nearby_actors",         {"character_name": actor_name, "radius": 500.0})
+        action   = self._send("get_character_current_action", {"character_name": actor_name})
         return {
             "actor_name":     actor_name,
             "location":       location.get("location"),
             "nearby_actors":  nearby.get("actors", []),
-            "current_action": status.get("current_action"),
-            "ai_state":       status.get("ai_state"),
-            "health":         status.get("health"),
+            "current_action": action.get("current_action"),
+            "ai_state":       action.get("ai_state"),
         }
 
     # ── Action execution ──────────────────────────────────────────────────────
@@ -144,9 +145,19 @@ class UnrealBridge:
             self._send("command_character_set_ai_state", {"character_name": actor_name, "state": "fleeing"})
             return {"status": "accepted", "action": "flee"}
 
-        if t in ("ask_for_screenshot", "remember"):
-            # Handled upstream in AgentManager before this point
-            return {"status": "accepted", "action": t}
+        if t == "remember":
+            return {"status": "accepted", "action": "remember"}
 
         logger.warning(f"Unknown action type: {t}")
         return {"status": "error", "error": f"Unknown action: {t}"}
+
+    def capture_observation(self, agent_id: str, actor_name: str, agents_dir: Path) -> dict:
+        """Capture a camera image into <agents_dir>/<agent_id>/observations/."""
+        obs_dir = agents_dir / agent_id / "observations"
+        obs_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        file_path = obs_dir / f"observation_{timestamp}.png"
+        return self._send("capture_camera_image", {
+            "actor_name": actor_name,
+            "file_path":  str(file_path),
+        })

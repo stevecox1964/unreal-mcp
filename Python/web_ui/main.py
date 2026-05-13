@@ -21,7 +21,7 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 DEFAULT_ACTIONS = [
     "idle", "walk_to", "speak_to", "inspect_object",
-    "follow_character", "attack", "flee", "ask_for_screenshot", "remember",
+    "follow_character", "attack", "flee", "observe", "remember",
 ]
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

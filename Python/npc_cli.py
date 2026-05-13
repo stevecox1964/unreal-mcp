@@ -19,7 +19,7 @@ AGENTS_DIR = Path(__file__).parent / "agents"
 
 ALL_ACTIONS = [
     "idle", "walk_to", "speak_to", "inspect_object",
-    "follow_character", "attack", "flee", "ask_for_screenshot", "remember",
+    "follow_character", "attack", "flee", "observe", "remember",
 ]
 
 TIERS = {"1": "Hero (full LLM)", "2": "Simulated (light LLM)", "3": "Lightweight (no LLM)"}

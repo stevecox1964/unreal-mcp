@@ -54,6 +54,8 @@ class MemoryStore:
 
     # ── Write ─────────────────────────────────────────────────────────────────
 
+    _MAX_MEMORIES = 30
+
     def record(
         self,
         agent_id: str,
@@ -75,7 +77,14 @@ class MemoryStore:
         with open(self.decisions_log, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
 
-        if memory_update:
+        # Don't persist memories for idle actions — they're never meaningful.
+        # Also skip low-importance updates to avoid log spam.
+        action_type = action.get("type", "idle")
+        if memory_update and action_type != "idle":
+            # Normalize: LLM sometimes returns {"text": "..."} instead of a plain string.
+            if isinstance(memory_update, dict):
+                memory_update = memory_update.get("text", str(memory_update))
+
             p = self.agents_dir / agent_id / "memory.json"
             data = (
                 json.loads(p.read_text(encoding="utf-8"))
@@ -85,6 +94,9 @@ class MemoryStore:
             data["memories"].append(
                 {"timestamp": timestamp, "importance": importance, "text": memory_update}
             )
+            # Trim to keep the most recent N entries.
+            if len(data["memories"]) > self._MAX_MEMORIES:
+                data["memories"] = data["memories"][-self._MAX_MEMORIES:]
             p.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
         logger.info(

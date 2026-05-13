@@ -7,7 +7,7 @@
     "follow_character",
     "attack",
     "flee",
-    "ask_for_screenshot",
+    "observe",
     "remember"
   ]
 }

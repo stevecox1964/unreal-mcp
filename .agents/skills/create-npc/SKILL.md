@@ -56,7 +56,7 @@ Call `mcp__unrealMCP__get_current_level_name` to get `<level_name>`. If Unreal i
     "follow_character",
     "attack",
     "flee",
-    "ask_for_screenshot",
+    "observe",
     "remember"
   ]
 }

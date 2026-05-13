@@ -17,20 +17,27 @@ def validate(agent: "Agent", decision: dict, observation: dict) -> dict | None:
     if not decision:
         return None
 
+    logger.debug(f"[{agent.agent_id}] Validating decision: {decision}")
+
     action = decision.get("action")
     if not action or not isinstance(action, dict):
-        logger.warning(f"[{agent.agent_id}] Decision has no valid action field")
+        logger.warning(
+            f"[{agent.agent_id}] Decision has no valid action field "
+            f"(got {type(action).__name__}: {action!r}) | full decision: {decision}"
+        )
         return None
 
     action_type = action.get("type")
     if not action_type:
-        logger.warning(f"[{agent.agent_id}] Action missing 'type' field")
+        logger.warning(
+            f"[{agent.agent_id}] Action missing 'type' field | action: {action}"
+        )
         return None
 
     if action_type not in agent.allowed_actions:
         logger.warning(
             f"[{agent.agent_id}] Action '{action_type}' not in allowed_actions "
-            f"{agent.allowed_actions} - dropping"
+            f"{agent.allowed_actions} — full action: {action}"
         )
         return None
 

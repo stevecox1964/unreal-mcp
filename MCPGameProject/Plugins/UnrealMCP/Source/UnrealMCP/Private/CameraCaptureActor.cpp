@@ -124,7 +124,10 @@ void ACameraCaptureActor::SaveCameraToFile(UTextureRenderTarget2D* RenderTarget,
     TArray<uint8> CompressedBitmap;
     FImageUtils::CompressImageArray(Width, Height, Bitmap, CompressedBitmap);
 
-    FString AbsoluteFilePath = FPaths::ProjectDir() + FilePath;
+    // If an absolute path is given use it directly; otherwise resolve relative to ProjectDir.
+    FString AbsoluteFilePath = FPaths::IsRelative(FilePath)
+        ? FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() + FilePath)
+        : FilePath;
     if (FFileHelper::SaveArrayToFile(CompressedBitmap, *AbsoluteFilePath))
     {
         UE_LOG(LogTemp, Log, TEXT("Successfully saved render target to %s"), *AbsoluteFilePath);

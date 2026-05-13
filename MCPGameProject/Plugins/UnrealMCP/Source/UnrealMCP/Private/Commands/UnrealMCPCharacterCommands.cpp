@@ -218,7 +218,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetNearbyActors(const
     FVector Origin = Actor->GetActorLocation();
 
     TArray<AActor*> AllActors;
-    UGameplayStatics::GetAllActorsOfClass(GWorld, AActor::StaticClass(), AllActors);
+    UGameplayStatics::GetAllActorsOfClass(GWorld, ACharacter::StaticClass(), AllActors);
 
     TArray<TSharedPtr<FJsonValue>> Nearby;
     for (AActor* Other : AllActors)
@@ -229,6 +229,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetNearbyActors(const
         {
             TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
             Entry->SetStringField(TEXT("name"), Other->GetName());
+            Entry->SetStringField(TEXT("label"), Other->GetActorLabel());
             Entry->SetStringField(TEXT("class"), Other->GetClass()->GetName());
             Entry->SetNumberField(TEXT("distance"), Dist);
             Entry->SetObjectField(TEXT("location"), MakeVec3Field(Other->GetActorLocation()));

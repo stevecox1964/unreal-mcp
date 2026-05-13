@@ -14,6 +14,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger("AgentRuntime")
 _ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
 
+# Field specs for actions that take parameters beyond "type".
+_ACTION_SCHEMAS: dict[str, str] = {
+    "idle":             '{"type": "idle"}',
+    "walk_to":          '{"type": "walk_to", "target_actor": "<actor_name>"}  -- OR --  {"type": "walk_to", "location": {"x": 0, "y": 0, "z": 0}}',
+    "speak_to":         '{"type": "speak_to", "target": "<actor_name>", "message": "<text>"}',
+    "inspect_object":   '{"type": "inspect_object", "target": "<actor_name>"}',
+    "follow_character": '{"type": "follow_character", "target": "<actor_name>"}',
+    "attack":           '{"type": "attack", "target": "<actor_name>"}',
+    "flee":             '{"type": "flee"}',
+    "observe":            '{"type": "observe"}',
+    "remember":         '{"type": "remember", "text": "<what to remember>"}',
+}
+
 # Static portion of the prompt; eligible for Anthropic prompt caching.
 _SYSTEM_TEMPLATE = """\
 You are controlling one NPC in an Unreal Engine RPG world.
@@ -28,6 +41,7 @@ You are controlling one NPC in an Unreal Engine RPG world.
 {rules}
 
 ## Allowed Actions
+Each entry shows the exact JSON shape to use in the "action" field:
 {actions}
 """
 
@@ -149,11 +163,15 @@ class LLMRouter:
             for m in memories
         ) or "No memories yet."
 
+        action_lines = "\n".join(
+            f"  {_ACTION_SCHEMAS.get(a, '{\"type\": \"' + a + '\"}')}"
+            for a in agent.allowed_actions
+        )
         system_text = _SYSTEM_TEMPLATE.format(
             character=agent.character_text.strip(),
             goals=agent.goals_text.strip(),
             rules=agent.rules_text.strip(),
-            actions=", ".join(agent.allowed_actions),
+            actions=action_lines,
         )
 
         user_text = _USER_TEMPLATE.format(
@@ -172,6 +190,7 @@ class LLMRouter:
                 logger.error("[%s] Unknown LLM provider: %s", agent.agent_id, provider)
                 return _idle_decision(agent.agent_id, f"Unknown LLM provider: {provider}")
 
+            logger.debug(f"[{agent.agent_id}] Raw LLM response: {raw}")
             decision = json.loads(raw)
             logger.info(
                 "[%s] %s/%s decided: %s - %s",
@@ -184,7 +203,7 @@ class LLMRouter:
             return decision
 
         except json.JSONDecodeError as e:
-            logger.warning(f"[{agent.agent_id}] LLM returned invalid JSON: {e}")
+            logger.warning(f"[{agent.agent_id}] LLM returned invalid JSON: {e}\nRaw: {raw!r}")
             return None
         except Exception as e:
             logger.error(f"[{agent.agent_id}] LLM call failed: {e}")

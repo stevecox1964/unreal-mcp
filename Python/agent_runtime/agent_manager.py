@@ -228,7 +228,10 @@ class AgentManager:
 
         # Execute in Unreal
         action = self._resolve_action_actor_refs(action)
-        result = self.bridge.execute_action(agent.bound_unreal_actor_name, action)
+        if action.get("type") == "observe":
+            result = self.bridge.capture_observation(agent_id, agent.bound_unreal_actor_name, self._agents_dir)
+        else:
+            result = self.bridge.execute_action(agent.bound_unreal_actor_name, action)
 
         # Track speech cooldown
         if action.get("type") == "speak_to":

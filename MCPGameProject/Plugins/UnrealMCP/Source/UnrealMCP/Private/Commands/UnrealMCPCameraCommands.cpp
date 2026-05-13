@@ -23,16 +23,32 @@ TSharedPtr<FJsonObject> FUnrealMCPCameraCommands::HandleCaptureImage(const TShar
 {
     ACameraCaptureActor* CaptureActor = nullptr;
 
-    // If caller specifies an actor name, find that one (by internal name or Outliner label);
-    // otherwise grab the first CameraCaptureActor in the level.
+    // If caller specifies an actor name: try direct cast first, then search attached children.
+    // This lets callers pass the owning NPC actor name rather than the camera actor name.
+    // If no actor_name given, fall back to the first CameraCaptureActor in the level.
     FString ActorName;
     if (Params->TryGetStringField(TEXT("actor_name"), ActorName))
     {
         AActor* Found = FUnrealMCPCommonUtils::FindActorByNameOrLabel(GWorld, ActorName);
+        if (!Found)
+            return FUnrealMCPCommonUtils::CreateErrorResponse(
+                FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+
         CaptureActor = Cast<ACameraCaptureActor>(Found);
         if (!CaptureActor)
+        {
+            TArray<AActor*> Attached;
+            Found->GetAttachedActors(Attached);
+            for (AActor* Child : Attached)
+            {
+                CaptureActor = Cast<ACameraCaptureActor>(Child);
+                if (CaptureActor) break;
+            }
+        }
+
+        if (!CaptureActor)
             return FUnrealMCPCommonUtils::CreateErrorResponse(
-                FString::Printf(TEXT("CameraCaptureActor not found: %s"), *ActorName));
+                FString::Printf(TEXT("No CameraCaptureActor found on or attached to: %s"), *ActorName));
     }
     else
     {
@@ -47,13 +63,18 @@ TSharedPtr<FJsonObject> FUnrealMCPCameraCommands::HandleCaptureImage(const TShar
     if (!CaptureActor)
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to resolve CameraCaptureActor"));
 
-    FString SafeName = CaptureActor->GetName().Replace(TEXT(" "), TEXT("_"));
-    FString Timestamp = FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S"));
-    FString FileName = FString::Printf(TEXT("%s_%s.png"), *SafeName, *Timestamp);
+    // Caller may provide an absolute file_path (e.g. agent observations folder).
+    // If not, fall back to <ProjectDir>/<ActorName>_<timestamp>.png.
+    FString FilePath;
+    if (!Params->TryGetStringField(TEXT("file_path"), FilePath) || FilePath.IsEmpty())
+    {
+        FString SafeName = CaptureActor->GetName().Replace(TEXT(" "), TEXT("_"));
+        FString Timestamp = FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S"));
+        FilePath = FPaths::ConvertRelativePathToFull(
+            FPaths::ProjectDir() + FString::Printf(TEXT("%s_%s.png"), *SafeName, *Timestamp));
+    }
 
-    CaptureActor->SaveCameraImageToFile(FileName);
-
-    FString FilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() + FileName);
+    CaptureActor->SaveCameraImageToFile(FilePath);
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("success"), true);
