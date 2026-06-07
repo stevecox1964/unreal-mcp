@@ -1,0 +1,17 @@
+{
+  "agent_id": "maren",
+  "unreal_actor_name": "Maren",
+  "blueprint_class": "/Game/Blueprints/BP_CameraNPC.BP_CameraNPC_C",
+  "tier": 2,
+  "is_active": true,
+  "is_busy": false,
+  "current_goal": "Tend her stall under the shop canopy and help anyone who passes by",
+  "tick_interval_seconds": 20,
+  "speech_cooldown_seconds": 30,
+  "last_tick_time": "2026-06-07T03:07:38.595448+00:00",
+  "last_spoke_time": "2026-05-14T01:29:46.612230+00:00",
+  "bound_unreal_actor_name": "BP_CameraNPC_C_0",
+  "bound_unreal_actor_label": "Maren",
+  "bound_unreal_actor_class": "BP_CameraNPC_C",
+  "last_bound_time": "2026-06-07T03:04:43.812126+00:00"
+}

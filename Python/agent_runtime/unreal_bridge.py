@@ -8,6 +8,16 @@ from typing import Any, Optional
 logger = logging.getLogger("AgentRuntime")
 
 
+def _xyz_list(loc) -> list[float]:
+    """Coerce a location ({x,y,z} dict or [x,y,z] sequence) to an [x, y, z] list."""
+    if isinstance(loc, dict):
+        return [float(loc.get("x", 0)), float(loc.get("y", 0)), float(loc.get("z", 0))]
+    if isinstance(loc, (list, tuple)):
+        vals = [float(v) for v in loc[:3]]
+        return vals + [0.0] * (3 - len(vals))
+    return [0.0, 0.0, 0.0]
+
+
 class UnrealBridge:
     """
     Thin wrapper around UnrealConnection.send_command that exposes
@@ -16,6 +26,10 @@ class UnrealBridge:
     Deliberately synchronous — matches the existing send_command API.
     All socket calls reconnect per-command (Unreal closes after each).
     """
+
+    def __init__(self) -> None:
+        # Keyed by agent_id — used by is_scene_changed for the visual diff gate.
+        self._last_image_hashes: dict[str, str] = {}
 
     def _send(self, command: str, params: dict) -> dict:
         from unreal_mcp_server import get_unreal_connection
@@ -82,18 +96,70 @@ class UnrealBridge:
 
     # ── Observation ───────────────────────────────────────────────────────────
 
-    def get_observation(self, actor_name: str) -> dict:
-        """Gather structured world state for one agent."""
-        location = self._send("get_character_location",    {"character_name": actor_name})
-        nearby   = self._send("get_nearby_actors",         {"character_name": actor_name, "radius": 500.0})
+    def get_observation(self, actor_name: str, agent_id: str, agents_dir: Path) -> dict:
+        """Capture a screenshot and gather minimal engine state for one agent.
+
+        Vision is the primary observation channel — the NPC sees what its
+        camera sees. Engine queries are kept to the minimum needed for movement
+        planning (own location) and action continuity (current_action).
+        """
+        obs_dir = agents_dir / agent_id / "observations"
+        obs_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        image_file = obs_dir / f"observation_{timestamp}.png"
+        capture = self._send("capture_camera_image", {
+            "actor_name": actor_name,
+            "file_path":  str(image_file),
+        })
+        image_path = str(image_file) if capture.get("success") else None
+
+        location = self._send("get_character_location",       {"character_name": actor_name})
         action   = self._send("get_character_current_action", {"character_name": actor_name})
         return {
             "actor_name":     actor_name,
+            "image_path":     image_path,
             "location":       location.get("location"),
-            "nearby_actors":  nearby.get("actors", []),
             "current_action": action.get("current_action"),
             "ai_state":       action.get("ai_state"),
         }
+
+    def is_scene_changed(self, agent_id: str, image_path: str) -> bool:
+        """Return True if the scene has changed enough to warrant an LLM call.
+
+        Uses a perceptual average-hash diff on the captured screenshot.
+        On first tick, PIL unavailable, or capture failure — always returns True.
+        Threshold: 8 differing bits out of 64 (~87% similarity).
+        """
+        if not image_path:
+            return True
+        new_hash = self._image_hash(image_path)
+        if not new_hash:
+            return True
+        last_hash = self._last_image_hashes.get(agent_id)
+        self._last_image_hashes[agent_id] = new_hash
+        if not last_hash:
+            return True
+        return self._hamming(last_hash, new_hash) > 8
+
+    def _image_hash(self, image_path: str) -> str | None:
+        """8×8 average-hash of an image → 16-char hex string, or None on failure."""
+        try:
+            from PIL import Image  # optional dependency
+            img = Image.open(image_path).convert("L").resize((8, 8), Image.LANCZOS)
+            pixels = list(img.getdata())
+            avg = sum(pixels) / len(pixels)
+            bits = "".join("1" if p >= avg else "0" for p in pixels)
+            return format(int(bits, 2), "016x")
+        except ImportError:
+            logger.debug("Pillow not installed — visual diff gate disabled")
+            return None
+        except Exception as e:
+            logger.debug(f"Image hash failed for {image_path}: {e}")
+            return None
+
+    @staticmethod
+    def _hamming(a: str, b: str) -> int:
+        return bin(int(a, 16) ^ int(b, 16)).count("1")
 
     # ── Action execution ──────────────────────────────────────────────────────
 
@@ -108,7 +174,10 @@ class UnrealBridge:
             if action.get("target_actor"):
                 params["target_actor"] = action["target_actor"]
             elif action.get("location"):
-                params["location"] = action["location"]
+                # The C++ move handler expects location as an [x, y, z] array.
+                # The LLM (and explorer) hand us a {"x","y","z"} dict — coerce it,
+                # or moves silently default to world origin (0,0,0).
+                params["location"] = _xyz_list(action["location"])
             elif action.get("target_location"):
                 # LLM sometimes uses target_location as a string label
                 # Best effort: log and idle — real location resolution needs world-state lookup

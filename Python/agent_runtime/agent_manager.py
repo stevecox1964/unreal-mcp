@@ -8,8 +8,20 @@ from typing import Optional
 
 from .agent import Agent
 from .action_validator import validate
+from . import explorer
+from .perception import VisionPerceiver
+from .spatial_memory import SpatialMap
 
 logger = logging.getLogger("AgentRuntime")
+
+
+def _loc_xyz(loc) -> tuple[float, float, float] | None:
+    """Coerce a location payload ({x,y,z} dict or [x,y,z] list) to a float triple."""
+    if isinstance(loc, dict):
+        return float(loc.get("x", 0)), float(loc.get("y", 0)), float(loc.get("z", 0))
+    if isinstance(loc, (list, tuple)) and len(loc) >= 3:
+        return float(loc[0]), float(loc[1]), float(loc[2])
+    return None
 
 
 class AgentManager:
@@ -30,7 +42,13 @@ class AgentManager:
         self.running = False
         self.paused = False
         self.tick_seconds = 5
+        self.mode = "live"                       # "live" = LLM-driven; "explore" = frontier mapping
         self._sim_task: Optional[asyncio.Task] = None
+
+        # Explore-mode state (per agent).
+        self.perceiver = VisionPerceiver()
+        self._spatial: dict[str, SpatialMap] = {}   # agent_id -> loaded map (cache)
+        self._last_cell: dict[str, str] = {}        # agent_id -> previous cell key, for nav edges
 
     # Lifecycle
 
@@ -38,9 +56,15 @@ class AgentManager:
         self,
         tick_seconds: int = 5,
         active_agents: list[str] | None = None,
+        mode: str = "live",
     ) -> dict:
         if self.running:
             return {"status": "already_running", "tick_seconds": self.tick_seconds}
+
+        self.mode = (mode or "live").strip().lower()
+        # Drop cached maps so each run reloads from disk (and picks up the right level).
+        self._spatial.clear()
+        self._last_cell.clear()
 
         self._load_agents(active_agents)
         if active_agents:
@@ -62,9 +86,10 @@ class AgentManager:
         self.tick_seconds = tick_seconds
         self._sim_task = asyncio.create_task(self._loop())
 
-        logger.info(f"Simulation started - agents: {[a.agent_id for a in active]}")
+        logger.info(f"Simulation started ({self.mode}) - agents: {[a.agent_id for a in active]}")
         return {
             "status": "started",
+            "mode": self.mode,
             "tick_seconds": tick_seconds,
             "active_agents": [a.agent_id for a in active],
         }
@@ -206,8 +231,25 @@ class AgentManager:
         if not agent:
             return {"error": f"Agent '{agent_id}' not loaded"}
 
-        # Gather world state
-        observation = self.bridge.get_observation(agent.bound_unreal_actor_name)
+        if self.mode == "explore":
+            return self._pulse_explore(agent)
+
+        # Gather world state — screenshot + minimal engine queries
+        observation = self.bridge.get_observation(
+            agent.bound_unreal_actor_name, agent.agent_id, self._agents_dir
+        )
+        # Inject known cast — other bound agents by label, no positions
+        observation["known_characters"] = [
+            a.bound_unreal_actor_label or a.unreal_actor_name
+            for a in self.agents.values()
+            if a.agent_id != agent_id and a.has_unreal_binding
+        ]
+
+        # Visual diff gate: skip LLM if the scene hasn't changed since last tick
+        if not self.bridge.is_scene_changed(agent.agent_id, observation.get("image_path")):
+            agent.mark_ticked(self._agents_dir)
+            logger.info(f"[{agent_id}] Scene unchanged — skipping LLM")
+            return {"agent_id": agent_id, "action": "idle", "reason": "scene_unchanged"}
 
         # Retrieve relevant memories
         memories = self.memory.get_relevant_memories(agent_id)
@@ -229,7 +271,21 @@ class AgentManager:
         # Execute in Unreal
         action = self._resolve_action_actor_refs(action)
         if action.get("type") == "observe":
-            result = self.bridge.capture_observation(agent_id, agent.bound_unreal_actor_name, self._agents_dir)
+            result = {"status": "success", "image_path": observation.get("image_path"), "action": "observe"}
+        elif action.get("type") == "wander":
+            import random
+            known = observation.get("known_characters", [])
+            if known:
+                target = random.choice(known)
+                result = self.bridge.execute_action(
+                    agent.bound_unreal_actor_name,
+                    {"type": "walk_to", "target_actor": target},
+                )
+                # If already adjacent (pathfinding fails), just idle this tick
+                if result.get("error"):
+                    result = {"status": "accepted", "action": "idle", "note": "already adjacent"}
+            else:
+                result = {"status": "accepted", "action": "idle"}
         else:
             result = self.bridge.execute_action(agent.bound_unreal_actor_name, action)
 
@@ -255,6 +311,101 @@ class AgentManager:
             "thought":    decision.get("thought_summary"),
             "action":     action,
             "result":     result,
+        }
+
+    # ── Explore mode ───────────────────────────────────────────────────────────
+
+    def _spatial_map(self, agent_id: str) -> SpatialMap:
+        """Load (and cache) this agent's per-agent egocentric map."""
+        smap = self._spatial.get(agent_id)
+        if smap is None:
+            path = self._agents_dir / agent_id / "spatial_map.json"
+            smap = SpatialMap.load(path)
+            self._spatial[agent_id] = smap
+        return smap
+
+    def _pulse_explore(self, agent: Agent) -> dict:
+        """One exploration tick: see → perceive → map → pick frontier → walk.
+
+        The avatar's own position (path integration) and a screenshot are the
+        only engine inputs. Gemini turns the screenshot into landmark labels;
+        a deterministic frontier policy — never the LLM — chooses where to walk.
+        The visual-diff gate only skips re-labelling an unchanged view; the
+        avatar still maps its cell and moves, so it can never get stuck idling.
+        """
+        agent_id = agent.agent_id
+        observation = self.bridge.get_observation(
+            agent.bound_unreal_actor_name, agent_id, self._agents_dir
+        )
+        xyz = _loc_xyz(observation.get("location"))
+        if xyz is None:
+            agent.mark_ticked(self._agents_dir)
+            logger.warning(f"[{agent_id}] explore: no location — skipping tick")
+            return {"agent_id": agent_id, "action": "idle", "reason": "no_location"}
+        x, y, z = xyz
+
+        image_path = observation.get("image_path")
+        known = [
+            a.bound_unreal_actor_label or a.unreal_actor_name
+            for a in self.agents.values()
+            if a.agent_id != agent_id and a.has_unreal_binding
+        ]
+
+        # Perceive only when the view changed — otherwise reuse "nothing new seen".
+        landmarks, caption = [], ""
+        if image_path and self.bridge.is_scene_changed(agent_id, image_path):
+            perceived = self.perceiver.perceive(image_path, known)
+            landmarks = perceived.get("landmarks", [])
+            caption = perceived.get("caption", "")
+            if perceived.get("error"):
+                logger.warning(f"[{agent_id}] perception error: {perceived['error']}")
+
+        # Map: record the occupied cell + what was seen, link the traversed edge.
+        smap = self._spatial_map(agent_id)
+        cell = smap.ingest(x, y, landmarks)
+        prev = self._last_cell.get(agent_id)
+        if prev and prev != cell:
+            smap.link(prev, cell)
+        self._last_cell[agent_id] = cell
+
+        # Route: deterministic frontier choice → walk there.
+        target = explorer.next_target(smap, x, y, z)
+        if target:
+            result = self.bridge.execute_action(
+                agent.bound_unreal_actor_name,
+                {"type": "walk_to", "location": target["location"]},
+            )
+            if result.get("error") or result.get("success") is False:
+                # Unreachable (off NavMesh etc.) — don't keep retrying this cell.
+                smap.mark_blocked(target["cell"])
+                logger.info(f"[{agent_id}] frontier {target['cell']} blocked: {result.get('error')}")
+        else:
+            result = {"status": "accepted", "action": "idle", "note": "no frontier"}
+
+        smap.save(self._agents_dir / agent_id / "spatial_map.json")
+
+        action = {"type": "walk_to", "target_cell": target["cell"]} if target else {"type": "idle"}
+        observation["_thought"] = caption
+        self.memory.record(
+            agent_id=agent_id, observation=observation, action=action,
+            result=result, memory_update=None, importance=0.3,
+        )
+        agent.mark_ticked(self._agents_dir)
+
+        stats = smap.stats()
+        logger.info(
+            f"[{agent_id}] explore cell={cell} saw={len(landmarks)} "
+            f"target={target['cell'] if target else None} "
+            f"visited={stats['cells_visited']} labels={stats['distinct_labels']}"
+        )
+        return {
+            "agent_id": agent_id,
+            "cell": cell,
+            "caption": caption,
+            "landmarks_seen": len(landmarks),
+            "target_cell": target["cell"] if target else None,
+            "result": result,
+            "map_stats": stats,
         }
 
     def resync(self) -> dict:

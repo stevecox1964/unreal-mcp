@@ -30,7 +30,12 @@ class MemoryStore:
         p = self.agents_dir / agent_id / "memory.json"
         if not p.exists():
             return []
-        return json.loads(p.read_text(encoding="utf-8")).get("memories", [])
+        raw = json.loads(p.read_text(encoding="utf-8")).get("memories", [])
+        # Normalise string seeds → dict so callers can always call .get()
+        return [
+            m if isinstance(m, dict) else {"timestamp": "1970-01-01T00:00:00+00:00", "importance": 0.5, "text": str(m)}
+            for m in raw
+        ]
 
     def get_relevant_memories(self, agent_id: str) -> list[dict]:
         memories = self.load_memories(agent_id)

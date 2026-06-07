@@ -17,8 +17,9 @@ _ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
 # Field specs for actions that take parameters beyond "type".
 _ACTION_SCHEMAS: dict[str, str] = {
     "idle":             '{"type": "idle"}',
-    "walk_to":          '{"type": "walk_to", "target_actor": "<actor_name>"}  -- OR --  {"type": "walk_to", "location": {"x": 0, "y": 0, "z": 0}}',
-    "speak_to":         '{"type": "speak_to", "target": "<actor_name>", "message": "<text>"}',
+    "wander":           '{"type": "wander"}  -- move through the world; seeks out known characters if any are known',
+    "walk_to":          '{"type": "walk_to", "target_actor": "<actor_label>"}  -- walk directly to a known character',
+    "speak_to":         '{"type": "speak_to", "target": "<actor_label>", "message": "<text>"}',
     "inspect_object":   '{"type": "inspect_object", "target": "<actor_name>"}',
     "follow_character": '{"type": "follow_character", "target": "<actor_name>"}',
     "attack":           '{"type": "attack", "target": "<actor_name>"}',
@@ -45,7 +46,42 @@ Each entry shows the exact JSON shape to use in the "action" field:
 {actions}
 """
 
-# Dynamic portion built fresh each tick.
+# Dynamic portion — vision path (image attached separately by the provider call).
+_USER_TEMPLATE_VISION = """\
+## Your Memories
+{memories}
+
+## Characters You May Encounter
+{known_characters}
+
+## Your Location
+x={x:.0f}, y={y:.0f}, z={z:.0f}
+
+## Your Current State
+{current_action}
+
+## Current Goal
+{current_goal}
+
+The image above shows exactly what you can see right now.
+
+IMPORTANT: Scan the ENTIRE image carefully — edges, background, sidewalks. Any human figure, person-shaped model, or character standing anywhere in the scene is almost certainly one of the known characters listed above. Game character models may look blocky or stylized but are still people. If you see ANY human figure at all, assume it is a known character and greet or approach them immediately. Do not say you see nobody if there is a person-shaped figure anywhere in the frame.
+
+Based on what you observe, choose exactly ONE next action. Return ONLY valid JSON: no prose, no markdown fences.
+
+{{
+  "agent_id": "{agent_id}",
+  "thought_summary": "one sentence describing what you see and why",
+  "action": {{
+    "type": "..."
+  }},
+  "speech": null,
+  "memory_update": null,
+  "importance": 0.5
+}}
+"""
+
+# Fallback for when no screenshot is available (Unreal offline, capture failed).
 _USER_TEMPLATE = """\
 ## Your Memories
 {memories}
@@ -174,18 +210,41 @@ class LLMRouter:
             actions=action_lines,
         )
 
-        user_text = _USER_TEMPLATE.format(
-            agent_id=agent.agent_id,
-            memories=mem_lines,
-            observation=json.dumps(observation, indent=2),
-            current_goal=agent.current_goal,
-        )
+        image_path = observation.get("image_path")
+        if image_path:
+            from pathlib import Path as _Path
+            loc = observation.get("location") or {}
+            action_state = observation.get("current_action") or "idle"
+            if observation.get("ai_state"):
+                action_state += f" ({observation['ai_state']})"
+            known = observation.get("known_characters") or []
+            known_text = ", ".join(known) if known else "none known yet"
+            user_text = _USER_TEMPLATE_VISION.format(
+                agent_id=agent.agent_id,
+                memories=mem_lines,
+                known_characters=known_text,
+                x=loc.get("x", 0),
+                y=loc.get("y", 0),
+                z=loc.get("z", 0),
+                current_action=action_state,
+                current_goal=agent.current_goal,
+            )
+            if not _Path(image_path).exists():
+                image_path = None  # capture wrote path but file missing — fall through
+        if not image_path:
+            obs_for_text = {k: v for k, v in observation.items() if k != "image_path"}
+            user_text = _USER_TEMPLATE.format(
+                agent_id=agent.agent_id,
+                memories=mem_lines,
+                observation=json.dumps(obs_for_text, indent=2),
+                current_goal=agent.current_goal,
+            )
 
         try:
             if provider == "openai":
                 raw = self._decide_openai(model, system_text, user_text)
             elif provider == "anthropic":
-                raw = self._decide_anthropic(model, system_text, user_text)
+                raw = self._decide_anthropic(model, system_text, user_text, image_path)
             else:
                 logger.error("[%s] Unknown LLM provider: %s", agent.agent_id, provider)
                 return _idle_decision(agent.agent_id, f"Unknown LLM provider: {provider}")
@@ -209,19 +268,28 @@ class LLMRouter:
             logger.error(f"[{agent.agent_id}] LLM call failed: {e}")
             return None
 
-    def _decide_anthropic(self, model: str, system_text: str, user_text: str) -> str:
+    def _decide_anthropic(
+        self, model: str, system_text: str, user_text: str, image_path: str | None = None
+    ) -> str:
+        import base64
         client = self._anthropic_client()
+
+        if image_path:
+            image_data = base64.standard_b64encode(
+                open(image_path, "rb").read()
+            ).decode()
+            content = [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_data}},
+                {"type": "text", "text": user_text},
+            ]
+        else:
+            content = user_text
+
         response = client.messages.create(
             model=model,
             max_tokens=512,
-            system=[
-                {
-                    "type": "text",
-                    "text": system_text,
-                    "cache_control": {"type": "ephemeral"},  # cache static character context
-                }
-            ],
-            messages=[{"role": "user", "content": user_text}],
+            system=[{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": content}],
         )
         return _strip_markdown_fences(response.content[0].text.strip())
 

@@ -49,19 +49,25 @@ def register_simulation_tools(mcp: FastMCP) -> None:
     async def start_simulation(
         tick_seconds: int = 5,
         active_agents: List[str] = None,
+        mode: str = "live",
     ) -> Dict[str, Any]:
         """Start the NPC agent simulation loop.
 
         Args:
             tick_seconds: How often (in seconds) each agent is pulsed. Default 5.
             active_agents: List of agent_ids to activate. Omit to load all agents.
+            mode: "live" (default) = LLM-driven decisions; "explore" = deterministic
+                frontier exploration that builds each agent's spatial_map.json from
+                vision (Gemini) — no decision LLM, the avatar maps the world by walking it.
 
         Example valid input:
-            {"tick_seconds": 10, "active_agents": ["dufus"]}
+            {"tick_seconds": 10, "active_agents": ["dufus"], "mode": "explore"}
         """
         from unreal_mcp_server import get_agent_manager
         mgr = get_agent_manager()
-        return await mgr.start_simulation(tick_seconds=tick_seconds, active_agents=active_agents)
+        return await mgr.start_simulation(
+            tick_seconds=tick_seconds, active_agents=active_agents, mode=mode
+        )
 
     @mcp.tool()
     async def stop_simulation() -> Dict[str, Any]:

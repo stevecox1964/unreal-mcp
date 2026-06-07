@@ -232,6 +232,7 @@ A first-pass agentic NPC simulation layer driven by an LLM-controlled Agent Mana
 - **Validated action pipeline** — LLM decisions are schema-validated before any Unreal command executes
 - **Level-aware loading** — agents live under `Python/worlds/<LevelName>/agents/` and are loaded automatically based on the currently open Unreal level; no config field needed
 - **NPC Builder web UI** — local FastAPI app (`Python/web_ui/`) for creating and editing NPC agent files without touching the CLI; shows live actor list from the running editor; launch with `start_npc_builder.bat`
+- **Explore mode** — a second simulation mode (`start_simulation(mode="explore")`) where the avatar autonomously maps an unknown world by walking it: a VLM (Gemini) turns each camera frame into semantic landmarks, a deterministic frontier explorer chooses where to walk next, and a per-agent engine-agnostic grid/place map is written to `spatial_map.json`. No LLM in the movement loop. See [Explore Mode](#-explore-mode-vlm-spatial-mapping) below.
 
 ---
 
@@ -323,6 +324,49 @@ Expected: Dufus binds to the `BP_CameraNPC_C_1` actor in MCP_World, the camera c
 | 1 — Hero | Main villain, quest giver, lead NPC | Full memory + goal reasoning every tick |
 | 2 — Simulated | Dufus, innkeeper, guard captain | LLM on every tick at normal cadence |
 | 3 — Lightweight | Villagers, animals, basic guards | Behavior Tree; LLM only on promotion |
+
+---
+
+## 🧭 Explore Mode (VLM spatial mapping)
+
+> **Status: Working in PIE** — verified end-to-end 2026-06-07 (an avatar walked the town's west edge and built a labeled map).
+
+A second simulation mode where the avatar **discovers a world by looking at it and walking it**, rather than acting on pre-authored knowledge. The thesis: distil Unreal's thousands of engine actors into an *engine-agnostic* representation — metric coordinates + vision-derived semantic labels + a nav graph — so the same pipeline would drive a real robot with a camera.
+
+### The tick (deterministic routing; the model only perceives)
+
+```
+observe (own pose + camera frame)
+  → perceptual-hash diff-gate (skip re-labelling an unchanged view)
+  → Gemini.perceive()            # frame → {landmarks, characters, caption}
+  → SpatialMap.ingest()          # write labels into the current grid cell
+  → explorer.next_target()       # pick nearest unexplored frontier  (CODE, not LLM)
+  → command_character_move_to()  # walk there
+```
+
+The VLM is used **only** for perception (turning pixels into labels). Movement is a deterministic frontier sweep — cheap, predictable coverage, no LLM in the control loop.
+
+### The map (`worlds/<level>/agents/<id>/spatial_map.json`)
+
+Per-agent (egocentric). Grid cells keyed `"gx,gy"` (`floor(x / cell_size)`, default 400 cm), each holding the landmark tags seen from that cell (with confidence/distance/bearing) and the `edges` traversed to neighbors. Place coordinates are derived on demand from the labels — nothing Unreal-specific is stored.
+
+### Requirements (learned the hard way)
+
+- **PIE must be running** — the AIController only possesses the avatar in Play.
+- **Walkable NavMesh under the avatar** — a `NavMeshBoundsVolume` that is *tall enough* (its Z extent must clear the floor by more than the agent height; a too-thin volume builds no navmesh and the avatar silently won't move). The avatar must be **standing on green** (on the mesh), not on grass/dirt or floating.
+- **`GEMINI_API_KEY` / `GEMINI_MODEL`** in `Python/.env` (model `gemini-2.5-flash-lite`).
+- **Pillow** installed (enables the diff-gate; without it every frame is re-perceived).
+
+### Smoke test
+
+```txt
+start_simulation(tick_seconds=10, active_agents=["maren"], mode="explore")
+force_agent_tick("maren")     # observe → perceive → map → pick frontier → walk
+get_character_location("Maren")   # x/y should track toward the frontier cell centre
+stop_simulation()
+```
+
+Expected: each tick the agent's `cells_visited` climbs, `spatial_map.json` fills with landmark-tagged cells linked by nav edges, and the avatar walks frontier-to-frontier. Delete `spatial_map.json` to start a fresh map.
 
 ---
 

@@ -1,6 +1,7 @@
 #include "Commands/UnrealMCPCommonUtils.h"
 #include "GameFramework/Actor.h"
 #include "Engine/World.h"
+#include "Engine/Engine.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/Blueprint.h"
 #include "EdGraph/EdGraph.h"
@@ -420,6 +421,21 @@ UEdGraphPin* FUnrealMCPCommonUtils::FindPin(UEdGraphNode* Node, const FString& P
 }
 
 // Actor utilities
+UWorld* FUnrealMCPCommonUtils::GetGameWorld()
+{
+    if (GEngine)
+    {
+        // Prefer an active PIE/Game world: runtime commands during Play must
+        // target the simulated actors, not the editor preview copies.
+        for (const FWorldContext& Context : GEngine->GetWorldContexts())
+        {
+            if (Context.World() && (Context.WorldType == EWorldType::PIE || Context.WorldType == EWorldType::Game))
+                return Context.World();
+        }
+    }
+    return GWorld;
+}
+
 AActor* FUnrealMCPCommonUtils::FindActorByNameOrLabel(UWorld* World, const FString& Name)
 {
     if (!World || Name.IsEmpty()) return nullptr;

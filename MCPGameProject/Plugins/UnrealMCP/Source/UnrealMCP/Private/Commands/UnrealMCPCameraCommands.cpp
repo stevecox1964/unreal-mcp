@@ -29,7 +29,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCameraCommands::HandleCaptureImage(const TShar
     FString ActorName;
     if (Params->TryGetStringField(TEXT("actor_name"), ActorName))
     {
-        AActor* Found = FUnrealMCPCommonUtils::FindActorByNameOrLabel(GWorld, ActorName);
+        AActor* Found = FUnrealMCPCommonUtils::FindActorByNameOrLabel(FUnrealMCPCommonUtils::GetGameWorld(), ActorName);
         if (!Found)
             return FUnrealMCPCommonUtils::CreateErrorResponse(
                 FString::Printf(TEXT("Actor not found: %s"), *ActorName));
@@ -53,7 +53,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCameraCommands::HandleCaptureImage(const TShar
     else
     {
         TArray<AActor*> AllActors;
-        UGameplayStatics::GetAllActorsOfClass(GWorld, ACameraCaptureActor::StaticClass(), AllActors);
+        UGameplayStatics::GetAllActorsOfClass(FUnrealMCPCommonUtils::GetGameWorld(), ACameraCaptureActor::StaticClass(), AllActors);
         if (AllActors.Num() == 0)
             return FUnrealMCPCommonUtils::CreateErrorResponse(
                 TEXT("No CameraCaptureActor found in level. Place one and run the map."));

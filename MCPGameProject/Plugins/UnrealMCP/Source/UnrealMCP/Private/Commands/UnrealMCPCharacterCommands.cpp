@@ -59,7 +59,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommand(const FString
 
 AActor* FUnrealMCPCharacterCommands::FindActorByName(const FString& Name) const
 {
-    return FUnrealMCPCommonUtils::FindActorByNameOrLabel(GWorld, Name);
+    return FUnrealMCPCommonUtils::FindActorByNameOrLabel(FUnrealMCPCommonUtils::GetGameWorld(), Name);
 }
 
 UMCPCharacterComponent* FUnrealMCPCharacterCommands::GetMCPComponent(AActor* Actor) const
@@ -80,7 +80,7 @@ static AActor* ResolveCharacter(const TSharedPtr<FJsonObject>& Params, FString& 
         return nullptr;
     }
 
-    if (AActor* Actor = FUnrealMCPCommonUtils::FindActorByNameOrLabel(GWorld, CharacterName))
+    if (AActor* Actor = FUnrealMCPCommonUtils::FindActorByNameOrLabel(FUnrealMCPCommonUtils::GetGameWorld(), CharacterName))
         return Actor;
 
     OutError = FString::Printf(TEXT("Actor not found: %s"), *CharacterName);
@@ -218,7 +218,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetNearbyActors(const
     FVector Origin = Actor->GetActorLocation();
 
     TArray<AActor*> AllActors;
-    UGameplayStatics::GetAllActorsOfClass(GWorld, ACharacter::StaticClass(), AllActors);
+    UGameplayStatics::GetAllActorsOfClass(FUnrealMCPCommonUtils::GetGameWorld(), ACharacter::StaticClass(), AllActors);
 
     TArray<TSharedPtr<FJsonValue>> Nearby;
     for (AActor* Other : AllActors)

@@ -4,10 +4,6 @@
     "wander",
     "walk_to",
     "speak_to",
-    "inspect_object",
-    "follow_character",
-    "attack",
-    "flee",
     "observe",
     "remember"
   ]

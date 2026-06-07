@@ -1,0 +1,273 @@
+{
+  "cell_size": 400.0,
+  "cells": {
+    "-14,-2": {
+      "visit_count": 1,
+      "first_seen": "2026-06-07T03:04:44.572560+00:00",
+      "last_seen": "2026-06-07T03:04:44.572560+00:00",
+      "landmarks": {},
+      "edges": [
+        "-15,-2"
+      ],
+      "blocked": false
+    },
+    "-15,-2": {
+      "visit_count": 1,
+      "first_seen": "2026-06-07T03:04:55.724781+00:00",
+      "last_seen": "2026-06-07T03:04:55.724781+00:00",
+      "landmarks": {
+        "red barn": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "power lines": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "mobile homes": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "building with 'JOB OFFERS' sign": {
+          "count": 1,
+          "confidence": 0.95,
+          "distance": "near",
+          "bearing": "right"
+        },
+        "mailboxes": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "right"
+        },
+        "trash can": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "near",
+          "bearing": "right"
+        }
+      },
+      "edges": [
+        "-14,-2",
+        "-16,-2"
+      ],
+      "blocked": false
+    },
+    "-16,-2": {
+      "visit_count": 1,
+      "first_seen": "2026-06-07T03:05:18.753994+00:00",
+      "last_seen": "2026-06-07T03:05:18.753994+00:00",
+      "landmarks": {
+        "trash bins": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "billboard": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "red barn": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "mobile homes": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "house": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "street lamp": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "right"
+        }
+      },
+      "edges": [
+        "-15,-2",
+        "-17,-2"
+      ],
+      "blocked": false
+    },
+    "-17,-2": {
+      "visit_count": 1,
+      "first_seen": "2026-06-07T03:05:21.648400+00:00",
+      "last_seen": "2026-06-07T03:05:21.648400+00:00",
+      "landmarks": {},
+      "edges": [
+        "-16,-2",
+        "-18,-2"
+      ],
+      "blocked": false
+    },
+    "-18,-2": {
+      "visit_count": 1,
+      "first_seen": "2026-06-07T03:05:51.801420+00:00",
+      "last_seen": "2026-06-07T03:05:51.801420+00:00",
+      "landmarks": {
+        "farmhouse": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "water tower": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "corn field": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "mobile home": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "utility pole": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "center"
+        },
+        "sign post": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "right"
+        }
+      },
+      "edges": [
+        "-17,-2",
+        "-19,-2"
+      ],
+      "blocked": false
+    },
+    "-19,-2": {
+      "visit_count": 1,
+      "first_seen": "2026-06-07T03:06:14.869246+00:00",
+      "last_seen": "2026-06-07T03:06:14.869246+00:00",
+      "landmarks": {
+        "red barn": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "water tower": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "corn field": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "fence": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "trailer homes": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "utility pole": {
+          "count": 2,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "road": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "near",
+          "bearing": "center"
+        },
+        "white sphere": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "center"
+        }
+      },
+      "edges": [
+        "-18,-2",
+        "-20,-2"
+      ],
+      "blocked": false
+    },
+    "-20,-2": {
+      "visit_count": 1,
+      "first_seen": "2026-06-07T03:06:35.751694+00:00",
+      "last_seen": "2026-06-07T03:06:35.751694+00:00",
+      "landmarks": {},
+      "edges": [
+        "-19,-2",
+        "-21,-2"
+      ],
+      "blocked": false
+    },
+    "-21,-2": {
+      "visit_count": 1,
+      "first_seen": "2026-06-07T03:06:56.634468+00:00",
+      "last_seen": "2026-06-07T03:06:56.634468+00:00",
+      "landmarks": {},
+      "edges": [
+        "-20,-2",
+        "-22,-2"
+      ],
+      "blocked": false
+    },
+    "-22,-2": {
+      "visit_count": 1,
+      "first_seen": "2026-06-07T03:07:17.526666+00:00",
+      "last_seen": "2026-06-07T03:07:17.526666+00:00",
+      "landmarks": {},
+      "edges": [
+        "-21,-2",
+        "-23,-2"
+      ],
+      "blocked": false
+    },
+    "-23,-2": {
+      "visit_count": 1,
+      "first_seen": "2026-06-07T03:07:38.400934+00:00",
+      "last_seen": "2026-06-07T03:07:38.400934+00:00",
+      "landmarks": {},
+      "edges": [
+        "-22,-2"
+      ],
+      "blocked": false
+    }
+  }
+}

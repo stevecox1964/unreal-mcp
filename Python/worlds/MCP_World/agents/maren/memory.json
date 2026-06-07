@@ -1,0 +1,40 @@
+{
+  "agent_id": "maren",
+  "memories": [
+    {
+      "timestamp": "2026-05-14T00:00:00+00:00",
+      "importance": 0.8,
+      "text": "I stand under the shop canopy on the main street. The pawn shop is nearby."
+    },
+    {
+      "timestamp": "2026-05-14T00:00:01+00:00",
+      "importance": 0.7,
+      "text": "There is a warehouse district not far from the shops."
+    },
+    {
+      "timestamp": "2026-05-14T00:00:02+00:00",
+      "importance": 0.8,
+      "text": "Dufus is the friendly fool who wanders the street. He is wearing his hat but keeps asking about it."
+    },
+    {
+      "timestamp": "2026-05-14T01:11:39.618816+00:00",
+      "importance": 0.6,
+      "text": "Dufus is still wandering the street and still asking about his hat."
+    },
+    {
+      "timestamp": "2026-05-14T01:13:26.044266+00:00",
+      "importance": 0.7,
+      "text": "Dufus is nearby again and still asking about his hat."
+    },
+    {
+      "timestamp": "2026-05-14T01:16:56.793129+00:00",
+      "importance": 0.6,
+      "text": "Dufus is nearby again and still asking about his hat; he is wearing it."
+    },
+    {
+      "timestamp": "2026-05-14T01:19:08.201548+00:00",
+      "importance": 0.7,
+      "text": "Dufus was nearby asking about his hat, but he was already wearing it."
+    }
+  ]
+}

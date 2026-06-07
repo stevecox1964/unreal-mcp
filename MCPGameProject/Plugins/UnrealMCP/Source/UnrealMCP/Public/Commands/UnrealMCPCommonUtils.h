@@ -42,7 +42,13 @@ public:
     // Used so agent state.json can store a friendly label like "Bartleby"
     // rather than the volatile UAID-style internal name.
     static AActor* FindActorByNameOrLabel(UWorld* World, const FString& Name);
-    
+
+    // Returns the active PIE/Game world when one exists, otherwise GWorld.
+    // Runtime commands (character, camera) must target the simulated world during
+    // Play, not the editor preview world — GWorld flips between the two and causes
+    // commands/reads to randomly hit a frozen duplicate actor.
+    static UWorld* GetGameWorld();
+
     // Blueprint utilities
     static UBlueprint* FindBlueprint(const FString& BlueprintName);
     static UBlueprint* FindBlueprintByName(const FString& BlueprintName);
