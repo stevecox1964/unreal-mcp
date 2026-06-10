@@ -61,6 +61,24 @@ class MemoryStore:
 
     _MAX_MEMORIES = 30
 
+    def reset_memories(self, agent_id: str) -> str:
+        """Restore memory.json from memory.seed.json if present, else clear it.
+
+        memory.seed.json holds an agent's hand-authored starting memories so a
+        reset doesn't wipe them along with the run-accumulated ones.
+        Returns "seeded" or "cleared".
+        """
+        p = self.agents_dir / agent_id / "memory.json"
+        seed = self.agents_dir / agent_id / "memory.seed.json"
+        if seed.exists():
+            p.write_text(seed.read_text(encoding="utf-8"), encoding="utf-8")
+            return "seeded"
+        p.write_text(
+            json.dumps({"agent_id": agent_id, "memories": []}, indent=2),
+            encoding="utf-8",
+        )
+        return "cleared"
+
     def record(
         self,
         agent_id: str,

@@ -6,12 +6,20 @@
   "is_active": true,
   "is_busy": false,
   "current_goal": "Wander the village square greeting passers-by",
-  "tick_interval_seconds": 10,
+  "tick_interval_seconds": 0,
   "speech_cooldown_seconds": 30,
-  "last_tick_time": "2026-05-14T01:36:03.513403+00:00",
-  "last_spoke_time": "2026-05-13T16:07:47.705104+00:00",
+  "start_location": {
+    "x": -9850,
+    "y": -730,
+    "z": 90.32151718333598
+  },
+  "start_rotation": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+  },
   "bound_unreal_actor_name": "BP_CameraNPC_C_1",
   "bound_unreal_actor_label": "Dufus",
   "bound_unreal_actor_class": "BP_CameraNPC_C",
-  "last_bound_time": "2026-05-14T01:29:25.894946+00:00"
+  "last_bound_time": "2026-06-10T16:59:00.202652+00:00"
 }

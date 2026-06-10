@@ -54,6 +54,11 @@ class UnrealBridge:
         result = self._send("get_current_level_name", {})
         return result.get("name", "")
 
+    def get_level_actors(self) -> list[dict]:
+        """All actors in the current level (editor command — run outside PIE)."""
+        result = self._send("get_actors_in_level", {})
+        return result.get("actors") or []
+
     # ── Actor binding ─────────────────────────────────────────────────────────
 
     def find_actor(self, actor_name: str) -> Optional[dict]:
@@ -85,6 +90,21 @@ class UnrealBridge:
             "rotation": [0.0, 0.0, 0.0],
         }
         return self._send("spawn_blueprint_actor", params)
+
+    def get_character_transform(self, actor_name: str) -> dict:
+        """Return {'location': {x,y,z}, 'rotation': {x:pitch, y:yaw, z:roll}} or empty values."""
+        result = self._send("get_character_location", {"character_name": actor_name})
+        return {"location": result.get("location"), "rotation": result.get("rotation")}
+
+    def teleport(self, actor_name: str, location, rotation=None) -> dict:
+        """Instantly move a character (PIE world) — used by reset_agents, not by NPC actions."""
+        params: dict[str, Any] = {
+            "character_name": actor_name,
+            "location": _xyz_list(location),
+        }
+        if rotation is not None:
+            params["rotation"] = _xyz_list(rotation)  # [pitch, yaw, roll]
+        return self._send("command_character_teleport", params)
 
     def _blueprint_asset_name(self, blueprint_class: str) -> str:
         """Convert /Game/Blueprints/BP_Name.BP_Name_C to BP_Name for this plugin."""
@@ -122,6 +142,10 @@ class UnrealBridge:
             "current_action": action.get("current_action"),
             "ai_state":       action.get("ai_state"),
         }
+
+    def clear_scene_cache(self) -> None:
+        """Forget last-seen image hashes so the next tick always perceives."""
+        self._last_image_hashes.clear()
 
     def is_scene_changed(self, agent_id: str, image_path: str) -> bool:
         """Return True if the scene has changed enough to warrant an LLM call.

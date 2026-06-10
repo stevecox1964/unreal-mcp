@@ -56,6 +56,8 @@ _USER_TEMPLATE_VISION = """\
 
 ## Your Location
 x={x:.0f}, y={y:.0f}, z={z:.0f}
+Grid cell: {grid_cell}
+Place: {place}
 
 ## Your Current State
 {current_action}
@@ -219,10 +221,17 @@ class LLMRouter:
                 action_state += f" ({observation['ai_state']})"
             known = observation.get("known_characters") or []
             known_text = ", ".join(known) if known else "none known yet"
+            grid = observation.get("grid") or {}
+            grid_text = grid.get("key", "unknown")
+            if grid.get("col") is not None:
+                grid_text += f" (col {grid['col']}, row {grid['row']} of {grid['cols']}x{grid['rows']})"
+            place = observation.get("place") or []
             user_text = _USER_TEMPLATE_VISION.format(
                 agent_id=agent.agent_id,
                 memories=mem_lines,
                 known_characters=known_text,
+                grid_cell=grid_text,
+                place=", ".join(place) if place else "unknown",
                 x=loc.get("x", 0),
                 y=loc.get("y", 0),
                 z=loc.get("z", 0),

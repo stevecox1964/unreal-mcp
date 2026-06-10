@@ -85,11 +85,20 @@ class Agent:
 
     @property
     def tick_interval(self) -> int:
-        return int(self.state.get("tick_interval_seconds", 10))
+        # 0 = no per-agent throttle; pacing comes from the adaptive sim loop.
+        return int(self.state.get("tick_interval_seconds", 0))
 
     @property
     def speech_cooldown(self) -> int:
         return int(self.state.get("speech_cooldown_seconds", 30))
+
+    @property
+    def start_location(self):
+        return self.state.get("start_location")
+
+    @property
+    def start_rotation(self):
+        return self.state.get("start_rotation")
 
     # Cooldown checks
 
@@ -127,6 +136,26 @@ class Agent:
 
     def set_active(self, active: bool, agents_dir: Path) -> None:
         self.state["is_active"] = active
+        self._save_state(agents_dir)
+
+    def record_start_transform(self, location, rotation, agents_dir: Path) -> bool:
+        """Capture the run-start transform once; reset_agents teleports back to it.
+
+        Returns True if recorded, False if a start transform already exists
+        (delete the keys from state.json to re-capture from a new placement).
+        """
+        if self.state.get("start_location"):
+            return False
+        self.state["start_location"] = location
+        self.state["start_rotation"] = rotation
+        self._save_state(agents_dir)
+        return True
+
+    def reset_runtime_state(self, agents_dir: Path) -> None:
+        """Clear per-run timers so a fresh run behaves like the first one."""
+        for key in ("last_tick_time", "last_spoke_time"):
+            self.state.pop(key, None)
+        self.state["is_busy"] = False
         self._save_state(agents_dir)
 
     def bind_unreal_actor(self, actor: dict[str, Any], agents_dir: Path) -> None:

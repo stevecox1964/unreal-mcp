@@ -7,6 +7,7 @@ so the Claude/OpenAI CLI can act as the simulation director.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -47,21 +48,26 @@ def register_simulation_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     async def start_simulation(
-        tick_seconds: int = 5,
+        tick_seconds: int = 1,
         active_agents: List[str] = None,
         mode: str = "live",
     ) -> Dict[str, Any]:
         """Start the NPC agent simulation loop.
 
+        The loop is self-pacing: tick_seconds is the BASE interval, and the sleep
+        starts only after a tick's processing (Gemini observation + LLM thinking
+        for all agents) completes. E.g. a 2 s observation with base 1 means ~3 s
+        between ticks — ticks never pile up and over-drive the avatars.
+
         Args:
-            tick_seconds: How often (in seconds) each agent is pulsed. Default 5.
+            tick_seconds: Base seconds added after each tick's processing. Default 1.
             active_agents: List of agent_ids to activate. Omit to load all agents.
             mode: "live" (default) = LLM-driven decisions; "explore" = deterministic
                 frontier exploration that builds each agent's spatial_map.json from
                 vision (Gemini) — no decision LLM, the avatar maps the world by walking it.
 
         Example valid input:
-            {"tick_seconds": 10, "active_agents": ["dufus"], "mode": "explore"}
+            {"tick_seconds": 1, "active_agents": ["dufus"], "mode": "explore"}
         """
         from unreal_mcp_server import get_agent_manager
         mgr = get_agent_manager()
@@ -172,6 +178,76 @@ def register_simulation_tools(mcp: FastMCP) -> None:
         from unreal_mcp_server import get_agent_manager
         mgr = get_agent_manager()
         return {"events": mgr.memory.get_recent_events(limit)}
+
+    @mcp.tool()
+    async def reset_agents() -> Dict[str, Any]:
+        """Reset agents to their run-start state so sim re-runs are reproducible.
+
+        Stops the simulation if running, then for every agent: teleports it back
+        to the start transform recorded at the first start_simulation, clears
+        tick/speech timers, restores memory.json from memory.seed.json (or empties
+        it), and deletes spatial_map.json. Run while PIE is active so the teleport
+        hits the live game world. To re-capture a new start position, delete
+        start_location/start_rotation from the agent's state.json first.
+
+        Example valid input:
+            {}
+        """
+        from unreal_mcp_server import get_agent_manager
+        return await get_agent_manager().reset_agents()
+
+    @mcp.tool()
+    def generate_world_grid(cell_size: float = 400.0, padding: float = 800.0) -> Dict[str, Any]:
+        """Compute the fixed world grid from the current level's actor positions.
+
+        Scans every actor in the level, takes the min/max x/y plus padding as the
+        world bounds, and writes worlds/<level>/world_grid.json. All agents then
+        report their position as a stable (col, row) cell of this grid every tick.
+        Run with the editor open and PIE stopped (uses an editor-world scan).
+        Re-run after the level layout changes; edit the JSON to trim outliers
+        (e.g. a distant skybox actor inflating the bounds).
+
+        Args:
+            cell_size: Grid cell edge length in centimeters. Default 400.
+            padding: Extra margin added around the actor bounds, in cm. Default 800.
+
+        Example valid input:
+            {"cell_size": 400.0, "padding": 800.0}
+        """
+        from unreal_mcp_server import get_agent_manager
+        from agent_runtime.world_grid import WorldGrid
+
+        mgr = get_agent_manager()
+        level = mgr.bridge.get_current_level()
+        if not level:
+            return {"status": "error", "error": "Could not determine current level — is Unreal running?"}
+
+        actors = mgr.bridge.get_level_actors()
+        points = [a["location"][:2] for a in actors
+                  if isinstance(a.get("location"), list) and len(a["location"]) >= 2]
+        if not points:
+            return {"status": "error", "error": "No actor positions returned — is the editor open (and PIE stopped)?"}
+
+        xs, ys = [p[0] for p in points], [p[1] for p in points]
+        bounds = {
+            "min_x": min(xs) - padding, "min_y": min(ys) - padding,
+            "max_x": max(xs) + padding, "max_y": max(ys) + padding,
+        }
+        path = Path(__file__).resolve().parents[1] / "worlds" / level / "world_grid.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"cell_size": cell_size, "bounds": bounds}, indent=2),
+            encoding="utf-8",
+        )
+        mgr.world_grid = WorldGrid(cell_size=cell_size, bounds=bounds)
+        return {
+            "status": "generated",
+            "level": level,
+            "path": str(path),
+            "actors_scanned": len(points),
+            "bounds": bounds,
+            "grid": mgr.world_grid.describe(),
+        }
 
     @mcp.tool()
     def resync_simulation() -> Dict[str, Any]:

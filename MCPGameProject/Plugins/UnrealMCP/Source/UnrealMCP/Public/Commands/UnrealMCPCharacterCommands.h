@@ -40,6 +40,7 @@ private:
     TSharedPtr<FJsonObject> HandleCommandMoveTo(const TSharedPtr<FJsonObject>& Params);
     TSharedPtr<FJsonObject> HandleCommandFollow(const TSharedPtr<FJsonObject>& Params);
     TSharedPtr<FJsonObject> HandleCommandStop(const TSharedPtr<FJsonObject>& Params);
+    TSharedPtr<FJsonObject> HandleCommandTeleport(const TSharedPtr<FJsonObject>& Params);
     TSharedPtr<FJsonObject> HandleCommandLookAt(const TSharedPtr<FJsonObject>& Params);
     TSharedPtr<FJsonObject> HandleCommandPickup(const TSharedPtr<FJsonObject>& Params);
     TSharedPtr<FJsonObject> HandleCommandDrop(const TSharedPtr<FJsonObject>& Params);

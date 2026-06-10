@@ -207,6 +207,22 @@ class SpatialMap:
         """Return what is known about a cell, or None if never recorded."""
         return self.cells.get(key)
 
+    def place_labels(self, key: str, top_n: int = 3) -> list[str]:
+        """Best-known landmark labels for a cell — the 'place' the agent is in.
+
+        Ranked by sighting count x confidence; empty if the cell is unknown or
+        has no landmarks yet.
+        """
+        cell = self.cells.get(key)
+        if not cell:
+            return []
+        ranked = sorted(
+            cell["landmarks"].items(),
+            key=lambda kv: kv[1]["count"] * kv[1]["confidence"],
+            reverse=True,
+        )
+        return [label for label, _ in ranked[:top_n]]
+
     def stats(self) -> dict:
         visited = self._visited_keys()
         labels = {

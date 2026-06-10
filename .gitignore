@@ -1,5 +1,6 @@
 # Unreal MCP
 Python/unreal_mcp.log
+MCPGameProject/build_results.txt
 
 # Agent runtime artifacts
 Python/worlds/*/logs/

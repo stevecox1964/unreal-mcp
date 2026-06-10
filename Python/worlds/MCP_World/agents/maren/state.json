@@ -6,12 +6,20 @@
   "is_active": true,
   "is_busy": false,
   "current_goal": "Tend her stall under the shop canopy and help anyone who passes by",
-  "tick_interval_seconds": 20,
+  "tick_interval_seconds": 0,
   "speech_cooldown_seconds": 30,
-  "last_tick_time": "2026-06-07T03:07:38.595448+00:00",
-  "last_spoke_time": "2026-05-14T01:29:46.612230+00:00",
+  "start_location": {
+    "x": -5460,
+    "y": -440,
+    "z": 90.32151718333598
+  },
+  "start_rotation": {
+    "x": 0,
+    "y": 179.9999986056539,
+    "z": 0
+  },
   "bound_unreal_actor_name": "BP_CameraNPC_C_0",
   "bound_unreal_actor_label": "Maren",
   "bound_unreal_actor_class": "BP_CameraNPC_C",
-  "last_bound_time": "2026-06-07T03:04:43.812126+00:00"
+  "last_bound_time": "2026-06-10T16:59:00.420680+00:00"
 }

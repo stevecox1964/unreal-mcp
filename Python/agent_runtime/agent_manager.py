@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -11,6 +12,7 @@ from .action_validator import validate
 from . import explorer
 from .perception import VisionPerceiver
 from .spatial_memory import SpatialMap
+from .world_grid import WorldGrid
 
 logger = logging.getLogger("AgentRuntime")
 
@@ -41,20 +43,26 @@ class AgentManager:
         self.agents: dict[str, Agent] = {}
         self.running = False
         self.paused = False
-        self.tick_seconds = 5
+        self.tick_seconds = 1
         self.mode = "live"                       # "live" = LLM-driven; "explore" = frontier mapping
         self._sim_task: Optional[asyncio.Task] = None
+        self._tick_count = 0
+        self._started_at: float | None = None
+        self._last_tick_duration = 0.0
 
         # Explore-mode state (per agent).
         self.perceiver = VisionPerceiver()
         self._spatial: dict[str, SpatialMap] = {}   # agent_id -> loaded map (cache)
         self._last_cell: dict[str, str] = {}        # agent_id -> previous cell key, for nav edges
 
+        # Fixed per-level grid; reloaded with the level in _load_agents.
+        self.world_grid = WorldGrid()
+
     # Lifecycle
 
     async def start_simulation(
         self,
-        tick_seconds: int = 5,
+        tick_seconds: int = 1,
         active_agents: list[str] | None = None,
         mode: str = "live",
     ) -> dict:
@@ -81,12 +89,27 @@ class AgentManager:
                 "bound_count": bound_count,
             }
 
+        # Record each agent's run-start transform (once) so reset_agents can
+        # teleport it back for reproducible re-runs.
+        for agent in active:
+            tf = self.bridge.get_character_transform(agent.bound_unreal_actor_name)
+            if tf.get("location"):
+                if agent.record_start_transform(tf["location"], tf.get("rotation"), self._agents_dir):
+                    logger.info(f"[{agent.agent_id}] Start transform recorded: {tf['location']}")
+            else:
+                logger.warning(f"[{agent.agent_id}] Could not read start transform — reset won't reposition this agent")
+
         self.running = True
         self.paused = False
         self.tick_seconds = tick_seconds
+        self._tick_count = 0
+        self._started_at = time.monotonic()
         self._sim_task = asyncio.create_task(self._loop())
 
-        logger.info(f"Simulation started ({self.mode}) - agents: {[a.agent_id for a in active]}")
+        logger.info(
+            f"=== SIMULATION START === mode={self.mode} base_tick={tick_seconds}s "
+            f"agents={[a.agent_id for a in active]}"
+        )
         return {
             "status": "started",
             "mode": self.mode,
@@ -95,13 +118,19 @@ class AgentManager:
         }
 
     async def stop_simulation(self) -> dict:
+        was_running = self.running
         self.running = False
         self.paused = False
         if self._sim_task:
             self._sim_task.cancel()
             self._sim_task = None
-        logger.info("Simulation stopped")
-        return {"status": "stopped"}
+        elapsed = time.monotonic() - self._started_at if self._started_at else 0.0
+        if was_running:
+            logger.info(f"=== SIMULATION STOP === ticks={self._tick_count} elapsed={elapsed:.1f}s")
+        else:
+            logger.info("=== SIMULATION STOP === (was not running)")
+        self._started_at = None
+        return {"status": "stopped", "ticks": self._tick_count, "elapsed_seconds": round(elapsed, 1)}
 
     async def pause_simulation(self) -> dict:
         self.paused = True
@@ -117,7 +146,10 @@ class AgentManager:
         return {
             "running": self.running,
             "paused": self.paused,
+            "mode": self.mode,
             "tick_seconds": self.tick_seconds,
+            "tick_count": self._tick_count,
+            "last_tick_duration_seconds": round(self._last_tick_duration, 2),
             "agent_count": len(self.agents),
             "agents": [self._agent_summary(a) for a in self.agents.values()],
         }
@@ -139,6 +171,9 @@ class AgentManager:
 
         self._agents_dir = agents_dir
         self.memory.update_agents_dir(agents_dir)
+
+        self.world_grid = WorldGrid.load(self.worlds_dir / current_level / "world_grid.json")
+        logger.info(f"World grid for '{current_level}': {self.world_grid.describe()}")
         logger.info(f"Loading agents for level '{current_level}' from {agents_dir}")
 
         for path in sorted(agents_dir.iterdir()):
@@ -205,13 +240,29 @@ class AgentManager:
     # Simulation loop
 
     async def _loop(self) -> None:
-        logger.info("Simulation loop running")
+        logger.info(
+            f"Simulation loop running — base tick {self.tick_seconds}s; the sleep starts "
+            f"only after each tick's processing, so the interval expands with observation/LLM time"
+        )
         while self.running:
             if not self.paused:
+                started = time.monotonic()
+                result = None
                 try:
-                    await self.tick()
+                    result = await self.tick()
                 except Exception as e:
                     logger.error(f"Tick error: {e}")
+                duration = time.monotonic() - started
+                self._last_tick_duration = duration
+                self._tick_count += 1
+                if result and result.get("ticked"):
+                    logger.info(
+                        f"Tick #{self._tick_count}: {result['ticked']} agent(s) in {duration:.2f}s "
+                        f"— next in {self.tick_seconds}s (effective interval ~{duration + self.tick_seconds:.2f}s)"
+                    )
+            # Base pacing sleeps AFTER the tick completes: with N avatars the gap
+            # between ticks is their full observation + thinking time plus the base,
+            # so ticks can never pile up and over-drive the avatars.
             await asyncio.sleep(self.tick_seconds)
         logger.info("Simulation loop exited")
 
@@ -245,11 +296,22 @@ class AgentManager:
             if a.agent_id != agent_id and a.has_unreal_binding
         ]
 
+        # Fixed world-grid cell + known place — reported every tick, perception or not.
+        grid, place = self._grid_and_place(agent_id, observation.get("location"))
+        observation["grid"] = grid
+        observation["place"] = place
+
         # Visual diff gate: skip LLM if the scene hasn't changed since last tick
         if not self.bridge.is_scene_changed(agent.agent_id, observation.get("image_path")):
             agent.mark_ticked(self._agents_dir)
-            logger.info(f"[{agent_id}] Scene unchanged — skipping LLM")
-            return {"agent_id": agent_id, "action": "idle", "reason": "scene_unchanged"}
+            logger.info(
+                f"[{agent_id}] grid={grid.get('key') if grid else '?'} "
+                f"place={place or 'unknown'} — scene unchanged, skipping LLM"
+            )
+            return {
+                "agent_id": agent_id, "action": "idle", "reason": "scene_unchanged",
+                "grid": grid, "place": place,
+            }
 
         # Retrieve relevant memories
         memories = self.memory.get_relevant_memories(agent_id)
@@ -311,6 +373,8 @@ class AgentManager:
             "thought":    decision.get("thought_summary"),
             "action":     action,
             "result":     result,
+            "grid":       grid,
+            "place":      place,
         }
 
     # ── Explore mode ───────────────────────────────────────────────────────────
@@ -320,9 +384,23 @@ class AgentManager:
         smap = self._spatial.get(agent_id)
         if smap is None:
             path = self._agents_dir / agent_id / "spatial_map.json"
-            smap = SpatialMap.load(path)
+            # Tile with the world grid's cell size so map cells and grid keys align.
+            smap = SpatialMap.load(path, cell_size=self.world_grid.cell_size)
             self._spatial[agent_id] = smap
         return smap
+
+    def _grid_and_place(self, agent_id: str, location) -> tuple[dict | None, list[str]]:
+        """Fixed world-grid cell for a location + known place labels for it.
+
+        Pure lookups (grid math + this agent's saved spatial map) — no engine
+        or LLM calls, so it runs every tick even when perception is skipped.
+        """
+        xyz = _loc_xyz(location)
+        if xyz is None:
+            return None, []
+        grid = self.world_grid.locate(xyz[0], xyz[1])
+        place = self._spatial_map(agent_id).place_labels(grid["key"])
+        return grid, place
 
     def _pulse_explore(self, agent: Agent) -> dict:
         """One exploration tick: see → perceive → map → pick frontier → walk.
@@ -384,8 +462,14 @@ class AgentManager:
 
         smap.save(self._agents_dir / agent_id / "spatial_map.json")
 
+        # Fixed world-grid cell + known place — reported even when perception skipped.
+        grid = self.world_grid.locate(x, y)
+        place = smap.place_labels(cell)
+
         action = {"type": "walk_to", "target_cell": target["cell"]} if target else {"type": "idle"}
         observation["_thought"] = caption
+        observation["grid"] = grid
+        observation["place"] = place
         self.memory.record(
             agent_id=agent_id, observation=observation, action=action,
             result=result, memory_update=None, importance=0.3,
@@ -394,19 +478,80 @@ class AgentManager:
 
         stats = smap.stats()
         logger.info(
-            f"[{agent_id}] explore cell={cell} saw={len(landmarks)} "
+            f"[{agent_id}] explore grid={grid['key']}"
+            f"{' (col ' + str(grid['col']) + ',row ' + str(grid['row']) + ')' if 'col' in grid else ''} "
+            f"place={place or 'unknown'} saw={len(landmarks)} "
             f"target={target['cell'] if target else None} "
             f"visited={stats['cells_visited']} labels={stats['distinct_labels']}"
         )
         return {
             "agent_id": agent_id,
             "cell": cell,
+            "grid": grid,
+            "place": place,
             "caption": caption,
             "landmarks_seen": len(landmarks),
             "target_cell": target["cell"] if target else None,
             "result": result,
             "map_stats": stats,
         }
+
+    async def reset_agents(self) -> dict:
+        """Reset agents to their run-start state for reproducible re-runs.
+
+        Stops the sim if running, teleports each agent back to its recorded
+        start transform, clears per-run timers, restores memories from
+        memory.seed.json (or empties them), and deletes spatial maps.
+        """
+        was_running = self.running
+        if was_running:
+            await self.stop_simulation()
+
+        if not self.agents:
+            self._load_agents(None)
+            self._bind_agents()
+        if not self.agents or not self._agents_dir:
+            return {"status": "error", "error": "No agents loaded — is Unreal connected?"}
+
+        results = []
+        for agent in self.agents.values():
+            entry: dict = {"agent_id": agent.agent_id}
+
+            if agent.start_location and agent.has_unreal_binding:
+                result = self.bridge.teleport(
+                    agent.bound_unreal_actor_name, agent.start_location, agent.start_rotation
+                )
+                ok = result.get("success") is True or result.get("status") == "success"
+                entry["teleported"] = ok
+                if not ok:
+                    entry["teleport_error"] = result.get("error") or "unknown error"
+            else:
+                entry["teleported"] = False
+                entry["teleport_error"] = (
+                    "no Unreal binding" if agent.start_location else "no start transform recorded"
+                )
+
+            agent.reset_runtime_state(self._agents_dir)
+            entry["memories"] = self.memory.reset_memories(agent.agent_id)
+
+            map_path = self._agents_dir / agent.agent_id / "spatial_map.json"
+            if map_path.exists():
+                map_path.unlink()
+                entry["spatial_map"] = "deleted"
+
+            results.append(entry)
+
+        self._spatial.clear()
+        self._last_cell.clear()
+        self.bridge.clear_scene_cache()
+
+        failures = [r["agent_id"] for r in results if not r["teleported"]]
+        logger.info(
+            f"=== AGENTS RESET === {len(results)} agent(s)"
+            f"{', sim stopped first' if was_running else ''}"
+            f"{', teleport FAILED for: ' + ', '.join(failures) if failures else ''}"
+        )
+        return {"status": "reset", "stopped_simulation": was_running, "agents": results}
 
     def resync(self) -> dict:
         """Re-query the world and rebind agents without a full stop/restart cycle."""

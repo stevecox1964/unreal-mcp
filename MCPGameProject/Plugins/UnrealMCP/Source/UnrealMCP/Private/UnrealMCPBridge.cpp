@@ -304,6 +304,7 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("command_character_move_to") ||
                      CommandType == TEXT("command_character_follow") ||
                      CommandType == TEXT("command_character_stop") ||
+                     CommandType == TEXT("command_character_teleport") ||
                      CommandType == TEXT("command_character_look_at") ||
                      CommandType == TEXT("command_character_pickup") ||
                      CommandType == TEXT("command_character_drop") ||

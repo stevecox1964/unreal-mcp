@@ -42,6 +42,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommand(const FString
     if (CommandType == TEXT("command_character_move_to"))     return HandleCommandMoveTo(Params);
     if (CommandType == TEXT("command_character_follow"))      return HandleCommandFollow(Params);
     if (CommandType == TEXT("command_character_stop"))        return HandleCommandStop(Params);
+    if (CommandType == TEXT("command_character_teleport"))    return HandleCommandTeleport(Params);
     if (CommandType == TEXT("command_character_look_at"))     return HandleCommandLookAt(Params);
     if (CommandType == TEXT("command_character_pickup"))      return HandleCommandPickup(Params);
     if (CommandType == TEXT("command_character_drop"))        return HandleCommandDrop(Params);
@@ -488,6 +489,45 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommandStop(const TSh
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("success"), true);
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommandTeleport(const TSharedPtr<FJsonObject>& Params)
+{
+    FString Error;
+    AActor* Actor = ResolveCharacter(Params, Error);
+    if (!Actor) return FUnrealMCPCommonUtils::CreateErrorResponse(Error);
+
+    if (!Params->HasField(TEXT("location")))
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'location' parameter ([x, y, z])"));
+
+    FVector Location = FUnrealMCPCommonUtils::GetVectorFromJson(Params, TEXT("location"));
+    FRotator Rotation = Actor->GetActorRotation();
+    if (Params->HasField(TEXT("rotation")))
+        Rotation = FUnrealMCPCommonUtils::GetRotatorFromJson(Params, TEXT("rotation"));
+
+    // Cancel any in-flight nav move so the AI doesn't resume its old path after the jump.
+    if (ACharacter* Character = Cast<ACharacter>(Actor))
+    {
+        if (AAIController* AIController = Cast<AAIController>(Character->GetController()))
+            AIController->StopMovement();
+        if (UCharacterMovementComponent* Movement = Character->GetCharacterMovement())
+            Movement->StopMovementImmediately();
+    }
+
+    if (!Actor->TeleportTo(Location, Rotation, false, true))
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("TeleportTo failed for: %s"), *Actor->GetName()));
+
+    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
+    if (Comp)
+    {
+        Comp->AIState = TEXT("idle");
+        Comp->CurrentAction = TEXT("teleported");
+    }
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("success"), true);
+    Result->SetObjectField(TEXT("location"), MakeVec3Field(Actor->GetActorLocation()));
     return Result;
 }
 
