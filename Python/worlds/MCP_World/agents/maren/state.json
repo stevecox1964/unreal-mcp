@@ -5,21 +5,22 @@
   "tier": 2,
   "is_active": true,
   "is_busy": false,
-  "current_goal": "Tend her stall under the shop canopy and help anyone who passes by",
-  "tick_interval_seconds": 0,
+  "current_goal": "Get back to my vegetable truck to start the day's work.",
+  "tick_interval_seconds": 2,
   "speech_cooldown_seconds": 30,
   "start_location": {
-    "x": -5460,
-    "y": -440,
-    "z": 90.32151718333598
+    "x": -8490,
+    "y": 150,
+    "z": 89.91366181751826
   },
   "start_rotation": {
     "x": 0,
-    "y": 179.9999986056539,
+    "y": -90.00000209151892,
     "z": 0
   },
+  "last_tick_time": "2026-06-13T02:58:33.724363+00:00",
   "bound_unreal_actor_name": "BP_CameraNPC_C_0",
   "bound_unreal_actor_label": "Maren",
   "bound_unreal_actor_class": "BP_CameraNPC_C",
-  "last_bound_time": "2026-06-10T16:59:00.420680+00:00"
+  "last_bound_time": "2026-06-13T02:56:25.687420+00:00"
 }

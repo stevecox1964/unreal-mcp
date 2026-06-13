@@ -112,3 +112,14 @@ export async function getMemory(agentId: string): Promise<AgentMemory> {
 export async function putMemory(agentId: string, memory: AgentMemory): Promise<void> {
   await put(`/agents/${encodeURIComponent(agentId)}/memory`, memory)
 }
+
+// ── Log ───────────────────────────────────────────────
+
+export async function getLog(): Promise<string> {
+  const data = await get<{ content: string }>('/log')
+  return data.content
+}
+
+export async function deleteLog(): Promise<void> {
+  await del('/log')
+}

@@ -15,6 +15,66 @@
       "timestamp": "2026-05-14T00:00:02+00:00",
       "importance": 0.8,
       "text": "Dufus is the friendly fool who wanders the street. He is wearing his hat but keeps asking about it."
+    },
+    {
+      "timestamp": "2026-06-11T16:40:59.807231+00:00",
+      "importance": 0.7,
+      "text": "I woke up away from the truck on Day 1 and need to get back to my stand."
+    },
+    {
+      "timestamp": "2026-06-11T22:18:40.769089+00:00",
+      "importance": 0.7,
+      "text": "Woke under the shop canopy on main street at 08:00, away from the truck and heading back."
+    },
+    {
+      "timestamp": "2026-06-11T22:18:45.944782+00:00",
+      "importance": 0.7,
+      "text": "At 08:02 on Day 1, I was away from the truck near the shop canopy on main street and headed back toward my stand."
+    },
+    {
+      "timestamp": "2026-06-11T22:18:54.190413+00:00",
+      "importance": 0.7,
+      "text": "I was at the shop canopy on main street away from the truck, and I need to keep heading back to my vegetable truck."
+    },
+    {
+      "timestamp": "2026-06-11T22:19:23.238079+00:00",
+      "importance": 0.74,
+      "text": "I was still away from the truck at 08:09 and kept heading back from the main street canopy toward my stand."
+    },
+    {
+      "timestamp": "2026-06-11T22:19:54.781280+00:00",
+      "importance": 0.6,
+      "text": "At 08:14 on Day 1, I was still walking back toward my vegetable truck from the main street canopy."
+    },
+    {
+      "timestamp": "2026-06-11T22:20:11.652222+00:00",
+      "importance": 0.7,
+      "text": "I am on main street away from the truck and moving back toward my vegetable stand."
+    },
+    {
+      "timestamp": "2026-06-11T22:20:18.633168+00:00",
+      "importance": 0.6,
+      "text": "Still on main street away from the vegetable truck at 08:18 and continuing back toward my stand."
+    },
+    {
+      "timestamp": "2026-06-11T22:20:30.661907+00:00",
+      "importance": 0.6,
+      "text": "Still on main street at 08:20, away from the truck and moving back toward my vegetable stand."
+    },
+    {
+      "timestamp": "2026-06-12T15:51:21.269443+00:00",
+      "importance": 0.8,
+      "text": "Woke at motel area on main street, Day 1 at 08:00\u2014need to get back to truck."
+    },
+    {
+      "timestamp": "2026-06-13T02:24:14.242036+00:00",
+      "importance": 0.8,
+      "text": "Woke at motel area on main street Day 1 at 08:00, heading back to truck in the forward-left direction."
+    },
+    {
+      "timestamp": "2026-06-13T02:56:31.149794+00:00",
+      "importance": 0.8,
+      "text": "Woke at motel area Day 1 08:00, heading toward vegetable truck."
     }
   ]
 }

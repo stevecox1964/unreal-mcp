@@ -17,8 +17,8 @@ _ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
 # Field specs for actions that take parameters beyond "type".
 _ACTION_SCHEMAS: dict[str, str] = {
     "idle":             '{"type": "idle"}',
-    "wander":           '{"type": "wander"}  -- move through the world; seeks out known characters if any are known',
-    "walk_to":          '{"type": "walk_to", "target_actor": "<actor_label>"}  -- walk directly to a known character',
+    "wander":           '{"type": "wander"}  -- keep moving: take one step (~15m) in the direction you are facing',
+    "walk_to":          '{"type": "walk_to", "target_actor": "<actor_label>"} to walk to a known character, OR {"type": "walk_to", "direction": "forward|forward-left|forward-right|left|right|back"} to walk ~15m toward what you see in that direction',
     "speak_to":         '{"type": "speak_to", "target": "<actor_label>", "message": "<text>"}',
     "inspect_object":   '{"type": "inspect_object", "target": "<actor_name>"}',
     "follow_character": '{"type": "follow_character", "target": "<actor_name>"}',
@@ -46,7 +46,8 @@ Each entry shows the exact JSON shape to use in the "action" field:
 {actions}
 """
 
-# Dynamic portion — vision path (image attached separately by the provider call).
+# Dynamic portion — perception path: Gemini has already turned the screenshot
+# into structured sightings; the decision LLM reads facts, never pixels.
 _USER_TEMPLATE_VISION = """\
 ## Your Memories
 {memories}
@@ -56,8 +57,16 @@ _USER_TEMPLATE_VISION = """\
 
 ## Your Location
 x={x:.0f}, y={y:.0f}, z={z:.0f}
+Facing: {facing}
 Grid cell: {grid_cell}
 Place: {place}
+Time: {world_time}
+
+## Where You Can Go Next — neighboring grid cells (one step ~15m away)
+{direction_lines}
+
+## You See (your forward view, perceived just now)
+{seen}
 
 ## Your Current State
 {current_action}
@@ -65,10 +74,21 @@ Place: {place}
 ## Current Goal
 {current_goal}
 
-The image above shows exactly what you can see right now.
+Anything listed under "You See" is really there. A CHARACTER sighting matching
+one of the known characters above is that person — consider greeting or
+approaching them.
 
-IMPORTANT: Scan the ENTIRE image carefully — edges, background, sidewalks. Any human figure, person-shaped model, or character standing anywhere in the scene is almost certainly one of the known characters listed above. Game character models may look blocky or stylized but are still people. If you see ANY human figure at all, assume it is a known character and greet or approach them immediately. Do not say you see nobody if there is a person-shaped figure anywhere in the frame.
+To move toward anything you see, use walk_to with a direction relative to your
+facing — "forward" is the view described above. Prefer a specific direction
+over wandering.
 
+If nothing in view needs your attention, keep exploring: pick a direction whose
+neighboring cell is still "unexplored" and walk_to it so the shared world map
+keeps growing. A cell that already has a name has been mapped — you do not need
+to go re-record it. Do not stand still with nowhere to be.
+
+The "Place" line above is what you have previously called the spot you are standing on (empty means you have never named it). If you can tell what this place is — from the image, your goals, or your memories — name it in the "place" field; it is saved to your map so next time you will know you have been here before.
+{stuck_note}
 Based on what you observe, choose exactly ONE next action. Return ONLY valid JSON: no prose, no markdown fences.
 
 {{
@@ -77,9 +97,57 @@ Based on what you observe, choose exactly ONE next action. Return ONLY valid JSO
   "action": {{
     "type": "..."
   }},
+  "place": "short name for the spot you are standing on (e.g. 'vegetable truck', 'village square'), or null if unsure",
   "speech": null,
   "memory_update": null,
   "importance": 0.5
+}}
+"""
+
+# Wake-up orientation at simulation start: where am I, what time is it, where
+# should I be. Sent with the 180-degree sweep views when available — the answer
+# comes from the agent's authored markdown plus what it can see.
+_USER_TEMPLATE_WAKE = """\
+## Your Memories
+{memories}
+
+## Waking Up
+It is {world_time}. You are just waking up and getting your bearings.
+{views_text}
+
+## Your Location
+x={x:.0f}, y={y:.0f}, z={z:.0f}
+Grid cell: {grid_cell}
+Place: {place}
+{known_line}
+
+## Where You Can Go Next — neighboring grid cells (one step ~15m away)
+{next_cells_text}
+
+Get your bearings by asking yourself, in character:
+1. Where am I? Use what you can see, the place label, and your memories. If you
+   have NOT been here before, name the place you are standing in — it is saved
+   to the shared map so next time you (or anyone) will know it.
+2. What time is it, and what does that time of day mean for my routine?
+3. Where should I be right now — and am I already there? If not, your first
+   action should start getting you there.
+
+Then choose the FIRST action that starts your day. If where you should be is
+visible in one of the views, use {{"type": "walk_to", "direction": "<that
+view's direction>"}} — directions are relative to the way you are facing
+("forward"). If you have nowhere specific to be, do not stand still: walk_to a
+neighboring cell that is still "unexplored" to help map the world.
+
+Return ONLY valid JSON: no prose, no markdown fences.
+
+{{
+  "agent_id": "{agent_id}",
+  "thought_summary": "one sentence: where you are, what time it is, where you should be",
+  "current_goal": "what you intend to do right now, in first person",
+  "action": {{"type": "..."}},
+  "place": "short name for the spot you woke up at, or null if unsure",
+  "memory_update": "one short line worth remembering about waking up here, or null",
+  "importance": 0.7
 }}
 """
 
@@ -185,6 +253,102 @@ class LLMRouter:
             2: "claude-haiku-4-5-20251001",
         }.get(agent.tier, "claude-haiku-4-5-20251001")
 
+    def _system_text(self, agent: "Agent") -> str:
+        action_lines = "\n".join(
+            f"  {_ACTION_SCHEMAS.get(a, '{\"type\": \"' + a + '\"}')}"
+            for a in agent.allowed_actions
+        )
+        return _SYSTEM_TEMPLATE.format(
+            character=agent.character_text.strip(),
+            goals=agent.goals_text.strip(),
+            rules=agent.rules_text.strip(),
+            actions=action_lines,
+        )
+
+    def orient(self, agent: "Agent", context: dict, memories: list[dict]) -> Optional[dict]:
+        """Wake-up orientation at simulation start (the spool-up).
+
+        One text-only call: given the agent's own character/goals/rules, the
+        world time, where it is standing, and its perceived 180-degree
+        look-around (``context["views"]`` — captions/landmarks/characters from
+        the vision perceiver), the agent states where it should be, what it
+        intends, and its first action — returned as ``{"thought_summary",
+        "current_goal", "action", "place", "memory_update", "importance"}``,
+        or None on failure.
+        """
+        provider = self._resolve_provider(agent)
+        model = self._resolve_model(agent, provider)
+        if not model:
+            return None
+        if not self._resolve_api_key(provider):
+            logger.error("%s API key not set - skipping wake-up", provider)
+            return None
+
+        views = context.get("views") or []
+        if views:
+            lines = []
+            for v in views:
+                bits = []
+                if v.get("caption"):
+                    bits.append(v["caption"])
+                names = [lm["label"] for lm in v.get("landmarks") or []]
+                if names:
+                    bits.append("you see: " + ", ".join(names))
+                chars = [c["label"] for c in v.get("characters") or []]
+                if chars:
+                    bits.append("characters: " + ", ".join(chars))
+                if v.get("places"):
+                    bits.append("your map calls this way: " + ", ".join(v["places"]))
+                lines.append(f"- {v['direction']}: " + ("; ".join(bits) if bits else "(nothing notable)"))
+            views_text = (
+                "You slowly turn your head and look around, sweeping 180 degrees "
+                "from your left to your right:\n" + "\n".join(lines)
+            )
+        else:
+            views_text = "You cannot see anything yet — rely on your memories and the place label."
+
+        loc = context.get("location") or {}
+        place = context.get("place") or []
+        known = context.get("known_place")
+        known_line = (
+            f"You have been here before — this place ('{known}') is already on the "
+            f"shared map, so there is nothing new to record. Decide where to go next."
+            if known else
+            "You have not named this spot yet — if you can tell what it is, name it."
+        )
+        user_text = _USER_TEMPLATE_WAKE.format(
+            agent_id=agent.agent_id,
+            memories=_memory_lines(memories),
+            world_time=context.get("world_time", "unknown"),
+            views_text=views_text,
+            grid_cell=_grid_text(context.get("grid")),
+            place=", ".join(place) if place else "unknown",
+            known_line=known_line,
+            next_cells_text=_direction_lines(context.get("directions")),
+            x=loc.get("x", 0),
+            y=loc.get("y", 0),
+            z=loc.get("z", 0),
+        )
+
+        try:
+            if provider == "openai":
+                raw = self._decide_openai(model, self._system_text(agent), user_text)
+            else:
+                raw = self._decide_anthropic(model, self._system_text(agent), user_text)
+            orientation = json.loads(raw)
+            logger.info(
+                "[%s] %s/%s woke up: %s",
+                agent.agent_id, provider, model,
+                orientation.get("thought_summary", "")[:120],
+            )
+            return orientation
+        except json.JSONDecodeError as e:
+            logger.warning(f"[{agent.agent_id}] Wake-up returned invalid JSON: {e}\nRaw: {raw!r}")
+            return None
+        except Exception as e:
+            logger.error(f"[{agent.agent_id}] Wake-up LLM call failed: {e}")
+            return None
+
     def decide(self, agent: "Agent", observation: dict, memories: list[dict]) -> Optional[dict]:
         provider = self._resolve_provider(agent)
         model = self._resolve_model(agent, provider)
@@ -196,51 +360,41 @@ class LLMRouter:
             logger.error("%s API key not set - returning idle", provider)
             return _idle_decision(agent.agent_id, f"No {provider} API key configured")
 
-        mem_lines = "\n".join(
-            f"- [{m.get('importance', 0):.1f}] {m.get('text', '')}"
-            for m in memories
-        ) or "No memories yet."
+        mem_lines = _memory_lines(memories)
+        system_text = self._system_text(agent)
 
-        action_lines = "\n".join(
-            f"  {_ACTION_SCHEMAS.get(a, '{\"type\": \"' + a + '\"}')}"
-            for a in agent.allowed_actions
-        )
-        system_text = _SYSTEM_TEMPLATE.format(
-            character=agent.character_text.strip(),
-            goals=agent.goals_text.strip(),
-            rules=agent.rules_text.strip(),
-            actions=action_lines,
-        )
-
-        image_path = observation.get("image_path")
-        if image_path:
-            from pathlib import Path as _Path
+        if observation.get("seen") is not None or observation.get("image_path"):
             loc = observation.get("location") or {}
             action_state = observation.get("current_action") or "idle"
             if observation.get("ai_state"):
                 action_state += f" ({observation['ai_state']})"
             known = observation.get("known_characters") or []
             known_text = ", ".join(known) if known else "none known yet"
-            grid = observation.get("grid") or {}
-            grid_text = grid.get("key", "unknown")
-            if grid.get("col") is not None:
-                grid_text += f" (col {grid['col']}, row {grid['row']} of {grid['cols']}x{grid['rows']})"
-            place = observation.get("place") or []
+            # Report the fact only — the agent should notice it isn't progressing
+            # and reason out what to do. The lizard brain senses; it does not advise.
+            stuck_note = (
+                "\nNote: your last move command did not change your position — you "
+                "issued a move but you are not actually getting anywhere.\n"
+                if observation.get("stuck") else ""
+            )
             user_text = _USER_TEMPLATE_VISION.format(
                 agent_id=agent.agent_id,
                 memories=mem_lines,
                 known_characters=known_text,
-                grid_cell=grid_text,
-                place=", ".join(place) if place else "unknown",
+                grid_cell=_grid_text(observation.get("grid")),
+                place=_place_text(observation),
                 x=loc.get("x", 0),
                 y=loc.get("y", 0),
                 z=loc.get("z", 0),
+                facing=_facing_text(observation.get("rotation")),
+                direction_lines=_direction_lines(observation.get("directions")),
+                seen=_seen_text(observation.get("seen")),
+                world_time=observation.get("world_time", "unknown"),
                 current_action=action_state,
                 current_goal=agent.current_goal,
+                stuck_note=stuck_note,
             )
-            if not _Path(image_path).exists():
-                image_path = None  # capture wrote path but file missing — fall through
-        if not image_path:
+        else:
             obs_for_text = {k: v for k, v in observation.items() if k != "image_path"}
             user_text = _USER_TEMPLATE.format(
                 agent_id=agent.agent_id,
@@ -253,7 +407,7 @@ class LLMRouter:
             if provider == "openai":
                 raw = self._decide_openai(model, system_text, user_text)
             elif provider == "anthropic":
-                raw = self._decide_anthropic(model, system_text, user_text, image_path)
+                raw = self._decide_anthropic(model, system_text, user_text)
             else:
                 logger.error("[%s] Unknown LLM provider: %s", agent.agent_id, provider)
                 return _idle_decision(agent.agent_id, f"Unknown LLM provider: {provider}")
@@ -280,20 +434,17 @@ class LLMRouter:
     def _decide_anthropic(
         self, model: str, system_text: str, user_text: str, image_path: str | None = None
     ) -> str:
-        import base64
-        client = self._anthropic_client()
-
         if image_path:
-            image_data = base64.standard_b64encode(
-                open(image_path, "rb").read()
-            ).decode()
             content = [
-                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_data}},
+                _image_block(image_path),
                 {"type": "text", "text": user_text},
             ]
         else:
             content = user_text
+        return self._anthropic_call(model, system_text, content)
 
+    def _anthropic_call(self, model: str, system_text: str, content) -> str:
+        client = self._anthropic_client()
         response = client.messages.create(
             model=model,
             max_tokens=512,
@@ -336,6 +487,89 @@ class LLMRouter:
                     return _strip_markdown_fences(text.strip())
 
         raise ValueError("OpenAI response did not include output_text")
+
+
+def _memory_lines(memories: list[dict]) -> str:
+    return "\n".join(
+        f"- [{m.get('importance', 0):.1f}] {m.get('text', '')}"
+        for m in memories
+    ) or "No memories yet."
+
+
+def _image_block(image_path: str) -> dict:
+    import base64
+    image_data = base64.standard_b64encode(open(image_path, "rb").read()).decode()
+    return {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_data}}
+
+
+def _facing_text(rotation) -> str:
+    if isinstance(rotation, dict) and rotation.get("y") is not None:
+        return f"yaw {float(rotation['y']):.0f} degrees"
+    if isinstance(rotation, (list, tuple)) and len(rotation) >= 2:
+        return f"yaw {float(rotation[1]):.0f} degrees"
+    return "unknown"
+
+
+def _seen_text(seen: dict | None) -> str:
+    """Render a perception result ({landmarks, characters, caption}) as prompt lines."""
+    if not seen:
+        return "(no view this tick)"
+    if seen.get("error"):
+        return f"(your vision failed this tick: {seen['error']})"
+    lines = []
+    if seen.get("caption"):
+        lines.append(seen["caption"])
+    for lm in seen.get("landmarks") or []:
+        lines.append(f"- {lm['label']} ({lm.get('bearing', '?')}, {lm.get('distance', '?')})")
+    for ch in seen.get("characters") or []:
+        lines.append(f"- CHARACTER: {ch['label']} ({ch.get('bearing', '?')}, {ch.get('distance', '?')})")
+    return "\n".join(lines) or "(nothing notable)"
+
+
+def _direction_lines(directions: dict | None) -> str:
+    """Render the per-direction next-cell sense from agent_manager._direction_places.
+
+    Each value is ``{"cell": "col,row", "place": <name|None>}`` — a named place
+    means that cell is already mapped; None means it's unexplored (go map it).
+    """
+    if not directions:
+        return "Nothing mapped yet — navigate by what you see in the image."
+    lines = []
+    for d, info in directions.items():
+        if isinstance(info, dict):
+            place = info.get("place")
+            status = f'"{place}"' if place else "unexplored"
+            lines.append(f"- {d}: cell {info.get('cell', '?')} — {status}")
+        else:  # legacy list-of-labels form
+            lines.append(f"- {d}: {', '.join(info) if info else 'unmapped'}")
+    return "\n".join(lines)
+
+
+def _place_text(observation: dict) -> str:
+    """Render place context for the prompt.
+
+    If the agent has a named place in PlaceDB, show it with compass landmarks.
+    Otherwise fall back to the flat legacy place label list.
+    """
+    ctx = observation.get("place_context")
+    if ctx and ctx.get("name"):
+        compass = ctx.get("compass") or {}
+        lines = [f"{ctx['name']} (known)"]
+        for d in ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]:
+            labels = compass.get(d) or []
+            if labels:
+                lines.append(f"  {d}: {', '.join(labels)}")
+        return "\n".join(lines)
+    place = observation.get("place") or []
+    return ", ".join(place) if place else "unknown"
+
+
+def _grid_text(grid: dict | None) -> str:
+    grid = grid or {}
+    text = grid.get("key", "unknown")
+    if grid.get("col") is not None:
+        text += f" (col {grid['col']}, row {grid['row']} of {grid['cols']}x{grid['rows']})"
+    return text
 
 
 def _idle_decision(agent_id: str, reason: str) -> dict:

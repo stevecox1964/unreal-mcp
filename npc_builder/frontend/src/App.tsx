@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import * as api from './api'
 import AgentEditor from './components/AgentEditor'
 import AgentList from './components/AgentList'
+import LogPanel from './components/LogPanel'
 
 export default function App() {
   const [agents, setAgents] = useState<string[]>([])
@@ -32,11 +33,14 @@ export default function App() {
         onCreate={handleCreate}
       />
       <div className="main">
-        {selected ? (
-          <AgentEditor agentId={selected} onDelete={() => handleDelete(selected)} />
-        ) : (
-          <div className="empty-state">Select an agent or create a new one</div>
-        )}
+        <div className="main-top">
+          {selected ? (
+            <AgentEditor agentId={selected} onDelete={() => handleDelete(selected)} />
+          ) : (
+            <div className="empty-state">Select an agent or create a new one</div>
+          )}
+        </div>
+        <LogPanel />
       </div>
     </div>
   )

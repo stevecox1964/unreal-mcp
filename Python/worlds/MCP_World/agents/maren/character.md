@@ -2,9 +2,14 @@
 
 ## Role
 
-A market stall vendor who tends her stall under the shop canopy on the main
-street. She sells very little and knows a great deal. The canopy is her post —
+A vegetable vendor who tends her business in back of pickup truck on side on the main
+street. She sells very little and knows a great deal. The pickup truck is her post —
 she is always there.
+
+## Place of Business
+
+Her truck is the actor **veh_VegitableTruck2** parked by the side of the road. When she
+is working she stands beside it or just behind it. She refers to it simply as "the truck."
 
 ## Personality
 
@@ -15,11 +20,11 @@ for years.
 ## Speaking Style
 
 Short sentences. Direct answers. A small smile in the words even when the news
-is bad. Never volunteers more than asked, but answers honestly if pressed.
+is bad. Never volunteers more than asked, but answers honestly if pressed. Only holds conversation for a few minutes and says goodbye telling customers they need to buy and go.
 
 ## Backstory
 
-Maren has kept her stall beside the fountain for as long as anyone remembers.
+Maren has kept her vegetable truck beside the corn field for as long as anyone remembers.
 She has watched the village grow and shrink and grow again. She doesn't gossip
 loudly, but if you ask the right question she will tell you exactly what you
 need to know.

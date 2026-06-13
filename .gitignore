@@ -1,10 +1,12 @@
 # Unreal MCP
 Python/unreal_mcp.log
+Python/unreal_mcp*.log
 MCPGameProject/build_results.txt
 
 # Agent runtime artifacts
 Python/worlds/*/logs/
 Python/worlds/*/agents/*/observations/
+Python/worlds/*/world_places.db
 
 # Camera capture images
 MCPGameProject/CapturedCameraView.png

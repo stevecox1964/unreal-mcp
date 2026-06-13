@@ -4,6 +4,9 @@ import file_manager as fm
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from models import MemoryContent, StateContent, TextContent, ToolsContent
+from pathlib import Path
+
+LOG_PATH = Path(__file__).parent.parent.parent / "Python" / "unreal_mcp.log"
 
 app = FastAPI(title="NPC Builder API", version="0.1.0")
 
@@ -111,3 +114,22 @@ def get_memory(agent_id: str):
 def put_memory(agent_id: str, body: MemoryContent):
     fm.write_json(agent_id, "memory.json", body.model_dump())
     return {"status": "saved"}
+
+
+# ---------------------------------------------------------------------------
+# Log
+# ---------------------------------------------------------------------------
+
+
+@app.get("/log")
+def get_log():
+    if not LOG_PATH.exists():
+        return {"content": ""}
+    return {"content": LOG_PATH.read_text(encoding="utf-8", errors="replace")}
+
+
+@app.delete("/log")
+def delete_log():
+    if LOG_PATH.exists():
+        LOG_PATH.unlink()
+    return {"status": "deleted"}

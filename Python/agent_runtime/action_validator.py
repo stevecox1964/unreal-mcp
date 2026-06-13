@@ -50,8 +50,13 @@ def validate(agent: "Agent", decision: dict, observation: dict) -> dict | None:
             return None
 
     if action_type == "walk_to":
-        if not action.get("target_actor") and not action.get("location") and not action.get("target_location"):
-            logger.warning(f"[{agent.agent_id}] walk_to missing target - dropping")
+        if (
+            not action.get("target_actor")
+            and not action.get("location")
+            and not action.get("target_location")
+            and not action.get("direction")
+        ):
+            logger.warning(f"[{agent.agent_id}] walk_to missing target/direction - dropping")
             return None
 
     if action_type == "follow_character":

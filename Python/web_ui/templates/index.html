@@ -48,5 +48,93 @@
 </article>
 {% endfor %}
 
+<article>
+  <header style="display:flex; justify-content:space-between; align-items:center;">
+    <strong>Unreal Log</strong>
+    <button id="delete-log-btn" class="danger" style="padding:.3rem .9rem; font-size:.85rem">Delete log</button>
+  </header>
+  <div id="log-dates" style="display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:.6rem; min-height:1.8rem;"></div>
+  <textarea id="log-area" readonly rows="14"
+    style="width:100%; font-family:monospace; font-size:.8rem; background:#111; color:#9ef; border:none; resize:vertical; padding:.5rem;">— loading —</textarea>
+</article>
+
+<script>
+(function () {
+  const area      = document.getElementById('log-area');
+  const datesDiv  = document.getElementById('log-dates');
+  const deleteBtn = document.getElementById('delete-log-btn');
+  let selectedDate = null;
+  let confirmPending = false;
+
+  function renderDateButtons(dates) {
+    // Keep existing buttons if dates haven't changed
+    const existing = Array.from(datesDiv.querySelectorAll('button')).map(b => b.dataset.date);
+    if (JSON.stringify(existing) === JSON.stringify(dates)) return;
+
+    datesDiv.innerHTML = '';
+    if (!dates.length) return;
+
+    // Auto-select the most recent date on first load
+    if (!selectedDate) selectedDate = dates[dates.length - 1];
+
+    dates.forEach(d => {
+      const btn = document.createElement('button');
+      btn.textContent = d;
+      btn.dataset.date = d;
+      btn.style.cssText = 'padding:.2rem .7rem; font-size:.8rem; cursor:pointer;';
+      if (d === selectedDate) btn.setAttribute('aria-current', 'true');
+      btn.addEventListener('click', () => {
+        selectedDate = d;
+        renderDateButtons(dates);
+        loadLog();
+      });
+      datesDiv.appendChild(btn);
+    });
+  }
+
+  function loadDates() {
+    fetch('/api/log/dates')
+      .then(r => r.json())
+      .then(d => renderDateButtons(d.dates || []))
+      .catch(() => {});
+  }
+
+  function loadLog() {
+    const url = selectedDate ? `/api/log?date=${selectedDate}` : '/api/log';
+    fetch(url)
+      .then(r => r.json())
+      .then(d => {
+        const text = d.content || '— no entries for this date —';
+        if (area.value !== text) {
+          area.value = text;
+          area.scrollTop = area.scrollHeight;
+        }
+      })
+      .catch(() => {});
+  }
+
+  deleteBtn.addEventListener('click', function () {
+    if (!confirmPending) {
+      deleteBtn.textContent = 'Confirm delete?';
+      confirmPending = true;
+      setTimeout(() => { deleteBtn.textContent = 'Delete log'; confirmPending = false; }, 3000);
+    } else {
+      fetch('/api/log/delete', { method: 'POST' })
+        .then(() => {
+          area.value = '— log deleted —';
+          datesDiv.innerHTML = '';
+          selectedDate = null;
+        })
+        .catch(() => {});
+      deleteBtn.textContent = 'Delete log';
+      confirmPending = false;
+    }
+  });
+
+  loadDates();
+  loadLog();
+  setInterval(() => { loadDates(); loadLog(); }, 2000);
+})();
+</script>
 
 {% endblock %}

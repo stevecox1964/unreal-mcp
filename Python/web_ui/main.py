@@ -201,5 +201,45 @@ async def api_actors():
     return JSONResponse({"online": bool(actors), "actors": labels})
 
 
+LOG_PATH = BASE_DIR.parent / "unreal_mcp.log"
+
+
+@app.get("/api/log/dates")
+async def api_log_dates():
+    if not LOG_PATH.exists():
+        return JSONResponse({"dates": []})
+    seen: list[str] = []
+    seen_set: set[str] = set()
+    with LOG_PATH.open(encoding="utf-8", errors="replace") as f:
+        for line in f:
+            if len(line) >= 10 and line[4] == "-" and line[7] == "-":
+                d = line[:10]
+                if d not in seen_set:
+                    seen_set.add(d)
+                    seen.append(d)
+    return JSONResponse({"dates": seen})
+
+
+@app.get("/api/log")
+async def api_log(date: str = ""):
+    if not LOG_PATH.exists():
+        return JSONResponse({"content": ""})
+    if not date:
+        return JSONResponse({"content": LOG_PATH.read_text(encoding="utf-8", errors="replace")})
+    lines: list[str] = []
+    with LOG_PATH.open(encoding="utf-8", errors="replace") as f:
+        for line in f:
+            if line.startswith(date):
+                lines.append(line)
+    return JSONResponse({"content": "".join(lines)})
+
+
+@app.post("/api/log/delete")
+async def api_log_delete():
+    if LOG_PATH.exists():
+        LOG_PATH.unlink()
+    return JSONResponse({"status": "deleted"})
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8765)

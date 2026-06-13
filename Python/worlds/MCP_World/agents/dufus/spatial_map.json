@@ -1,0 +1,1271 @@
+{
+  "cell_size": 400.0,
+  "cells": {
+    "-21,-2": {
+      "visit_count": 6,
+      "first_seen": "2026-06-11T22:18:43.414267+00:00",
+      "last_seen": "2026-06-13T02:56:30.785673+00:00",
+      "landmarks": {
+        "unknown road": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        },
+        "job offers sign": {
+          "count": 2,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "motel sign": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "gas station sign": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "far",
+          "bearing": "center"
+        },
+        "county sheriff building": {
+          "count": 1,
+          "confidence": 0.95,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "sheriff car": {
+          "count": 2,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "main street near motel": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        },
+        "motel": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "auto service sign": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "gas station": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "county sheriff": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "county sheriff motel area": {
+          "count": 2,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-12,-2": {
+      "visit_count": 2,
+      "first_seen": "2026-06-11T22:19:02.097564+00:00",
+      "last_seen": "2026-06-12T15:52:05.045279+00:00",
+      "landmarks": {
+        "unknown road": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        },
+        "main street heading to village square": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-8,-2": {
+      "visit_count": 3,
+      "first_seen": "2026-06-11T22:19:08.061791+00:00",
+      "last_seen": "2026-06-13T02:57:12.097786+00:00",
+      "landmarks": {
+        "unknown road": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        },
+        "bank": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "auto service": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "pawn shop": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "gas station": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "service car": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "main street shops and gas station": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-6,-2": {
+      "visit_count": 3,
+      "first_seen": "2026-06-11T22:19:11.297039+00:00",
+      "last_seen": "2026-06-12T15:52:21.121699+00:00",
+      "landmarks": {
+        "road": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        },
+        "auto service": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "pawn shop": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "gas station": {
+          "count": 1,
+          "confidence": 0.95,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "water tower": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "main street": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-3,-2": {
+      "visit_count": 3,
+      "first_seen": "2026-06-11T22:19:17.153237+00:00",
+      "last_seen": "2026-06-12T15:52:36.488962+00:00",
+      "landmarks": {
+        "road": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        },
+        "Fruit Market sign": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "church steeple": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "water tower": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "windmill": {
+          "count": 1,
+          "confidence": 0.6,
+          "distance": "far",
+          "bearing": "center"
+        },
+        "red truck": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "market sign": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "traffic light": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "main street - town center": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-1,-2": {
+      "visit_count": 3,
+      "first_seen": "2026-06-11T22:19:20.799759+00:00",
+      "last_seen": "2026-06-12T15:52:42.848370+00:00",
+      "landmarks": {
+        "road": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        },
+        "fruit market": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "market 2": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "gun store": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "church": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "fire hydrant": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "main street": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "3,-2": {
+      "visit_count": 3,
+      "first_seen": "2026-06-11T22:19:26.586373+00:00",
+      "last_seen": "2026-06-12T15:52:50.458309+00:00",
+      "landmarks": {
+        "road": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        },
+        "liquor store": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "general store": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "church": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "job offer sign": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "interstate 4 sign": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "main street": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "5,-2": {
+      "visit_count": 3,
+      "first_seen": "2026-06-11T22:19:30.020812+00:00",
+      "last_seen": "2026-06-12T15:52:56.819018+00:00",
+      "landmarks": {
+        "road": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        },
+        "gun store": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "clothes store": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "church": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "interstate 4 sign": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "gas station": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "main street": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "9,-2": {
+      "visit_count": 3,
+      "first_seen": "2026-06-11T22:19:38.107890+00:00",
+      "last_seen": "2026-06-12T15:53:05.110877+00:00",
+      "landmarks": {
+        "road": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        },
+        "store": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "licenses building": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "yellow truck": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "windmill": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "yellow vending machine": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "building with blue roof": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "main street": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-25,-2": {
+      "visit_count": 8,
+      "first_seen": "2026-06-11T22:42:14.979651+00:00",
+      "last_seen": "2026-06-13T02:24:13.853975+00:00",
+      "landmarks": {
+        "mobile home": {
+          "count": 4,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "center"
+        },
+        "carport": {
+          "count": 4,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "right"
+        },
+        "house": {
+          "count": 8,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "mailbox": {
+          "count": 5,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "carport with car": {
+          "count": 3,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "house with fence": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "motel sign": {
+          "count": 9,
+          "confidence": 1.0,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "auto repair shop": {
+          "count": 3,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "street light": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "near",
+          "bearing": "right"
+        },
+        "gas station": {
+          "count": 6,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "greenville new valley sign": {
+          "count": 2,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "pickup truck with vegetables": {
+          "count": 3,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "right"
+        },
+        "building with flag": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "brown building with grey trim": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "gas station sign": {
+          "count": 3,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "roadside sign for Greenville and New Valley": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "building with yellow siding": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "truck": {
+          "count": 3,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "corn field": {
+          "count": 6,
+          "confidence": 1.0,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "wooden fence": {
+          "count": 6,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "telephone pole": {
+          "count": 7,
+          "confidence": 1.0,
+          "distance": "near",
+          "bearing": "center"
+        },
+        "building": {
+          "count": 3,
+          "confidence": 0.7,
+          "distance": "far",
+          "bearing": "right"
+        },
+        "sign": {
+          "count": 2,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "Greenville New Valley sign": {
+          "count": 1,
+          "confidence": 0.95,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "building with \"AUTOMOTIVE\" sign": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "sedan": {
+          "count": 2,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "buildings along street": {
+          "count": 1,
+          "confidence": 0.6,
+          "distance": "far",
+          "bearing": "right"
+        },
+        "motel": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "pickup truck with pumpkins": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "right"
+        },
+        "gasoline sign": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "directional sign for Greenville and New Valley": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "corn field with fence": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "vegetables truck": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "vegetable stand sign": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "near",
+          "bearing": "center"
+        },
+        "road sign for Greenville and New Valley": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "yellow building": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "buildings on the left side of the road": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "street lamp": {
+          "count": 2,
+          "confidence": 0.7,
+          "distance": "near",
+          "bearing": "center"
+        },
+        "Greenville New Valley road sign": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "truck with vegetables": {
+          "count": 3,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "right"
+        },
+        "building with American flags": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "power lines": {
+          "count": 3,
+          "confidence": 0.8,
+          "distance": "far",
+          "bearing": "center"
+        },
+        "roadside produce stand": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "green road sign": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "speed limit sign": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "cornfield": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "motel area": {
+          "count": 2,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        },
+        "covered parking": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "town sign": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "greenville/new valley sign": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "roadside sign": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "center"
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-18,-2": {
+      "visit_count": 2,
+      "first_seen": "2026-06-12T15:51:39.411207+00:00",
+      "last_seen": "2026-06-12T15:51:42.199338+00:00",
+      "landmarks": {
+        "Motel": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "Don's Donuts": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "Auto Service": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "County Sheriff": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "Gas Station": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "Interstate 4 sign": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "main street with businesses": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-16,-2": {
+      "visit_count": 2,
+      "first_seen": "2026-06-12T15:51:46.778550+00:00",
+      "last_seen": "2026-06-12T15:51:55.926894+00:00",
+      "landmarks": {
+        "Donuts sign": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "Auto Service sign": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "Gas Station sign": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "County Sheriff building": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "Interstate 4 sign": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "main street with businesses": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-10,-2": {
+      "visit_count": 4,
+      "first_seen": "2026-06-12T15:52:09.816873+00:00",
+      "last_seen": "2026-06-13T02:57:03.602746+00:00",
+      "landmarks": {
+        "American Bank": {
+          "count": 2,
+          "confidence": 1.0,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "Gas Station": {
+          "count": 2,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "Auto Service Sign": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "Traffic Light": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "main street downtown": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        },
+        "Auto Service": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "Poor Shop": {
+          "count": 1,
+          "confidence": 0.6,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "main street intersection": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-4,-2": {
+      "visit_count": 4,
+      "first_seen": "2026-06-12T15:52:24.877311+00:00",
+      "last_seen": "2026-06-13T02:57:19.908382+00:00",
+      "landmarks": {
+        "pawn shop": {
+          "count": 2,
+          "confidence": 1.0,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "gas station": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "market": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "water tower": {
+          "count": 1,
+          "confidence": 0.6,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "main street with shops": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        },
+        "fruit market": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "86 gas station sign": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "church steeple": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "far",
+          "bearing": "center"
+        },
+        "pawn shop and gas station area on main street": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "10,-4": {
+      "visit_count": 2,
+      "first_seen": "2026-06-12T15:53:09.285354+00:00",
+      "last_seen": "2026-06-12T15:53:12.176054+00:00",
+      "landmarks": {
+        "gun store": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "licenses sign": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "wind turbine": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "far",
+          "bearing": "right"
+        },
+        "recycling bins": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "main street": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "11,-5": {
+      "visit_count": 2,
+      "first_seen": "2026-06-12T15:53:17.152090+00:00",
+      "last_seen": "2026-06-12T15:53:20.549640+00:00",
+      "landmarks": {
+        "gun store sign": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "near",
+          "bearing": "center"
+        },
+        "licenses sign": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "utility pole": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "trees": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "far",
+          "bearing": "right"
+        },
+        "gun store area": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-24,-2": {
+      "visit_count": 2,
+      "first_seen": "2026-06-13T02:24:18.500425+00:00",
+      "last_seen": "2026-06-13T02:24:20.441473+00:00",
+      "landmarks": {
+        "motel sign": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "church": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "far",
+          "bearing": "center"
+        },
+        "roadside stand": {
+          "count": 1,
+          "confidence": 0.6,
+          "distance": "near",
+          "bearing": "right"
+        },
+        "speed limit sign": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "greenville sign": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "vegetable truck": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "right"
+        },
+        "main street motel area": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-20,-2": {
+      "visit_count": 2,
+      "first_seen": "2026-06-13T02:56:35.671650+00:00",
+      "last_seen": "2026-06-13T02:56:37.934277+00:00",
+      "landmarks": {
+        "Motel sign": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "Auto Service sign": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "Gas station": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "far",
+          "bearing": "center"
+        },
+        "County Sheriff building": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "Offers billboard": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "main street near motel": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-17,-2": {
+      "visit_count": 2,
+      "first_seen": "2026-06-13T02:56:43.238608+00:00",
+      "last_seen": "2026-06-13T02:56:45.525511+00:00",
+      "landmarks": {
+        "Don's Donuts": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "Auto Service": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "County Sheriff Station": {
+          "count": 1,
+          "confidence": 0.95,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "Gas Station": {
+          "count": 1,
+          "confidence": 0.85,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "Interstate 4 sign": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "main street near don's donuts": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-13,-2": {
+      "visit_count": 2,
+      "first_seen": "2026-06-13T02:56:52.936714+00:00",
+      "last_seen": "2026-06-13T02:56:54.862258+00:00",
+      "landmarks": {
+        "Donuts shop": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "American Bank": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "Gasoline station": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "Police cars": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "Yellow building": {
+          "count": 1,
+          "confidence": 0.6,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "main street near gas station and don's donuts": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    }
+  }
+}

@@ -139,9 +139,30 @@ class UnrealBridge:
             "actor_name":     actor_name,
             "image_path":     image_path,
             "location":       location.get("location"),
+            "rotation":       location.get("rotation"),
             "current_action": action.get("current_action"),
             "ai_state":       action.get("ai_state"),
         }
+
+    def set_facing(self, actor_name: str, location, yaw: float) -> dict:
+        """Turn a character in place to face the given world yaw (degrees)."""
+        return self._send("command_character_teleport", {
+            "character_name": actor_name,
+            "location": _xyz_list(location),
+            "rotation": [0.0, float(yaw), 0.0],  # [pitch, yaw, roll]
+        })
+
+    def capture_view(self, actor_name: str, agent_id: str, agents_dir: Path, tag: str) -> str | None:
+        """Capture one camera image tagged by purpose; returns the path or None."""
+        obs_dir = agents_dir / agent_id / "observations"
+        obs_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        image_file = obs_dir / f"observation_{timestamp}_{tag}.png"
+        capture = self._send("capture_camera_image", {
+            "actor_name": actor_name,
+            "file_path":  str(image_file),
+        })
+        return str(image_file) if capture.get("success") else None
 
     def clear_scene_cache(self) -> None:
         """Forget last-seen image hashes so the next tick always perceives."""
