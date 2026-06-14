@@ -1,4 +1,4 @@
-"""
+﻿"""
 Project Tools for Unreal MCP.
 
 This module provides tools for managing project-wide settings and configuration.
@@ -32,7 +32,7 @@ def register_project_tools(mcp: FastMCP):
         Returns:
             Response indicating success or failure
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()

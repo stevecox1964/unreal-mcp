@@ -1,4 +1,4 @@
-"""
+﻿"""
 Simulation control MCP tools.
 
 Exposes start/stop/pause/resume/status/list/inspect/set_goal/force_tick
@@ -57,19 +57,19 @@ def register_simulation_tools(mcp: FastMCP) -> None:
         The loop is self-pacing: tick_seconds is the BASE interval, and the sleep
         starts only after a tick's processing (Gemini observation + LLM thinking
         for all agents) completes. E.g. a 2 s observation with base 1 means ~3 s
-        between ticks — ticks never pile up and over-drive the avatars.
+        between ticks â€” ticks never pile up and over-drive the avatars.
 
         Args:
             tick_seconds: Base seconds added after each tick's processing. Default 1.
             active_agents: List of agent_ids to activate. Omit to load all agents.
             mode: "live" (default) = LLM-driven decisions; "explore" = deterministic
                 frontier exploration that builds each agent's spatial_map.json from
-                vision (Gemini) — no decision LLM, the avatar maps the world by walking it.
+                vision (Gemini) â€” no decision LLM, the avatar maps the world by walking it.
 
         Example valid input:
             {"tick_seconds": 1, "active_agents": ["dufus"], "mode": "explore"}
         """
-        from unreal_mcp_server import get_agent_manager
+        from unreal_sim_server import get_agent_manager
         mgr = get_agent_manager()
         return await mgr.start_simulation(
             tick_seconds=tick_seconds, active_agents=active_agents, mode=mode
@@ -82,7 +82,7 @@ def register_simulation_tools(mcp: FastMCP) -> None:
         Example valid input:
             {}
         """
-        from unreal_mcp_server import get_agent_manager
+        from unreal_sim_server import get_agent_manager
         return await get_agent_manager().stop_simulation()
 
     @mcp.tool()
@@ -92,7 +92,7 @@ def register_simulation_tools(mcp: FastMCP) -> None:
         Example valid input:
             {}
         """
-        from unreal_mcp_server import get_agent_manager
+        from unreal_sim_server import get_agent_manager
         return await get_agent_manager().pause_simulation()
 
     @mcp.tool()
@@ -102,7 +102,7 @@ def register_simulation_tools(mcp: FastMCP) -> None:
         Example valid input:
             {}
         """
-        from unreal_mcp_server import get_agent_manager
+        from unreal_sim_server import get_agent_manager
         return await get_agent_manager().resume_simulation()
 
     @mcp.tool()
@@ -112,7 +112,7 @@ def register_simulation_tools(mcp: FastMCP) -> None:
         Example valid input:
             {}
         """
-        from unreal_mcp_server import get_agent_manager
+        from unreal_sim_server import get_agent_manager
         return get_agent_manager().get_status()
 
     @mcp.tool()
@@ -122,7 +122,7 @@ def register_simulation_tools(mcp: FastMCP) -> None:
         Example valid input:
             {}
         """
-        from unreal_mcp_server import get_agent_manager
+        from unreal_sim_server import get_agent_manager
         return {"agents": get_agent_manager().list_agents()}
 
     @mcp.tool()
@@ -135,7 +135,7 @@ def register_simulation_tools(mcp: FastMCP) -> None:
         Example valid input:
             {"agent_id": "dufus"}
         """
-        from unreal_mcp_server import get_agent_manager
+        from unreal_sim_server import get_agent_manager
         return get_agent_manager().inspect_agent(agent_id)
 
     @mcp.tool()
@@ -149,7 +149,7 @@ def register_simulation_tools(mcp: FastMCP) -> None:
         Example valid input:
             {"agent_id": "dufus", "goal": "greet the player"}
         """
-        from unreal_mcp_server import get_agent_manager
+        from unreal_sim_server import get_agent_manager
         return get_agent_manager().set_agent_goal(agent_id, goal)
 
     @mcp.tool()
@@ -162,7 +162,7 @@ def register_simulation_tools(mcp: FastMCP) -> None:
         Example valid input:
             {"agent_id": "dufus"}
         """
-        from unreal_mcp_server import get_agent_manager
+        from unreal_sim_server import get_agent_manager
         return await get_agent_manager().pulse_agent(agent_id)
 
     @mcp.tool()
@@ -175,7 +175,7 @@ def register_simulation_tools(mcp: FastMCP) -> None:
         Example valid input:
             {"limit": 10}
         """
-        from unreal_mcp_server import get_agent_manager
+        from unreal_sim_server import get_agent_manager
         mgr = get_agent_manager()
         return {"events": mgr.memory.get_recent_events(limit)}
 
@@ -193,7 +193,7 @@ def register_simulation_tools(mcp: FastMCP) -> None:
         Example valid input:
             {}
         """
-        from unreal_mcp_server import get_agent_manager
+        from unreal_sim_server import get_agent_manager
         return await get_agent_manager().reset_agents()
 
     @mcp.tool()
@@ -214,19 +214,19 @@ def register_simulation_tools(mcp: FastMCP) -> None:
         Example valid input:
             {"cell_size": 400.0, "padding": 800.0}
         """
-        from unreal_mcp_server import get_agent_manager
+        from unreal_sim_server import get_agent_manager
         from agent_runtime.world_grid import WorldGrid
 
         mgr = get_agent_manager()
         level = mgr.bridge.get_current_level()
         if not level:
-            return {"status": "error", "error": "Could not determine current level — is Unreal running?"}
+            return {"status": "error", "error": "Could not determine current level â€” is Unreal running?"}
 
         actors = mgr.bridge.get_level_actors()
         points = [a["location"][:2] for a in actors
                   if isinstance(a.get("location"), list) and len(a["location"]) >= 2]
         if not points:
-            return {"status": "error", "error": "No actor positions returned — is the editor open (and PIE stopped)?"}
+            return {"status": "error", "error": "No actor positions returned â€” is the editor open (and PIE stopped)?"}
 
         xs, ys = [p[0] for p in points], [p[1] for p in points]
         bounds = {
@@ -259,7 +259,7 @@ def register_simulation_tools(mcp: FastMCP) -> None:
         Example valid input:
             {}
         """
-        from unreal_mcp_server import get_agent_manager
+        from unreal_sim_server import get_agent_manager
         return get_agent_manager().resync()
 
     logger.info("Simulation tools registered")

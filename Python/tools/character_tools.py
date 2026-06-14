@@ -1,4 +1,4 @@
-"""
+﻿"""
 Character Tools for Unreal MCP.
 
 Provides tools for querying character state and issuing commands to NPC characters.
@@ -26,7 +26,7 @@ def register_character_tools(mcp: FastMCP):
         Args:
             character_name: Exact name of the actor in the level
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -44,7 +44,7 @@ def register_character_tools(mcp: FastMCP):
         Args:
             character_name: Exact name of the actor in the level
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -62,7 +62,7 @@ def register_character_tools(mcp: FastMCP):
         Args:
             character_name: Exact name of the actor in the level
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -80,7 +80,7 @@ def register_character_tools(mcp: FastMCP):
         Args:
             character_name: Exact name of the actor in the level
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -98,7 +98,7 @@ def register_character_tools(mcp: FastMCP):
         Args:
             character_name: Exact name of the actor in the level
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -116,7 +116,7 @@ def register_character_tools(mcp: FastMCP):
         Args:
             character_name: Exact name of the actor in the level
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -139,7 +139,7 @@ def register_character_tools(mcp: FastMCP):
             character_name: Exact name of the actor in the level
             radius: Search radius in Unreal units (default 500)
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -160,7 +160,7 @@ def register_character_tools(mcp: FastMCP):
         Args:
             character_name: Exact name of the actor in the level
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -187,7 +187,7 @@ def register_character_tools(mcp: FastMCP):
             character_name: Exact name of the actor in the level
             message: The message string to deliver
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -215,7 +215,7 @@ def register_character_tools(mcp: FastMCP):
             source: "outbox" (default) or "inbox"
             clear: If True, empties the queue after reading
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -244,7 +244,7 @@ def register_character_tools(mcp: FastMCP):
             key: Memory key (e.g. "last_seen_player_location")
             value: Memory value (stored as string)
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -271,7 +271,7 @@ def register_character_tools(mcp: FastMCP):
             character_name: Exact name of the actor in the level
             key: Optional specific key to read; omit to return the full memory map
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -304,7 +304,7 @@ def register_character_tools(mcp: FastMCP):
             location: [x, y, z] destination in world space
             target_actor: Name of the actor to walk to
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -332,7 +332,7 @@ def register_character_tools(mcp: FastMCP):
             character_name: Exact name of the character actor
             target_actor: Name of the actor to follow
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -353,7 +353,7 @@ def register_character_tools(mcp: FastMCP):
         Args:
             character_name: Exact name of the character actor
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -379,7 +379,7 @@ def register_character_tools(mcp: FastMCP):
             location: [x, y, z] world position to face
             target_actor: Name of the actor to face
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -409,7 +409,7 @@ def register_character_tools(mcp: FastMCP):
             item_name: Exact name of the actor to pick up
             socket: Skeletal mesh socket to attach to (default "hand_r")
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -436,7 +436,7 @@ def register_character_tools(mcp: FastMCP):
             character_name: Exact name of the character actor
             item_name: Name of specific item to drop; omit to drop everything
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -457,13 +457,13 @@ def register_character_tools(mcp: FastMCP):
         target_actor: str = ""
     ) -> Dict[str, Any]:
         """[STUB] Command a character to interact with a nearby object.
-        Fires OnInteractRequested in the NPC Blueprint — implement the logic there.
+        Fires OnInteractRequested in the NPC Blueprint â€” implement the logic there.
 
         Args:
             character_name: Exact name of the character actor
             target_actor: Name of the actor to interact with
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -491,7 +491,7 @@ def register_character_tools(mcp: FastMCP):
             montage_path: Full Unreal asset path, e.g. "/Game/Animations/AM_Wave"
             play_rate: Playback speed multiplier (default 1.0)
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -519,7 +519,7 @@ def register_character_tools(mcp: FastMCP):
             character_name: Exact name of the character actor
             text: The line of dialogue to speak
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -546,7 +546,7 @@ def register_character_tools(mcp: FastMCP):
             character_name: Exact name of the character actor
             state: New AI state string
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Editor Tools for Unreal MCP.
 
 This module provides tools for controlling the Unreal Editor viewport and other editor functionality.
@@ -17,7 +17,7 @@ def register_editor_tools(mcp: FastMCP):
     @mcp.tool()
     def get_actors_in_level(ctx: Context) -> List[Dict[str, Any]]:
         """Get a list of all actors in the current level."""
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -54,7 +54,7 @@ def register_editor_tools(mcp: FastMCP):
     @mcp.tool()
     def find_actors_by_name(ctx: Context, pattern: str) -> List[str]:
         """Find actors by name pattern."""
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -95,7 +95,7 @@ def register_editor_tools(mcp: FastMCP):
         Returns:
             Dict containing the created actor's properties
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -146,7 +146,7 @@ def register_editor_tools(mcp: FastMCP):
     @mcp.tool()
     def delete_actor(ctx: Context, name: str) -> Dict[str, Any]:
         """Delete an actor by name."""
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -172,7 +172,7 @@ def register_editor_tools(mcp: FastMCP):
         scale: List[float] = None
     ) -> Dict[str, Any]:
         """Set the transform of an actor."""
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -198,7 +198,7 @@ def register_editor_tools(mcp: FastMCP):
     @mcp.tool()
     def get_actor_properties(ctx: Context, name: str) -> Dict[str, Any]:
         """Get all properties of an actor."""
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -233,7 +233,7 @@ def register_editor_tools(mcp: FastMCP):
         Returns:
             Dict containing response from Unreal with operation status
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -279,7 +279,7 @@ def register_editor_tools(mcp: FastMCP):
         Returns:
             Response from Unreal Engine
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -326,7 +326,7 @@ def register_editor_tools(mcp: FastMCP):
         Returns:
             Dict containing the spawned actor's properties
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -373,7 +373,7 @@ def register_editor_tools(mcp: FastMCP):
         Example response: {"name": "AAAAAA_Unreal_MCP_Demo", "package": "/Game/Maps/AAAAAA_Unreal_MCP_Demo"}
         No parameters required.
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
 
         try:
             unreal = get_unreal_connection()

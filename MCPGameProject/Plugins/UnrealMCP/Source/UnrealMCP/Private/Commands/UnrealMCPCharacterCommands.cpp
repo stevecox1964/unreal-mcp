@@ -23,6 +23,7 @@ FUnrealMCPCharacterCommands::FUnrealMCPCharacterCommands()
 TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommand(const FString& CommandType, const TSharedPtr<FJsonObject>& Params)
 {
     // Info / Query
+    if (CommandType == TEXT("get_character_forward_trace"))   return HandleGetCharacterForwardTrace(Params);
     if (CommandType == TEXT("get_character_status"))          return HandleGetCharacterStatus(Params);
     if (CommandType == TEXT("get_character_location"))        return HandleGetCharacterLocation(Params);
     if (CommandType == TEXT("get_character_health"))          return HandleGetCharacterHealth(Params);
@@ -95,6 +96,47 @@ static TSharedPtr<FJsonObject> MakeVec3Field(const FVector& V)
     Obj->SetNumberField(TEXT("y"), V.Y);
     Obj->SetNumberField(TEXT("z"), V.Z);
     return Obj;
+}
+
+// ---------------------------------------------------------------------------
+// Lizard-brain senses
+// ---------------------------------------------------------------------------
+
+TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterForwardTrace(const TSharedPtr<FJsonObject>& Params)
+{
+    FString Error;
+    AActor* Actor = ResolveCharacter(Params, Error);
+    if (!Actor) return FUnrealMCPCommonUtils::CreateErrorResponse(Error);
+
+    UWorld* World = Actor->GetWorld();
+    if (!World) return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("No world"));
+
+    double DistanceCm = 300.0;
+    Params->TryGetNumberField(TEXT("distance_cm"), DistanceCm);
+
+    // Eye-height offset keeps the trace from clipping the ground
+    FVector Start = Actor->GetActorLocation() + FVector(0.0f, 0.0f, 60.0f);
+    FVector End   = Start + Actor->GetActorForwardVector() * (float)DistanceCm;
+
+    FHitResult Hit;
+    FCollisionQueryParams QueryParams(TEXT("ForwardTrace"), false, Actor);
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("success"), true);
+
+    if (World->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, QueryParams))
+    {
+        AActor* HitActor = Hit.GetActor();
+        Result->SetBoolField(TEXT("hit"), true);
+        Result->SetStringField(TEXT("actor_name"),  HitActor ? HitActor->GetActorLabel() : TEXT("unknown"));
+        Result->SetStringField(TEXT("actor_class"), HitActor ? HitActor->GetClass()->GetName() : TEXT("unknown"));
+        Result->SetNumberField(TEXT("distance_cm"), (double)Hit.Distance);
+    }
+    else
+    {
+        Result->SetBoolField(TEXT("hit"), false);
+    }
+    return Result;
 }
 
 // ---------------------------------------------------------------------------

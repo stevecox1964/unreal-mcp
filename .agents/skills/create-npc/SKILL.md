@@ -1,4 +1,4 @@
----
+﻿---
 name: create-npc
 description: Scaffold a new NPC agent under Python/worlds/<level>/agents/<id>/ and bind it to an Unreal actor. Replaces the npc_builder web UI. Use when the user says "create an NPC", "add an agent", "make a new character", or invokes /create-npc.
 ---
@@ -13,20 +13,20 @@ Gather these from the user. If they invoked the skill with a name (e.g. `/create
 
 | Field | Required | Default | Notes |
 |---|---|---|---|
-| `agent_id` | yes | — | lowercase, `[a-z0-9_]+`, must match directory name. Reject if `Python/worlds/<level>/agents/<id>/` already exists. |
+| `agent_id` | yes | â€” | lowercase, `[a-z0-9_]+`, must match directory name. Reject if `Python/worlds/<level>/agents/<id>/` already exists. |
 | `unreal_actor_name` | yes | TitleCase of `agent_id` | Outliner label in Unreal. |
 | `blueprint_class` | no | `/Game/Blueprints/BP_PlayerCharacter.BP_PlayerCharacter_C` | Used as spawn fallback if no actor with `unreal_actor_name` is found. Set explicitly if a custom blueprint exists. |
 | `tier` | no | `2` | 1=Sonnet 4.6 (lead NPCs), 2=Haiku 4.5 (default), 3=no LLM (background extras). |
-| `role` | yes | — | Short one-liner — feeds `character.md`. |
-| `personality` | yes | — | Speaking style and disposition. |
+| `role` | yes | â€” | Short one-liner â€” feeds `character.md`. |
+| `personality` | yes | â€” | Speaking style and disposition. |
 | `backstory` | no | empty | Optional prose. |
-| `long_term_goals` | yes | — | Bulleted list. |
-| `current_goal` | yes | — | What the NPC is doing right now (also goes into `state.json`). |
+| `long_term_goals` | yes | â€” | Bulleted list. |
+| `current_goal` | yes | â€” | What the NPC is doing right now (also goes into `state.json`). |
 | `extra_rules` | no | empty | Bulleted list appended after the standard rules. |
 
 ## Files to create
 
-Call `mcp__unrealMCP__get_current_level_name` to get `<level_name>`. If Unreal is offline, ask the user for the level name. Create directory `Python/worlds/<level_name>/agents/<agent_id>/` first.
+Call `mcp__unrealSIM__get_current_level_name` to get `<level_name>`. If Unreal is offline, ask the user for the level name. Create directory `Python/worlds/<level_name>/agents/<agent_id>/` first.
 
 ### `state.json`
 ```json
@@ -81,7 +81,7 @@ Call `mcp__unrealMCP__get_current_level_name` to get `<level_name>`. If Unreal i
 
 ## Speaking Style
 
-<speaking style — derive from personality if user didn't separate them>
+<speaking style â€” derive from personality if user didn't separate them>
 
 ## Backstory
 
@@ -112,16 +112,16 @@ Call `mcp__unrealMCP__get_current_level_name` to get `<level_name>`. If Unreal i
 
 ## Bind to Unreal (after files are written)
 
-1. Probe MCP socket: call `mcp__unrealMCP__find_actors_by_name` with `unreal_actor_name`. If the call errors with connection refused / timeout, Unreal isn't online — tell the user. Do not retry.
-2. If the actor exists → done. The agent will bind on `start_simulation`.
-3. If not, the spawn fallback in `agent_manager._bind_agents` will use `blueprint_class` automatically when the simulation starts. Tell the user this will happen — no action needed unless they want to pre-place the body manually.
+1. Probe MCP socket: call `mcp__unrealSIM__find_actors_by_name` with `unreal_actor_name`. If the call errors with connection refused / timeout, Unreal isn't online â€” tell the user. Do not retry.
+2. If the actor exists â†’ done. The agent will bind on `start_simulation`.
+3. If not, the spawn fallback in `agent_manager._bind_agents` will use `blueprint_class` automatically when the simulation starts. Tell the user this will happen â€” no action needed unless they want to pre-place the body manually.
 
 ## Output to user
 
 After files are written, print a summary:
 - Path created: `Python/worlds/<level_name>/agents/<agent_id>/`
 - Tier and resolved model
-- Bind status: "found existing actor `<name>`" OR "will spawn from `<blueprint_class>` on simulation start" OR "Unreal offline — open PIE before starting"
+- Bind status: "found existing actor `<name>`" OR "will spawn from `<blueprint_class>` on simulation start" OR "Unreal offline â€” open PIE before starting"
 - Next command they can run:
   ```
   start_simulation(tick_seconds=10, active_agents=["<agent_id>"])
@@ -136,6 +136,6 @@ After files are written, print a summary:
 
 ## Don't
 
-- Don't spin up the npc_builder web app (`npc_builder/` is deprecated for this workflow — file edits via this skill are the canonical path).
+- Don't spin up the npc_builder web app (`npc_builder/` is deprecated for this workflow â€” file edits via this skill are the canonical path).
 - Don't start the simulation automatically. Creating the NPC and starting the sim are separate user decisions.
-- Don't add the NPC to any "active list" — `start_simulation`'s `active_agents` argument is how the user opts in per-run.
+- Don't add the NPC to any "active list" â€” `start_simulation`'s `active_agents` argument is how the user opts in per-run.

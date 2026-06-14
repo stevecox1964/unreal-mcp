@@ -59,6 +59,24 @@ _STATIONARY_REDECIDE_TICKS = 4
 # flag it stuck — force a fresh decision and tell the LLM to pick another direction.
 _STUCK_PROGRESS_CM = 100.0   # min cm advanced per tick to count as real progress
 _STUCK_TICKS = 3             # consecutive no-progress moving ticks → stuck
+_STUCK_TRACE_CM = 300.0      # forward raycast distance when stuck (cm)
+
+# Semantic classifier for forward-trace hits.
+# Maps engine actor names/classes → generic categories the LLM can reason about.
+# The lizard brain translates engine noise; it does NOT infer meaning or advise action.
+_BLOCKER_KEYWORDS: list[tuple[set[str], str]] = [
+    ({"van", "car", "truck", "vehicle", "bus", "taxi", "auto"}, "vehicle"),
+    ({"npc", "character", "person", "human", "pedestrian", "civilian", "thirdperson"}, "person"),
+    ({"dog", "cat", "animal", "bird", "creature", "pet"}, "animal"),
+    ({"wall", "building", "fence", "barrier", "door", "gate", "pillar", "column"}, "structure"),
+]
+
+def _classify_blocker(actor_name: str, actor_class: str) -> str:
+    text = (actor_name + " " + actor_class).lower()
+    for keywords, category in _BLOCKER_KEYWORDS:
+        if any(kw in text for kw in keywords):
+            return category
+    return "obstacle"
 
 
 def _loc_xyz(loc) -> tuple[float, float, float] | None:
@@ -646,6 +664,16 @@ class AgentManager:
         moving = "moving" in str(observation.get("current_action") or "").lower()
         stuck = self._detect_stuck(agent_id, _loc_xyz(observation.get("location")), moving)
         observation["stuck"] = stuck
+        if stuck:
+            trace = self.bridge.line_trace_forward(agent.bound_unreal_actor_name, _STUCK_TRACE_CM)
+            if trace.get("hit"):
+                observation["blocker"] = {
+                    "category": _classify_blocker(
+                        trace.get("actor_name", ""),
+                        trace.get("actor_class", ""),
+                    ),
+                    "distance_cm": trace.get("distance_cm", 0.0),
+                }
 
         if not self.bridge.is_scene_changed(agent_id, observation.get("image_path")):
             # The view is unchanged. Skip the LLM if the avatar is still travelling

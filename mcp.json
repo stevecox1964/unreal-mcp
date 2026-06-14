@@ -1,12 +1,12 @@
 {
   "mcpServers": {
-    "unrealMCP": {
+    "unrealSIM": {
       "command": "uv",
       "args": [
         "--directory",
         "absolute/path/to/this/repository/Python",
         "run",
-        "unreal_mcp_server.py"
+        "unreal_sim_server.py"
       ]
     }
   }

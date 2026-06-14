@@ -1,4 +1,4 @@
-"""
+﻿"""
 UMG Tools for Unreal MCP.
 
 This module provides tools for creating and manipulating UMG Widget Blueprints in Unreal Engine.
@@ -32,7 +32,7 @@ def register_umg_tools(mcp: FastMCP):
         Returns:
             Dict containing success status and widget path
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -87,7 +87,7 @@ def register_umg_tools(mcp: FastMCP):
         Returns:
             Dict containing success status and text block properties
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -148,7 +148,7 @@ def register_umg_tools(mcp: FastMCP):
         Returns:
             Dict containing success status and button properties
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -202,7 +202,7 @@ def register_umg_tools(mcp: FastMCP):
         Returns:
             Dict containing success status and binding information
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -252,7 +252,7 @@ def register_umg_tools(mcp: FastMCP):
         Returns:
             Dict containing success status and widget instance information
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -300,7 +300,7 @@ def register_umg_tools(mcp: FastMCP):
         Returns:
             Dict containing success status and binding information
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()

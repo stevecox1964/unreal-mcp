@@ -1,4 +1,4 @@
-# Unreal MCP
+﻿# Unreal MCP
 
 Python bridge for interacting with Unreal Engine 5.5 using the Model Context Protocol (MCP).
 
@@ -37,4 +37,4 @@ You should make sure you have installed dependencies and/or are running in the `
 
 ## Development
 
-To add new tools, modify the `UnrealMCPBridge.py` file to add new command handlers, and update the `unreal_mcp_server.py` file to expose them through the HTTP API. 
+To add new tools, modify the `unrealSIMBridge.py` file to add new command handlers, and update the `unreal_sim_server.py` file to expose them through the HTTP API. 

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Blueprint Tools for Unreal MCP.
 
 This module provides tools for creating and manipulating Blueprint assets in Unreal Engine.
@@ -22,7 +22,7 @@ def register_blueprint_tools(mcp: FastMCP):
     ) -> Dict[str, Any]:
         """Create a new Blueprint class."""
         # Import inside function to avoid circular imports
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -73,7 +73,7 @@ def register_blueprint_tools(mcp: FastMCP):
         Returns:
             Information about the added component
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             # Ensure all parameters are properly formatted
@@ -137,7 +137,7 @@ def register_blueprint_tools(mcp: FastMCP):
         Returns:
             Response indicating success or failure
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -175,7 +175,7 @@ def register_blueprint_tools(mcp: FastMCP):
         property_value,
     ) -> Dict[str, Any]:
         """Set a property on a component in a Blueprint."""
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -217,7 +217,7 @@ def register_blueprint_tools(mcp: FastMCP):
         angular_damping: float = 0.0
     ) -> Dict[str, Any]:
         """Set physics properties on a component."""
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -256,7 +256,7 @@ def register_blueprint_tools(mcp: FastMCP):
         blueprint_name: str
     ) -> Dict[str, Any]:
         """Compile a Blueprint."""
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -301,7 +301,7 @@ def register_blueprint_tools(mcp: FastMCP):
         Returns:
             Response indicating success or failure
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()
@@ -355,7 +355,7 @@ def register_blueprint_tools(mcp: FastMCP):
         Returns:
             Response indicating success or failure with detailed results for each property
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             unreal = get_unreal_connection()

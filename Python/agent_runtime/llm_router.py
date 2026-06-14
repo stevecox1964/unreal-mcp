@@ -370,13 +370,17 @@ class LLMRouter:
                 action_state += f" ({observation['ai_state']})"
             known = observation.get("known_characters") or []
             known_text = ", ".join(known) if known else "none known yet"
-            # Report the fact only — the agent should notice it isn't progressing
-            # and reason out what to do. The lizard brain senses; it does not advise.
-            stuck_note = (
-                "\nNote: your last move command did not change your position — you "
-                "issued a move but you are not actually getting anywhere.\n"
-                if observation.get("stuck") else ""
-            )
+            # Two raw facts — no inference, no advice. The LLM reasons; the lizard brain senses.
+            if observation.get("stuck"):
+                stuck_note = "\nSense: you have not advanced for several ticks while moving.\n"
+                blocker = observation.get("blocker")
+                if blocker:
+                    stuck_note += (
+                        f"Sense: there is a {blocker['category']} "
+                        f"{blocker['distance_cm']:.0f} cm directly ahead.\n"
+                    )
+            else:
+                stuck_note = ""
             user_text = _USER_TEMPLATE_VISION.format(
                 agent_id=agent.agent_id,
                 memories=mem_lines,

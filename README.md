@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 # AI Agent Simulation
 <span style="color: #555555">unreal-sim</span>
@@ -12,11 +12,11 @@
 
 </div>
 
-> This is a fork of [chongdashu/unreal-mcp](https://github.com/chongdashu/unreal-mcp). Original work by [@chongdashu](https://www.x.com/chongdashu). This fork extends the base project with additional features — see [Changes from Upstream](#changes-from-upstream) below.
+> This is a fork of [chongdashu/unreal-mcp](https://github.com/chongdashu/unreal-mcp). Original work by [@chongdashu](https://www.x.com/chongdashu). This fork extends the base project with additional features â€” see [Changes from Upstream](#changes-from-upstream) below.
 
 This project enables AI assistant clients like Cursor, Windsurf and Claude Desktop to control Unreal Engine through natural language using the Model Context Protocol (MCP).
 
-## ⚠️ Experimental Status
+## âš ï¸ Experimental Status
 
 This project is currently in an **EXPERIMENTAL** state. The API, functionality, and implementation details are subject to significant changes. While we encourage testing and feedback, please be aware that:
 
@@ -25,25 +25,25 @@ This project is currently in an **EXPERIMENTAL** state. The API, functionality, 
 - Documentation may be outdated or missing
 - Production use is not recommended at this time
 
-## 🌟 Overview
+## ðŸŒŸ Overview
 
 The Unreal MCP integration provides comprehensive tools for controlling Unreal Engine through natural language:
 
 | Category | Capabilities |
 |----------|-------------|
-| **Actor Management** | • Create and delete actors (cubes, spheres, lights, cameras, etc.)<br>• Set actor transforms (position, rotation, scale)<br>• Query actor properties and find actors by name<br>• List all actors in the current level |
-| **Blueprint Development** | • Create new Blueprint classes with custom components<br>• Add and configure components (mesh, camera, light, etc.)<br>• Set component properties and physics settings<br>• Compile Blueprints and spawn Blueprint actors<br>• Create input mappings for player controls |
-| **Blueprint Node Graph** | • Add event nodes (BeginPlay, Tick, etc.)<br>• Create function call nodes and connect them<br>• Add variables with custom types and default values<br>• Create component and self references<br>• Find and manage nodes in the graph |
-| **Editor Control** | • Focus viewport on specific actors or locations<br>• Control viewport camera orientation and distance |
-| **Character Interaction** | • Send and receive messages to/from NPC characters<br>• Query character status, health, inventory, location, and current action<br>• Command characters to move, follow, stop, look at targets<br>• Pick up and drop items (socket attachment)<br>• Set AI state, play animations, trigger dialogue<br>• Per-character key-value memory store<br>• Scan for nearby actors within a radius |
-| **Camera Capture** | • Trigger a `CameraCaptureActor` to take a scene snapshot during PIE<br>• Images saved as `<ActorName>_<YYYYMMDD>_<HHMMSS>.png` in the project folder<br>• Auto-discovers the first camera in the level if no name is specified<br>• AI assistants can read the image and analyze the scene |
+| **Actor Management** | â€¢ Create and delete actors (cubes, spheres, lights, cameras, etc.)<br>â€¢ Set actor transforms (position, rotation, scale)<br>â€¢ Query actor properties and find actors by name<br>â€¢ List all actors in the current level |
+| **Blueprint Development** | â€¢ Create new Blueprint classes with custom components<br>â€¢ Add and configure components (mesh, camera, light, etc.)<br>â€¢ Set component properties and physics settings<br>â€¢ Compile Blueprints and spawn Blueprint actors<br>â€¢ Create input mappings for player controls |
+| **Blueprint Node Graph** | â€¢ Add event nodes (BeginPlay, Tick, etc.)<br>â€¢ Create function call nodes and connect them<br>â€¢ Add variables with custom types and default values<br>â€¢ Create component and self references<br>â€¢ Find and manage nodes in the graph |
+| **Editor Control** | â€¢ Focus viewport on specific actors or locations<br>â€¢ Control viewport camera orientation and distance |
+| **Character Interaction** | â€¢ Send and receive messages to/from NPC characters<br>â€¢ Query character status, health, inventory, location, and current action<br>â€¢ Command characters to move, follow, stop, look at targets<br>â€¢ Pick up and drop items (socket attachment)<br>â€¢ Set AI state, play animations, trigger dialogue<br>â€¢ Per-character key-value memory store<br>â€¢ Scan for nearby actors within a radius |
+| **Camera Capture** | â€¢ Trigger a `CameraCaptureActor` to take a scene snapshot during PIE<br>â€¢ Images saved as `<ActorName>_<YYYYMMDD>_<HHMMSS>.png` in the project folder<br>â€¢ Auto-discovers the first camera in the level if no name is specified<br>â€¢ AI assistants can read the image and analyze the scene |
 
 All these capabilities are accessible through natural language commands via AI assistants, making it easy to automate and control Unreal Engine workflows.
 
-## 🧩 Components
+## ðŸ§© Components
 
 ### Sample Project (MCPGameProject) `MCPGameProject`
-- Based off the Blank Project, but with the UnrealMCP plugin added.
+- Based off the Blank Project, but with the unrealSIM plugin added.
 
 ### Plugin (UnrealMCP) `MCPGameProject/Plugins/UnrealMCP`
 - Native TCP server for MCP communication
@@ -51,8 +51,8 @@ All these capabilities are accessible through natural language commands via AI a
 - Implements actor manipulation tools
 - Handles command execution and response handling
 
-### Python MCP Server `Python/unreal_mcp_server.py`
-- Implemented in `unreal_mcp_server.py`
+### Python MCP Server `Python/unreal_sim_server.py`
+- Implemented in `unreal_sim_server.py`
 - Manages TCP socket connections to the C++ plugin (port 55557)
 - Handles command serialization and response parsing
 - Provides error handling and connection management
@@ -60,37 +60,37 @@ All these capabilities are accessible through natural language commands via AI a
 - Uses the FastMCP library to implement the Model Context Protocol
 - Loads `Python/.env` for LLM-backed NPC simulation settings
 
-## 📂 Directory Structure
+## ðŸ“‚ Directory Structure
 
-- **MCPGameProject/** — Example Unreal project
+- **MCPGameProject/** â€” Example Unreal project
   - **Plugins/UnrealMCP/** — C++ plugin source
 
-- **Python/** — Python MCP server and agent runtime
-  - **tools/** — MCP tool modules (editor, blueprint, character, simulation…)
-  - **agent_runtime/** — AgentManager, LLMRouter, MemoryStore, UnrealBridge
-  - **worlds/** — Level-scoped NPC data (one folder per Unreal level)
-    - **`<LevelName>`/agents/`<agent_id>`/** — per-NPC config files
-      - `state.json` — identity, binding, tier, goal, tick settings
-      - `character.md` — role, personality, backstory
-      - `goals.md` — long-term and current goals
-      - `rules.md` — decision constraints
-      - `tools.json` — allowed action list
-      - `memory.json` — accumulated runtime memories
-    - **`<LevelName>`/logs/** — per-world decision logs (runtime, git-ignored)
-  - **web_ui/** — Local NPC Builder web UI (FastAPI + Jinja2)
-  - `start_npc_builder.bat` — launcher for the web UI
+- **Python/** â€” Python MCP server and agent runtime
+  - **tools/** â€” MCP tool modules (editor, blueprint, character, simulationâ€¦)
+  - **agent_runtime/** â€” AgentManager, LLMRouter, MemoryStore, UnrealBridge
+  - **worlds/** â€” Level-scoped NPC data (one folder per Unreal level)
+    - **`<LevelName>`/agents/`<agent_id>`/** â€” per-NPC config files
+      - `state.json` â€” identity, binding, tier, goal, tick settings
+      - `character.md` â€” role, personality, backstory
+      - `goals.md` â€” long-term and current goals
+      - `rules.md` â€” decision constraints
+      - `tools.json` â€” allowed action list
+      - `memory.json` â€” accumulated runtime memories
+    - **`<LevelName>`/logs/** â€” per-world decision logs (runtime, git-ignored)
+  - **web_ui/** â€” Local NPC Builder web UI (FastAPI + Jinja2)
+  - `start_npc_builder.bat` â€” launcher for the web UI
 
-- **Docs/** — Comprehensive documentation
+- **Docs/** â€” Comprehensive documentation
   - See [Docs/README.md](Docs/README.md) for documentation index
 
-## 🚀 Quick Start Guide
+## ðŸš€ Quick Start Guide
 
 ### Startup Sequence
 
 Every session, start things in this order:
 
-1. **Run the Unreal project** — open and play the project in the editor. This starts the C++ TCP server (port 55557) that the Python server connects to.
-2. **Run Claude Code** — launching Claude Code starts the Python MCP server (`unreal_mcp_server.py`) via the `.mcp.json` config, which then connects to Unreal.
+1. **Run the Unreal project** â€” open and play the project in the editor. This starts the C++ TCP server (port 55557) that the Python server connects to.
+2. **Run Claude Code** â€” launching Claude Code starts the Python MCP server (`unreal_sim_server.py`) via the `.mcp.json` config, which then connects to Unreal.
 
 > If Claude Code is started before Unreal, the Python server will fail to connect. Always start Unreal first.
 
@@ -99,10 +99,10 @@ Every session, start things in this order:
 The MCP server runs over stdio, so the MCP client owns the live child process. If the transport gets stale, use the repo-root helper:
 
 ```powershell
-.\restart_unreal_mcp_server.bat
+.\restart_unreal_sim_server.bat
 ```
 
-Then reload or reconnect the `unrealMCP` server in your MCP client. This stops only this repo's `unreal_mcp_server.py` processes; it does not restart Unreal or Windows.
+Then reload or reconnect the `unrealSIM` server in your MCP client. This stops only this repo's `unreal_sim_server.py` processes; it does not restart Unreal or Windows.
 
 For LLM key/model changes, a process restart should not be needed after the latest changes. The simulation layer reloads `Python/.env` before LLM decisions, and the MCP tool `reload_llm_environment()` can be used to reload and inspect masked LLM settings.
 
@@ -173,13 +173,13 @@ Use the following JSON for your mcp configuration based on your MCP client.
 ```json
 {
   "mcpServers": {
-    "unrealMCP": {
+    "unrealSIM": {
       "command": "uv",
       "args": [
         "--directory",
         "<path/to/the/folder/PYTHON>",
         "run",
-        "unreal_mcp_server.py"
+        "unreal_sim_server.py"
       ]
     }
   }
@@ -208,35 +208,35 @@ This fork adds the following on top of [chongdashu/unreal-mcp](https://github.co
 
 ### Character Interaction System
 A full NPC character command system built on a new `UMCPCharacterComponent`:
-- **Messaging** — send messages to characters and read their replies
-- **Memory** — per-character key-value fact store
-- **Status queries** — health, inventory, location, AI state, current action, nearby actors
-- **Action commands** — move to location/actor, follow, stop, look at, pickup, drop, say, play animation, set AI state
-- **Blueprint events** — `OnMessageReceived`, `OnSayRequested`, `OnAIStateChanged`, `OnInteractRequested`
+- **Messaging** â€” send messages to characters and read their replies
+- **Memory** â€” per-character key-value fact store
+- **Status queries** â€” health, inventory, location, AI state, current action, nearby actors
+- **Action commands** â€” move to location/actor, follow, stop, look at, pickup, drop, say, play animation, set AI state
+- **Blueprint events** â€” `OnMessageReceived`, `OnSayRequested`, `OnAIStateChanged`, `OnInteractRequested`
 
 See [Docs/character_system.md](Docs/character_system.md) for full details.
 
 ### Camera Capture System
 A `CameraCaptureActor` and MCP tool that lets AI assistants take and analyze in-game screenshots during PIE:
-- **Scene snapshots** — triggers a `SceneCaptureComponent2D` render and saves a PNG to the project folder
-- **Timestamped filenames** — each capture is saved as `<ActorName>_<YYYYMMDD>_<HHMMSS>.png`, so no captures are overwritten
-- **Auto-discovery** — if no actor name is passed, the first `CameraCaptureActor` in the level is used
-- **Image analysis** — AI clients can read the saved image and describe or reason about the scene
+- **Scene snapshots** â€” triggers a `SceneCaptureComponent2D` render and saves a PNG to the project folder
+- **Timestamped filenames** â€” each capture is saved as `<ActorName>_<YYYYMMDD>_<HHMMSS>.png`, so no captures are overwritten
+- **Auto-discovery** â€” if no actor name is passed, the first `CameraCaptureActor` in the level is used
+- **Image analysis** â€” AI clients can read the saved image and describe or reason about the scene
 
 ### AI RPG Agent Simulation
 A first-pass agentic NPC simulation layer driven by an LLM-controlled Agent Manager running inside the Python MCP server. See [`AI_RPG_Agent_Simulation_MASTER_PLAN.md`](AI_RPG_Agent_Simulation_MASTER_PLAN.md) for the complete design.
-- **Agent Manager** — start/stop/pause an autonomous simulation loop from the CLI
-- **Live agent binding** — active agents bind to named Unreal actors or spawn from configured Blueprint classes
-- **Multi-tier agents** — Hero (full LLM), Simulated (event-driven LLM), and Lightweight (no LLM unless explicitly configured)
-- **World-state driven** — agents observe Unreal structured data; screenshots used selectively
-- **Validated action pipeline** — LLM decisions are schema-validated before any Unreal command executes
-- **Level-aware loading** — agents live under `Python/worlds/<LevelName>/agents/` and are loaded automatically based on the currently open Unreal level; no config field needed
-- **NPC Builder web UI** — local FastAPI app (`Python/web_ui/`) for creating and editing NPC agent files without touching the CLI; shows live actor list from the running editor; launch with `start_npc_builder.bat`
-- **Explore mode** — a second simulation mode (`start_simulation(mode="explore")`) where the avatar autonomously maps an unknown world by walking it: a VLM (Gemini) turns each camera frame into semantic landmarks, a deterministic frontier explorer chooses where to walk next, and a per-agent engine-agnostic grid/place map is written to `spatial_map.json`. No LLM in the movement loop. See [Explore Mode](#-explore-mode-vlm-spatial-mapping) below.
+- **Agent Manager** â€” start/stop/pause an autonomous simulation loop from the CLI
+- **Live agent binding** â€” active agents bind to named Unreal actors or spawn from configured Blueprint classes
+- **Multi-tier agents** â€” Hero (full LLM), Simulated (event-driven LLM), and Lightweight (no LLM unless explicitly configured)
+- **World-state driven** â€” agents observe Unreal structured data; screenshots used selectively
+- **Validated action pipeline** â€” LLM decisions are schema-validated before any Unreal command executes
+- **Level-aware loading** â€” agents live under `Python/worlds/<LevelName>/agents/` and are loaded automatically based on the currently open Unreal level; no config field needed
+- **NPC Builder web UI** â€” local FastAPI app (`Python/web_ui/`) for creating and editing NPC agent files without touching the CLI; shows live actor list from the running editor; launch with `start_npc_builder.bat`
+- **Explore mode** â€” a second simulation mode (`start_simulation(mode="explore")`) where the avatar autonomously maps an unknown world by walking it: a VLM (Gemini) turns each camera frame into semantic landmarks, a deterministic frontier explorer chooses where to walk next, and a per-agent engine-agnostic grid/place map is written to `spatial_map.json`. No LLM in the movement loop. See [Explore Mode](#-explore-mode-vlm-spatial-mapping) below.
 
 ---
 
-## 🎭 Character Interaction System
+## ðŸŽ­ Character Interaction System
 
 The plugin includes a full NPC character command system added on top of the base MCP tools.
 
@@ -267,9 +267,9 @@ See [Docs/character_system.md](Docs/character_system.md) for the full command re
 
 ---
 
-## 🤖 AI RPG Agent Simulation
+## ðŸ¤– AI RPG Agent Simulation
 
-> **Status: Prototype** — See [`AI_RPG_Agent_Simulation_MASTER_PLAN.md`](AI_RPG_Agent_Simulation_MASTER_PLAN.md) and [`still_todo.md`](still_todo.md) for the full design and current task list.
+> **Status: Prototype** â€” See [`AI_RPG_Agent_Simulation_MASTER_PLAN.md`](AI_RPG_Agent_Simulation_MASTER_PLAN.md) and [`still_todo.md`](still_todo.md) for the full design and current task list.
 
 The simulation layer lets an LLM (Claude, OpenAI, or a local model) autonomously drive NPCs inside a live Unreal session via the MCP server.
 
@@ -277,15 +277,15 @@ The simulation layer lets an LLM (Claude, OpenAI, or a local model) autonomously
 
 ```
 Claude / OpenAI CLI
-        │  MCP tool calls
-        ▼
-Python MCP Server  ─── Agent Manager + Simulation Harness
-        │              ├─ AgentRegistry / MemoryStore
-        │              ├─ LLMRouter (per-agent model selection)
-        │              └─ ActionValidator (schema + allowlist)
-        │  Unreal commands
-        ▼
-Unreal C++ MCP Plugin → Unreal Editor / PIE
+        â”‚  MCP tool calls
+        â–¼
+Python MCP Server  â”€â”€â”€ Agent Manager + Simulation Harness
+        â”‚              â”œâ”€ AgentRegistry / MemoryStore
+        â”‚              â”œâ”€ LLMRouter (per-agent model selection)
+        â”‚              â””â”€ ActionValidator (schema + allowlist)
+        â”‚  Unreal commands
+        â–¼
+Unreal C++ MCP Plugin â†’ Unreal Editor / PIE
 ```
 
 ### Key MCP tools
@@ -304,7 +304,7 @@ Unreal C++ MCP Plugin → Unreal Editor / PIE
 
 ### Smoke test
 
-With Unreal running in PIE and `unrealMCP` connected:
+With Unreal running in PIE and `unrealSIM` connected:
 
 ```txt
 reload_llm_environment()
@@ -321,39 +321,39 @@ Expected: Dufus binds to the `BP_CameraNPC_C_1` actor in MCP_World, the camera c
 
 | Tier | Examples | LLM usage |
 |------|----------|-----------|
-| 1 — Hero | Main villain, quest giver, lead NPC | Full memory + goal reasoning every tick |
-| 2 — Simulated | Dufus, innkeeper, guard captain | LLM on every tick at normal cadence |
-| 3 — Lightweight | Villagers, animals, basic guards | Behavior Tree; LLM only on promotion |
+| 1 â€” Hero | Main villain, quest giver, lead NPC | Full memory + goal reasoning every tick |
+| 2 â€” Simulated | Dufus, innkeeper, guard captain | LLM on every tick at normal cadence |
+| 3 â€” Lightweight | Villagers, animals, basic guards | Behavior Tree; LLM only on promotion |
 
 ---
 
-## 🧭 Explore Mode (VLM spatial mapping)
+## ðŸ§­ Explore Mode (VLM spatial mapping)
 
-> **Status: Working in PIE** — verified end-to-end 2026-06-07 (an avatar walked the town's west edge and built a labeled map).
+> **Status: Working in PIE** â€” verified end-to-end 2026-06-07 (an avatar walked the town's west edge and built a labeled map).
 
-A second simulation mode where the avatar **discovers a world by looking at it and walking it**, rather than acting on pre-authored knowledge. The thesis: distil Unreal's thousands of engine actors into an *engine-agnostic* representation — metric coordinates + vision-derived semantic labels + a nav graph — so the same pipeline would drive a real robot with a camera.
+A second simulation mode where the avatar **discovers a world by looking at it and walking it**, rather than acting on pre-authored knowledge. The thesis: distil Unreal's thousands of engine actors into an *engine-agnostic* representation â€” metric coordinates + vision-derived semantic labels + a nav graph â€” so the same pipeline would drive a real robot with a camera.
 
 ### The tick (deterministic routing; the model only perceives)
 
 ```
 observe (own pose + camera frame)
-  → perceptual-hash diff-gate (skip re-labelling an unchanged view)
-  → Gemini.perceive()            # frame → {landmarks, characters, caption}
-  → SpatialMap.ingest()          # write labels into the current grid cell
-  → explorer.next_target()       # pick nearest unexplored frontier  (CODE, not LLM)
-  → command_character_move_to()  # walk there
+  â†’ perceptual-hash diff-gate (skip re-labelling an unchanged view)
+  â†’ Gemini.perceive()            # frame â†’ {landmarks, characters, caption}
+  â†’ SpatialMap.ingest()          # write labels into the current grid cell
+  â†’ explorer.next_target()       # pick nearest unexplored frontier  (CODE, not LLM)
+  â†’ command_character_move_to()  # walk there
 ```
 
-The VLM is used **only** for perception (turning pixels into labels). Movement is a deterministic frontier sweep — cheap, predictable coverage, no LLM in the control loop.
+The VLM is used **only** for perception (turning pixels into labels). Movement is a deterministic frontier sweep â€” cheap, predictable coverage, no LLM in the control loop.
 
 ### The map (`worlds/<level>/agents/<id>/spatial_map.json`)
 
-Per-agent (egocentric). Grid cells keyed `"gx,gy"` (`floor(x / cell_size)`, default 400 cm), each holding the landmark tags seen from that cell (with confidence/distance/bearing) and the `edges` traversed to neighbors. Place coordinates are derived on demand from the labels — nothing Unreal-specific is stored.
+Per-agent (egocentric). Grid cells keyed `"gx,gy"` (`floor(x / cell_size)`, default 400 cm), each holding the landmark tags seen from that cell (with confidence/distance/bearing) and the `edges` traversed to neighbors. Place coordinates are derived on demand from the labels â€” nothing Unreal-specific is stored.
 
 ### Requirements (learned the hard way)
 
-- **PIE must be running** — the AIController only possesses the avatar in Play.
-- **Walkable NavMesh under the avatar** — a `NavMeshBoundsVolume` that is *tall enough* (its Z extent must clear the floor by more than the agent height; a too-thin volume builds no navmesh and the avatar silently won't move). The avatar must be **standing on green** (on the mesh), not on grass/dirt or floating.
+- **PIE must be running** â€” the AIController only possesses the avatar in Play.
+- **Walkable NavMesh under the avatar** â€” a `NavMeshBoundsVolume` that is *tall enough* (its Z extent must clear the floor by more than the agent height; a too-thin volume builds no navmesh and the avatar silently won't move). The avatar must be **standing on green** (on the mesh), not on grass/dirt or floating.
 - **`GEMINI_API_KEY` / `GEMINI_MODEL`** in `Python/.env` (model `gemini-2.5-flash-lite`).
 - **Pillow** installed (enables the diff-gate; without it every frame is re-perceived).
 
@@ -361,7 +361,7 @@ Per-agent (egocentric). Grid cells keyed `"gx,gy"` (`floor(x / cell_size)`, defa
 
 ```txt
 start_simulation(tick_seconds=10, active_agents=["maren"], mode="explore")
-force_agent_tick("maren")     # observe → perceive → map → pick frontier → walk
+force_agent_tick("maren")     # observe â†’ perceive â†’ map â†’ pick frontier â†’ walk
 get_character_location("Maren")   # x/y should track toward the frontier cell centre
 stop_simulation()
 ```

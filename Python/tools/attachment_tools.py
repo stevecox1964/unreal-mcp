@@ -1,4 +1,4 @@
-"""
+﻿"""
 Actor Attachment Tools for Unreal MCP.
 
 Generic primitives for parenting one actor to another in the Unreal scene
@@ -52,7 +52,7 @@ def register_attachment_tools(mcp: FastMCP):
             success, child_actor, parent_actor, attached_to_socket, and
             either socket (when snapped to one) or note (when fallen back).
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:
@@ -86,7 +86,7 @@ def register_attachment_tools(mcp: FastMCP):
         Returns:
             success, actor_name.
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:

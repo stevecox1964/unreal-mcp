@@ -1,4 +1,4 @@
-# Unreal MCP Editor Tools
+﻿# Unreal MCP Editor Tools
 
 This document provides detailed information about the editor tools available in the Unreal MCP integration.
 
@@ -73,7 +73,7 @@ All command responses include a "status" field indicating whether the operation 
 ### Python Example
 
 ```python
-from unreal_mcp_server import get_unreal_connection
+from unreal_sim_server import get_unreal_connection
 
 # Get connection to Unreal Engine
 unreal = get_unreal_connection()

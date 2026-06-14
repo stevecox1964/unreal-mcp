@@ -1,4 +1,4 @@
-"""
+﻿"""
 Camera Capture Tools for Unreal MCP.
 
 Provides tools for triggering scene captures via ACameraCaptureActor.
@@ -33,7 +33,7 @@ def register_camera_tools(mcp: FastMCP):
         Returns:
             success, actor_name, file_path of the saved image.
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         try:
             unreal = get_unreal_connection()
             if not unreal:

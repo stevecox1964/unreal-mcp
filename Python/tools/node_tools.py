@@ -1,4 +1,4 @@
-"""
+﻿"""
 Blueprint Node Tools for Unreal MCP.
 
 This module provides tools for manipulating Blueprint graph nodes and connections.
@@ -35,7 +35,7 @@ def register_blueprint_node_tools(mcp: FastMCP):
         Returns:
             Response containing the node ID and success status
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             # Handle default value within the method body
@@ -86,7 +86,7 @@ def register_blueprint_node_tools(mcp: FastMCP):
         Returns:
             Response containing the node ID and success status
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             # Handle default value within the method body
@@ -141,7 +141,7 @@ def register_blueprint_node_tools(mcp: FastMCP):
         Returns:
             Response containing the node ID and success status
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             # Handle default values within the method body
@@ -200,7 +200,7 @@ def register_blueprint_node_tools(mcp: FastMCP):
         Returns:
             Response indicating success or failure
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             params = {
@@ -251,7 +251,7 @@ def register_blueprint_node_tools(mcp: FastMCP):
         Returns:
             Response indicating success or failure
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             params = {
@@ -300,7 +300,7 @@ def register_blueprint_node_tools(mcp: FastMCP):
         Returns:
             Response containing the node ID and success status
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             # Handle None case explicitly in the function
@@ -349,7 +349,7 @@ def register_blueprint_node_tools(mcp: FastMCP):
         Returns:
             Response containing the node ID and success status
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             if node_position is None:
@@ -398,7 +398,7 @@ def register_blueprint_node_tools(mcp: FastMCP):
         Returns:
             Response containing array of found node IDs and success status
         """
-        from unreal_mcp_server import get_unreal_connection
+        from unreal_sim_server import get_unreal_connection
         
         try:
             params = {

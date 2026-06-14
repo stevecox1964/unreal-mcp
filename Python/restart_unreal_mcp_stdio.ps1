@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $pythonDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $pythonDir
-$server = Join-Path $pythonDir "unreal_mcp_server.py"
+$server = Join-Path $pythonDir "unreal_sim_server.py"
 
 $targets = Get-CimInstance Win32_Process | Where-Object {
     $_.CommandLine -and

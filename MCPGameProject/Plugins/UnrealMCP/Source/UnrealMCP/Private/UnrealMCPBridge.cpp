@@ -289,7 +289,8 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                 ResultJson = UMGCommands->HandleCommand(CommandType, Params);
             }
             // Character Commands
-            else if (CommandType == TEXT("get_character_status") ||
+            else if (CommandType == TEXT("get_character_forward_trace") ||
+                     CommandType == TEXT("get_character_status") ||
                      CommandType == TEXT("get_character_location") ||
                      CommandType == TEXT("get_character_health") ||
                      CommandType == TEXT("get_character_inventory") ||
