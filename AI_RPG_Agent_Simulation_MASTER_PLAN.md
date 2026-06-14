@@ -1,1896 +1,568 @@
 # AI RPG Agent Simulation — Master Plan
 
-## 1. Purpose
+**v2 — Generative Simulacra.** This revision merges the original engineering
+substrate (director / body / brainstem split, MCP tool surface, tiers, action
+validation, actor binding) with the cognitive architecture of Stanford's
+*Generative Agents: Interactive Simulacra of Human Behavior*
+(Park et al., `joonspk-research/generative_agents`).
 
-This project adds an agentic NPC simulation layer to an Unreal Engine RPG project using MCP.
+The thesis: **keep the entire substrate, graft the simulacra cognitive loop on
+top of it, adapted to a live 3D Unreal world.** The original plan gave us a body
+that reacts. The simulacra model gives us a *character with a life* — a memory
+stream, retrieval, reflection, recursive daily planning, reaction, and
+conversation.
 
-The goal is to allow Claude, OpenAI, or another LLM client to control and inspect a live Unreal simulation through a Python MCP server. The Python MCP server already communicates with an Unreal C++ plugin. The new work adds an **Agent Manager / Agent Controller** inside the Python MCP server so multiple LLM-driven agents can observe the world, reason, make decisions, and send validated actions back into Unreal.
+Two places we are **already ahead of the 2023 paper**, and v2 banks that rather
+than regressing to its design:
 
-The key idea:
+- **Perception is VLM-grounded** (real camera frames → a "visual cortex"),
+  where Smallville read symbolic tile/object strings.
+- **Spatial memory is *learned*** — an egocentric grid + place-cell cognitive
+  map built through exploration (`spatial_memory.py`), where Smallville used a
+  hand-authored world→sector→arena→object tree known a priori.
+- **The world is true 3D** — real cameras, occlusion, animation, and wall-clock
+  timing — not Smallville's top-down Phaser tile grid. The intricacy and the
+  difficulty both come from this, and so does the beauty.
 
-```txt
-Claude / OpenAI CLI
-        |
-        | MCP tool calls
-        v
-Python MCP Server
-        |
-        | Agent Manager + Simulation Harness
-        |
-        | Unreal commands / world-state requests
-        v
-Unreal C++ MCP Plugin
-        |
-        v
-Unreal Editor / Play Mode
-```
-
-The user should be able to say something like:
-
-```txt
-Begin simulation.
-```
-
-The LLM CLI calls an MCP tool such as:
-
-```txt
-start_simulation()
-```
-
-The Python MCP server starts a background simulation loop. The user can watch Unreal Editor / Play Mode running the simulation live.
-
-At any time, the user should be able to say:
-
-```txt
-Stop simulation.
-```
-
-The LLM CLI calls:
-
-```txt
-stop_simulation()
-```
-
-The Agent Manager stops pulsing agents.
+**Terminology.** The living characters are **AIPCs** — *AI Player Characters*,
+said aloud as "APCs." This replaces "avatar" and "NPC" everywhere in design and
+conversation. (In code, `agent` / `agent_runtime` stay as the *runtime* terms for
+the cognition driving an AIPC — no need to rename modules.)
 
 ---
 
-## 2. High-Level Design
+## For the Next Session of Me (read this first)
 
-### 2.1 Responsibilities
+You are a future instance of the model, opening this cold. This document exists
+so you don't have to re-derive the *why* from scratch every time. The code will
+have moved on; this is the part that doesn't.
 
-#### Claude / OpenAI CLI
+**What we are actually building.** A *world for AIs to live in*. The inhabitants
+are **AIPCs** — characters with their own routines and inner lives, not props.
+The horizon is a town square, a party, AIPCs making friends and building skills
+over time — but the beating heart of it is the **visual-feedback lizard brain**:
+an AIPC looks at the real 3D scene, its perception grounds what it sees into
+facts, it names and remembers them, and it acts — and we get to *watch that
+happen*. That loop, made visible, is the whole point. The test of success is
+never "does the feature work," it's "did something unscripted happen, and could
+both AIPCs involved remember it the next day." We are chasing **believable inner
+life and emergence**, with Stanford's Generative Agents as the proof it's
+reachable and the shape of the road — carried out of their 2D sandbox into
+true 3D.
 
-The LLM CLI is the **director interface**.
+**The division of labor never changes.** Unreal is the *body* — senses, physics,
+movement, world truth. The Python runtime is the *nervous system* — memory,
+planning, reflection, judgment. The LLM is the *mind* for the AIPCs that earn
+one. The human at the CLI is the *director* — they observe and nudge, they do not
+author the story. Behavior lives in the AIPC's authored files; code only ever
+supplies senses. If you find yourself coding a rule that decides what an AIPC
+*wants*, stop — that belongs in a `.md`, not in Python.
 
-It should be able to:
+**Durable invariants** (treat these as load-bearing; change them only with a
+stated reason):
 
-- Start the simulation.
-- Stop the simulation.
-- Pause or resume the simulation.
-- Inspect agents.
-- Give agents new goals.
-- Ask for recent events.
-- Ask for screenshots.
-- Manually trigger a single agent tick.
-- Override or redirect a running simulation.
+- The cognitive loop is the spine: *perceive → retrieve → react? → plan →
+  execute → reflect → converse.*
+- Memory is an append-only stream; retrieval weighs recency, importance, and
+  relevance together — never recency alone.
+- Conversation summaries land in *both* agents' streams. That is how a town
+  knows things.
+- Symbolic-by-default, vision-on-demand. The expensive sense is earned, never
+  the default.
+- Not every NPC gets a mind. Tiers and frugality are what make a *town* possible
+  instead of a tech demo with three actors.
+- Spatial knowledge is learned and grounded, not declared.
 
-The CLI should **not** micromanage every simulation tick.
+**What will churn** (don't be precious about it): module boundaries, the exact
+retrieval weights, the embedding provider, SQLite schema details, tick pacing,
+which model serves which tier. These are means. Re-decide them freely when the
+evidence says to.
 
-#### Python MCP Server
+**How to orient at the start of a session:** read this document, then the auto-
+memory index (`MEMORY.md`) for what was true last time, then check what is
+*actually* built before trusting either — the code is the ground truth, this is
+the heading. When they disagree, surface it; don't quietly average them.
 
-The Python MCP server is the **brainstem and orchestration layer**.
-
-It should own:
-
-- Agent Manager.
-- Simulation loop / pulse harness.
-- Agent registry.
-- Agent definitions.
-- Agent memory.
-- World-state cache.
-- Event queue.
-- LLM routing.
-- Action validation.
-- Logs.
-- MCP tools exposed to Claude/OpenAI.
-- Communication with the Unreal C++ plugin.
-
-#### Unreal C++ MCP Plugin
-
-The Unreal plugin is the **body / senses / world authority**.
-
-It should own:
-
-- Actual actors.
-- Navigation.
-- Movement.
-- Animation.
-- Perception data.
-- Screenshots.
-- World queries.
-- Actor spawning.
-- Action execution.
-- Collision / combat / gameplay truth.
-
-The LLM should not perform low-level movement or raw Unreal commands directly. It should choose high-level intentions/actions. Unreal should execute those actions using normal game systems.
+**On the spirit of it.** The person you're working with is building this for the
+love of the thing. Match that. Prefer the smallest change that makes the world a
+little more alive over the grand refactor. Show them a character doing something
+real, early and often. And when you get to lean in through the CLI and ask an
+agent what it's thinking — savor that, because that moment *is* the project.
 
 ---
 
-## 3. Core Architecture
+## Part 0 — North Star & Success Criteria
+
+### 0.1 North Star: Open Emergent Simulation
+
+We are building an **open, emergent multi-agent simulation**, not a scripted
+RPG. Agents free-run on their own goals and routines. The interesting results
+are *emergent*: agents form daily routines, information diffuses agent-to-agent,
+relationships develop, and unplanned interactions occur and are remembered by
+both parties — the Smallville "someone organizes a Valentine's party and word
+spreads" class of result.
+
+The human is a **director/observer**, not an author. The MCP CLI is for
+watching, asking an agent what it is thinking, injecting an event, pausing,
+resetting — *light-touch intervention*, not story railroading.
+
+A **directed RPG layer** (quests, factions, a `QuestDirectorAgent`) remains a
+deliberately deferred Part IV milestone. It is an *application* built on the sim,
+not the sim itself.
+
+### 0.2 Success Criteria
+
+The simulation is working when, over a single simulated day with 2–3+ agents
+free-running:
+
+1. Each agent follows a **visibly distinct daily routine** derived from its
+   persona — not idle-until-poked.
+2. At least one **unplanned cross-agent interaction** occurs and is **remembered
+   by both agents** (recoverable from each one's memory stream).
+3. An agent's behavior **changes in response to a remembered event** (a memory
+   influences a later plan or reaction).
+4. The whole day runs within a **bounded LLM budget** (frugality holds at
+   multi-agent scale).
+
+These are measurable from logs + each agent's memory store, not vibes.
+
+---
+
+## Part I — Substrate (Body · Brainstem · Director)
+
+*Condensed from v1. This layer is largely built; it is the stable foundation the
+cognitive architecture sits on.*
+
+### 1. Topology
 
 ```txt
-Claude/OpenAI CLI
-  |
-  | MCP tools
-  v
-Python MCP Server
-  |
-  | contains:
-  | - AgentManager
-  | - SimulationRuntime
-  | - AgentRegistry
-  | - MemoryStore
-  | - WorldStateCache
-  | - EventQueue
-  | - LLMRouter
-  | - ActionValidator
-  |
-  v
-UnrealBridge
-  |
-  | talks to
-  v
-Unreal C++ MCP Plugin
-  |
-  v
+Claude / OpenAI CLI         ← Director console (observe + intervene)
+        │ MCP tool calls
+        ▼
+Python MCP Server           ← Brainstem + cognition (agent_runtime/)
+        │ Unreal commands / world-state requests
+        ▼
+Unreal C++ MCP Plugin       ← Body, senses, world authority
+        ▼
 Unreal Editor / PIE
 ```
 
-For the first prototype, it is acceptable for `AgentManager` to contain the simulation harness directly.
+### 2. Responsibilities
 
-Later, if the code grows, split it into:
+- **CLI (director):** start/stop/pause/resume, inspect agents, ask what an agent
+  is thinking, inject an event, set a goal, request a screenshot, force a tick,
+  read recent events. It does **not** micromanage ticks.
+- **Python MCP server (brain):** the agent runtime — memory, planning,
+  reflection, retrieval, LLM routing, action validation, the simulation loop,
+  and the Unreal bridge.
+- **Unreal C++ plugin (body):** actors, navigation, movement, animation,
+  perception data, camera capture, world queries, spawning, action execution,
+  collision/combat/gameplay truth. Agents choose **high-level intentions**;
+  Unreal executes them with normal game systems.
 
-```txt
-AgentManager       = owns agents and agent state
-SimulationRuntime  = owns start/stop/tick loop
-UnrealBridge       = talks to Unreal
-LLMRouter          = talks to Claude/OpenAI/local models
-ActionValidator    = validates decisions before Unreal receives them
-MemoryStore        = persists memories and event history
-```
+### 3. Core Architecture — actual module map
 
----
+The runtime lives in `Python/agent_runtime/`. Current modules and their role in
+the cognitive loop:
 
-## 4. Recommended Folder Structure
+| Module | Role | Cognitive stage |
+| --- | --- | --- |
+| `agent_manager.py` | owns agents + the sim loop (start/stop/tick) | orchestration |
+| `agent.py` | per-agent state + definition | — |
+| `perception.py` | builds observations (symbolic + VLM) | **perceive** |
+| `explorer.py` | frontier-based exploration / mapping | perceive (spatial) |
+| `spatial_memory.py` | `SpatialMap` — learned grid + place-cell map | **spatial memory** |
+| `place_db.py` | shared named-place database | spatial / planning |
+| `world_clock.py` | simulated time of day | planning trigger |
+| `memory_store.py` | memory persistence + retrieval | **memory / retrieve** |
+| `llm_router.py` | tier-based model + embedding routing | all LLM calls |
+| `action_validator.py` | validates decisions before Unreal | **execute** |
+| `unreal_bridge.py` | talks to the C++ plugin | execute / perceive |
+| `world_grid.py` | fixed world grid | spatial |
+| *`planner.py`* | **NEW** — daily/hourly/task planning | **plan** |
+| *`reflection.py`* | **NEW** — synthesize higher-level thoughts | **reflect** |
+| *`conversation.py`* | **NEW** — multi-turn dialogue + summary | **converse** |
 
-Inside the Python MCP server project:
+Agent definitions live under `worlds/<level>/agents/<id>/` (level-scoped).
 
-```txt
-unreal_mcp_server/
-  main.py
+### 4. Director Console (MCP Tools)
 
-  agent_runtime/
-    __init__.py
-    agent_manager.py
-    agent.py
-    simulation_runtime.py
-    unreal_bridge.py
-    llm_router.py
-    action_validator.py
-    memory_store.py
-    world_state_cache.py
-    event_queue.py
-    schemas.py
-
-  agents/
-    gondolf/
-      character.md
-      goals.md
-      rules.md
-      tools.json
-      memory.json
-      state.json
-
-    innkeeper/
-      character.md
-      goals.md
-      rules.md
-      tools.json
-      memory.json
-      state.json
-
-    bandit_01/
-      character.md
-      goals.md
-      rules.md
-      tools.json
-      memory.json
-      state.json
-
-  factions/
-    village/
-      faction.md
-      goals.md
-      memory.json
-
-    bandits/
-      faction.md
-      goals.md
-      memory.json
-
-  prompts/
-    agent_decision_prompt.md
-    dialogue_prompt.md
-    memory_update_prompt.md
-    visual_inspection_prompt.md
-    director_command_prompt.md
-
-  schemas/
-    agent_decision.schema.json
-    unreal_action.schema.json
-    world_observation.schema.json
-    memory_event.schema.json
-    simulation_status.schema.json
-
-  logs/
-    agent_decisions.log
-    world_events.log
-    simulation.log
-```
-
----
-
-## 5. Agent Definition Files
-
-Each agent should be mostly data-driven.
-
-Example:
+Reframed for an **observe + intervene** workflow rather than story authoring:
 
 ```txt
-agents/gondolf/
-  character.md
-  goals.md
-  rules.md
-  tools.json
-  memory.json
-  state.json
-```
-
-### 5.1 `character.md`
-
-```md
-# Agent: Gondolf
-
-## Role
-
-Old wizard NPC who protects the village.
-
-## Personality
-
-Wise, suspicious, slow to trust strangers, but helpful to those who prove honorable.
-
-## Speaking Style
-
-Speaks in short, cryptic warnings. Avoids modern slang.
-
-## Backstory
-
-Gondolf once guarded the Chalice of Dawn. He believes dark forces are returning to the nearby ruins.
-```
-
-### 5.2 `goals.md`
-
-```md
-# Goals
-
-## Long-Term Goals
-
-- Protect the village.
-- Protect the Chalice of Dawn.
-- Watch for suspicious strangers near the ruins.
-- Help the player only after trust is established.
-
-## Current Goal
-
-Patrol the village square and observe newcomers.
-```
-
-### 5.3 `rules.md`
-
-```md
-# Rules
-
-- Do not attack unless threatened.
-- Do not reveal the Chalice location immediately.
-- If the player asks about the Chalice, become cautious.
-- If bandits are nearby, warn the village guard.
-- Do not invent tools or actions.
-- Return structured JSON decisions only.
-```
-
-### 5.4 `tools.json`
-
-```json
-{
-  "allowed_actions": [
-    "idle",
-    "walk_to",
-    "speak_to",
-    "inspect_object",
-    "follow_character",
-    "attack",
-    "flee",
-    "ask_for_screenshot",
-    "remember"
-  ]
-}
-```
-
-### 5.5 `memory.json`
-
-```json
-{
-  "agent_id": "gondolf",
-  "memories": [
-    {
-      "timestamp": "2026-04-29T12:00:00Z",
-      "importance": 0.8,
-      "text": "The player asked about the Chalice."
-    }
-  ]
-}
-```
-
-### 5.6 `state.json`
-
-```json
-{
-  "agent_id": "gondolf",
-  "unreal_actor_name": "Gondolf",
-  "blueprint_class": "BP_Gondolf_C",
-  "tier": 1,
-  "is_active": true,
-  "is_busy": false,
-  "current_goal": "patrol_village",
-  "tick_interval_seconds": 10,
-  "speech_cooldown_seconds": 30,
-  "last_tick_time": null,
-  "last_spoke_time": null
-}
-```
-
-`unreal_actor_name` is the actor label in Unreal (what `find_actors_by_name` searches).
-`blueprint_class` is used if the actor is not found in the level and must be spawned.
-`tier` controls which LLM model is used (1 = high-end, 2 = light, 3 = none).
-
----
-
-## 6. Agent Manager
-
-The Agent Manager is the central controller.
-
-It should:
-
-- Load all agent definitions.
-- Track active/inactive agents.
-- Start and stop the simulation loop.
-- Pulse agents on a schedule.
-- Pull world state from Unreal.
-- Determine which agents are ready to think.
-- Build compact observations for each agent.
-- Route agent decision requests to the right LLM.
-- Validate returned actions.
-- Send approved actions to Unreal.
-- Store memory and logs.
-- Support manual overrides from the CLI.
-
-### 6.1 Minimal Class Shape
-
-```python
-import asyncio
-from typing import Dict, Optional
-
-class AgentManager:
-    def __init__(self, unreal_client, llm_router, memory_store):
-        self.unreal = unreal_client
-        self.llm_router = llm_router
-        self.memory = memory_store
-        self.agents: Dict[str, Agent] = {}
-
-        self.running = False
-        self.paused = False
-        self.tick_seconds = 5
-        self.sim_task: Optional[asyncio.Task] = None
-
-    async def start_simulation(self, tick_seconds: int = 5):
-        if self.running:
-            return {"status": "already_running"}
-
-        self.running = True
-        self.paused = False
-        self.tick_seconds = tick_seconds
-        self.sim_task = asyncio.create_task(self._simulation_loop())
-
-        return {
-            "status": "started",
-            "tick_seconds": self.tick_seconds
-        }
-
-    async def stop_simulation(self):
-        self.running = False
-        self.paused = False
-
-        if self.sim_task:
-            self.sim_task.cancel()
-            self.sim_task = None
-
-        return {"status": "stopped"}
-
-    async def pause_simulation(self):
-        self.paused = True
-        return {"status": "paused"}
-
-    async def resume_simulation(self):
-        if not self.running:
-            return {"status": "not_running"}
-
-        self.paused = False
-        return {"status": "resumed"}
-
-    async def _simulation_loop(self):
-        while self.running:
-            if not self.paused:
-                await self.tick()
-
-            await asyncio.sleep(self.tick_seconds)
-
-    async def tick(self):
-        world_state = await self.unreal.get_world_state()
-
-        ready_agents = self.get_ready_agents(world_state)
-
-        for agent in ready_agents:
-            await self.pulse_agent(agent, world_state)
-
-    async def pulse_agent(self, agent, world_state):
-        observation = await self.build_observation(agent, world_state)
-        decision = await self.llm_router.decide(agent, observation)
-        action = self.validate_action(agent, decision)
-
-        if action:
-            result = await self.unreal.execute_agent_action(agent.agent_id, action)
-            await self.memory.record(agent.agent_id, observation, action, result)
-
-    def get_ready_agents(self, world_state):
-        ready = []
-
-        for agent in self.agents.values():
-            if not agent.is_active:
-                continue
-
-            if agent.is_busy:
-                continue
-
-            if not agent.cooldown_expired():
-                continue
-
-            if not self.agent_is_relevant(agent, world_state):
-                continue
-
-            ready.append(agent)
-
-        return ready
-
-    def agent_is_relevant(self, agent, world_state):
-        # First prototype can return True for all active agents.
-        # Later: only pulse agents near player or near important events.
-        return True
-
-    def validate_action(self, agent, decision):
-        # Validate JSON schema.
-        # Check action type is allowed.
-        # Check target exists if required.
-        # Check cooldowns.
-        # Prevent arbitrary Unreal commands.
-        return decision.get("action")
-```
-
----
-
-## 7. Simulation Control MCP Tools
-
-The Python MCP server should expose simulation-control tools to Claude/OpenAI.
-
-### 7.1 Required Tools
-
-```txt
-start_simulation(tick_seconds?: int, active_agents?: list[str])
-stop_simulation()
-pause_simulation()
-resume_simulation()
+start_simulation(tick_seconds?, active_agents?)
+stop_simulation() / pause_simulation() / resume_simulation()
 get_simulation_status()
-list_agents()
-inspect_agent(agent_id: str)
-set_agent_goal(agent_id: str, goal: str)
-send_agent_message(agent_id: str, message: str)
-force_agent_tick(agent_id: str)
-get_recent_events(limit?: int)
-take_agent_screenshot(agent_id: str)
+reset_agents()                      # reproducible re-runs
+list_agents() / inspect_agent(id)
+get_character_memory(id)            # "what does it remember?"
+get_recent_events(limit?)          # what just happened in the world
+force_agent_tick(id)               # step one agent now
+set_agent_goal(id, goal)           # nudge, don't script
+send_character_message(id, msg)    # speak to an agent as the director
+inject_event(...)                  # light-touch world perturbation (future)
+capture_camera_image(id)           # see what an agent sees
 ```
 
-### 7.2 Example Tool: `start_simulation`
+### 5. Unreal Bridge Contract
 
-Input:
+The `UnrealBridge` exposes high-level functions to the runtime:
+`get_world_state`, `get_agent_observation`, `get_nearby_actors`,
+`take_screenshot / capture_camera_image`, `execute_agent_action`,
+`spawn_agent`. **Runtime commands must target the PIE world** (`GetGameWorld()`,
+not `GWorld`) to avoid the frozen-editor-copy duplicate-actor bug.
 
-```json
-{
-  "tick_seconds": 5,
-  "active_agents": ["gondolf", "innkeeper"]
-}
+### 6. Agent Definition Files (data-driven)
+
+Behavior comes from the agent's authored files, never hard-coded rules. Code
+supplies *senses* (clock, place, map, perception); the persona supplies
+*behavior*.
+
+```txt
+worlds/<level>/agents/<id>/
+  character.md        # role, personality, speaking style, backstory
+  goals.md            # long-term goals + current goal
+  rules.md            # hard constraints
+  state.json          # actor binding, tier, scratch/working state
+  memory.seed.json    # hand-authored starting memories → seed the stream
+  memory.json         # (legacy flat list — superseded by the SQLite stream)
+  spatial_map.json    # learned SpatialMap persistence
+  observations/       # captured camera frames
 ```
 
-Output:
+**Actor binding** (`state.json`): `unreal_actor_name` (Outliner label that
+`find_actors_by_name` / `command_character_*` use) and `blueprint_class` (spawn
+fallback). At `start_simulation`, each active agent binds to a live actor or is
+spawned and tagged. NPC hard requirements: ACharacter parent, AIController,
+Auto-Possess AI, MCPCharacterComponent, NavMesh under the character, PIE running.
 
-```json
-{
-  "status": "started",
-  "tick_seconds": 5,
-  "active_agents": ["gondolf", "innkeeper"]
-}
-```
+### 7. Tiers & Frugality (load-bearing under the emergent north star)
 
-### 7.3 Example Tool: `stop_simulation`
+Many agents free-running means cost control is **mandatory**, not optional.
 
-Input:
+- **Tier 1 (hero/protagonist agents):** full cognitive loop, best model,
+  vision-on-demand, reflection enabled.
+- **Tier 2 (simulated):** routine-driven; LLM only when perceived-event salience
+  crosses threshold or near another agent.
+- **Tier 3 (lightweight):** behavior tree / utility AI; no LLM unless promoted by
+  an event.
 
-```json
-{}
-```
+Frugality mechanisms (all required at scale):
 
-Output:
+- **Symbolic-by-default, vision-on-demand** — structured world state is the
+  default observation; a camera frame is captured only when the agent (or a
+  staleness/scene-diff heuristic) requests it.
+- **Adaptive tick pacing** — agents tick slower when nothing salient is near.
+- **Global LLM rate cap** + per-agent cooldowns (tick, speech, screenshot).
+- **Reflection throttle** — only when accumulated importance crosses a threshold.
 
-```json
-{
-  "status": "stopped"
-}
-```
+### 8. Action Validation & Anti-Chaos
 
-### 7.4 Example Tool: `get_simulation_status`
-
-Output:
-
-```json
-{
-  "status": "running",
-  "paused": false,
-  "tick_seconds": 5,
-  "active_agents": 2,
-  "last_tick_time": "2026-04-29T16:30:00Z",
-  "unreal_connected": true,
-  "llm_router_connected": true
-}
-```
+The LLM never issues raw Unreal commands. The runtime validates: JSON shape,
+action type allowed for that agent, target/location exists and is reachable,
+agent not busy, cooldowns respected, combat allowed by game state, screenshots
+rate-limited, no controlling other agents. Every decision is logged.
 
 ---
 
-## 8. Unreal Bridge / C++ Plugin Contract
+## Part II — Cognitive Architecture (the Simulacra Core) — NEW
 
-The Python MCP server should communicate with the Unreal C++ plugin through an `UnrealBridge`.
+This is the soul grafted onto the substrate. It follows the Generative Agents
+per-step loop, adapted to Unreal.
 
-The bridge should expose high-level functions to the Agent Manager.
+### 9. The Cognitive Loop
 
-### 8.1 UnrealBridge Methods
+```txt
+            ┌─────────────────────────────────────────────┐
+            │                  per tick                    │
+            ▼                                              │
+   perceive ──▶ retrieve ──▶ [react?] ──yes──▶ (re)plan / converse
+   (symbolic +     (recency·    │                          │
+    VLM grounded)  importance·  no                         │
+                   relevance)   ▼                          │
+                          continue scheduled task          │
+                                ▼                          │
+                            execute ──────────────────────┘
+                                │
+                        (periodic) reflect
+```
+
+- **perceive** — what is near me right now (`perception.py`).
+- **retrieve** — pull relevant memories for the current context
+  (`memory_store.py`, upgraded).
+- **react?** — *the gate*: does what I just perceived warrant interrupting my
+  plan? (NEW reaction gate.)
+- **plan** — follow / decompose / re-plan my daily schedule (`planner.py`, NEW).
+- **execute** — validate + dispatch the action to Unreal.
+- **reflect** — periodically synthesize higher-level thoughts (`reflection.py`,
+  NEW).
+- **converse** — when two agents meet and choose to talk (`conversation.py`,
+  NEW).
+
+### 10. Memory Stream (SQLite + Embeddings)
+
+Replaces the flat, 30-item-capped `memory.json` list with an **append-only
+memory stream**. The cap retires; "30" becomes a *retrieval budget*, not a
+storage limit.
+
+**Storage:** one SQLite DB (per world, or per agent). Each node:
+
+```txt
+ConceptNode
+  id            INTEGER PK
+  agent_id      TEXT
+  node_type     TEXT      # 'event' | 'thought' | 'chat'
+  created       TIMESTAMP
+  expiration    TIMESTAMP NULL
+  subject       TEXT      # s-p-o triple for structured recall
+  predicate     TEXT
+  object        TEXT
+  description   TEXT      # natural-language form
+  keywords      TEXT      # for cheap keyword pre-filter
+  poignancy     INTEGER   # 1–10, LLM-scored at creation ("importance")
+  embedding     BLOB      # vector for relevance
+  last_accessed TIMESTAMP
+  evidence      TEXT      # for thoughts: ids of nodes synthesized from
+```
+
+- **events** = perceived/acted facts. **thoughts** = reflections. **chat** =
+  conversation summaries.
+- **poignancy** is one cheap LLM call at creation (1–10). It drives both
+  retrieval scoring and the reflection trigger.
+- `memory.seed.json` is loaded as the agent's initial event rows on first run /
+  reset.
+
+**Embeddings:** a pluggable embedder behind `llm_router.py`. Default
+**local-first** (e.g. a small sentence-transformer) to keep many-agent cost
+down; API embeddings as a configurable override.
+
+### 11. Retrieval (Recency · Importance · Relevance)
+
+Retrieval score for a node, given the current query context (the agent's current
+focus, as text):
+
+```txt
+score = w_recency   * recency(node)        # exp decay on last_accessed
+      + w_importance * normalize(poignancy) # 1–10 → 0–1
+      + w_relevance  * cosine(q_emb, node.embedding)
+```
+
+- All three normalized to [0,1]; weights configurable (paper uses 1/1/1).
+- **recency** uses exponential decay (e.g. 0.99^hours) on `last_accessed`, so
+  recalling a memory refreshes it.
+- Return top-k under a token budget; bump `last_accessed` on retrieval.
+- A keyword pre-filter narrows candidates before the embedding pass for speed.
+
+### 12. Reflection
+
+Periodically, an agent steps back and **synthesizes higher-level thoughts** from
+its stream — the mechanism that gives agents opinions, generalizations, and
+evolving relationships.
+
+**Trigger:** when the sum of poignancy of recent events crosses a threshold
+(throttled — Tier 1 agents only at first).
+
+**Procedure:**
+
+1. Pull the N most recent events.
+2. LLM generates a few **salient questions** ("What do I now think about X?").
+3. For each question, retrieve relevant nodes, LLM produces **insights** with
+   **evidence pointers** back to the source node ids.
+4. Insert insights as `thought` nodes (themselves retrievable and reflect-able →
+   a reflection tree).
+
+### 13. Planning & Daily Schedules — *first vertical slice*
+
+The biggest behavioral change: agents get **lives**, not idle loops. The daily
+planner becomes the **spine** of the loop; the old reactive tick becomes the
+interrupt handler (§14).
+
+`planner.py` interface:
 
 ```python
-class UnrealBridge:
-    async def get_world_state(self) -> dict:
-        pass
+def generate_daily_plan(agent, date) -> list[str]:
+    """Broad-strokes agenda from persona (character.md + goals.md) +
+    yesterday's reflection summary. Stored in scratch/state.json."""
 
-    async def get_agent_observation(self, agent_id: str) -> dict:
-        pass
+def decompose_hourly(agent, daily_plan) -> dict:
+    """Daily agenda → hour-by-hour blocks."""
 
-    async def take_screenshot(self, camera_or_agent_id: str) -> dict:
-        pass
+def decompose_task(agent, hourly_block) -> list[dict]:
+    """Hour block → minute-level concrete actions, each with a target *place*
+    resolved via place_db / SpatialMap.where_is()."""
 
-    async def execute_agent_action(self, agent_id: str, action: dict) -> dict:
-        pass
-
-    async def query_objects_near_agent(self, agent_id: str, radius: float) -> dict:
-        pass
-
-    async def spawn_agent(self, agent_definition: dict) -> dict:
-        pass
+def revise_plan(agent, reason) -> None:
+    """Re-decompose the remainder of the day after a reaction."""
 ```
 
-### 8.2 World State Example
-
-```json
-{
-  "world_id": "demo_village",
-  "time_of_day": "evening",
-  "player": {
-    "id": "player",
-    "location": "Village Tavern",
-    "position": [125.0, 300.0, 0.0]
-  },
-  "agents": [
-    {
-      "id": "gondolf",
-      "location": "Village Square",
-      "position": [400.0, 250.0, 0.0],
-      "state": "idle",
-      "is_visible_to_player": false
-    },
-    {
-      "id": "innkeeper",
-      "location": "Village Tavern",
-      "position": [150.0, 320.0, 0.0],
-      "state": "working",
-      "is_visible_to_player": true
-    }
-  ],
-  "events": [
-    {
-      "type": "player_entered_area",
-      "area": "Village Tavern",
-      "nearby_agents": ["innkeeper"],
-      "importance": 0.7
-    }
-  ]
-}
-```
-
-### 8.3 Agent Observation Example
-
-```json
-{
-  "agent_id": "innkeeper",
-  "location": "Village Tavern",
-  "nearby_characters": [
-    {
-      "id": "player",
-      "name": "Player",
-      "distance": 300,
-      "faction": "unknown"
-    }
-  ],
-  "nearby_objects": [
-    {
-      "id": "bar_counter",
-      "name": "Bar Counter",
-      "distance": 80
-    }
-  ],
-  "visible_threats": [],
-  "current_task": "serve_customers",
-  "recent_events": [
-    {
-      "type": "player_entered_area",
-      "area": "Village Tavern",
-      "importance": 0.7
-    }
-  ]
-}
-```
-
-### 8.4 Execute Action Example
-
-Input:
-
-```json
-{
-  "agent_id": "innkeeper",
-  "action": {
-    "type": "speak_to",
-    "target": "player",
-    "message": "Welcome, traveler. Looking for a room or a rumor?"
-  }
-}
-```
-
-Output:
-
-```json
-{
-  "status": "accepted",
-  "agent_id": "innkeeper",
-  "action_id": "act_123",
-  "estimated_duration_seconds": 4
-}
-```
-
----
-
-## 9. Agent Decision Schema
-
-The LLM should return structured JSON only.
-
-### 9.1 Agent Decision
-
-```json
-{
-  "agent_id": "gondolf",
-  "thought_summary": "The player is near the tavern, but I have no reason to intervene yet.",
-  "action": {
-    "type": "idle",
-    "duration_seconds": 5
-  },
-  "speech": null,
-  "memory_update": null,
-  "importance": 0.2
-}
-```
-
-### 9.2 Speak Action
-
-```json
-{
-  "agent_id": "innkeeper",
-  "thought_summary": "The player entered my tavern, so I should greet them.",
-  "action": {
-    "type": "speak_to",
-    "target": "player",
-    "message": "Welcome to the Hearth & Hammer. Need a room, a drink, or information?"
-  },
-  "speech": {
-    "target": "player",
-    "message": "Welcome to the Hearth & Hammer. Need a room, a drink, or information?"
-  },
-  "memory_update": "The player entered the tavern for the first time.",
-  "importance": 0.5
-}
-```
-
-### 9.3 Walk Action
-
-```json
-{
-  "agent_id": "gondolf",
-  "thought_summary": "I heard of movement near the east gate and should investigate.",
-  "action": {
-    "type": "walk_to",
-    "target_location": "East Gate"
-  },
-  "speech": null,
-  "memory_update": "Suspicious movement was reported near the east gate.",
-  "importance": 0.6
-}
-```
-
-### 9.4 Ask For Screenshot Action
-
-```json
-{
-  "agent_id": "gondolf",
-  "thought_summary": "The structured data is unclear. I need a visual check of the ruins entrance.",
-  "action": {
-    "type": "ask_for_screenshot",
-    "camera": "agent_view"
-  },
-  "speech": null,
-  "memory_update": null,
-  "importance": 0.4
-}
-```
-
----
-
-## 10. Prompt Design
-
-The decision prompt should be strict and boring.
-
-### 10.1 `prompts/agent_decision_prompt.md`
-
-```md
-You are controlling one NPC in an Unreal Engine RPG world.
-
-You must choose exactly one next action from the allowed actions.
-
-Do not invent tools.
-Do not invent locations, characters, or objects.
-Do not control other characters.
-Do not output prose outside JSON.
-Do not issue raw Unreal commands.
-Do not choose actions that are not in the allowed action list.
-
-Consider:
-- Your personality
-- Your goals
-- Your memories
-- The current world observation
-- Nearby characters and objects
-- Current threats
-- Current task
-- Cooldowns
-- Whether speaking is appropriate
-
-Return JSON only using this shape:
-
-{
-  "agent_id": "...",
-  "thought_summary": "...",
-  "action": {
-    "type": "..."
-  },
-  "speech": null,
-  "memory_update": null,
-  "importance": 0.0
-}
-```
-
-### 10.2 Prompt Inputs
-
-The Agent Manager should build a prompt from:
-
-```txt
-- Agent character.md
-- Agent goals.md
-- Agent rules.md
-- Allowed tools/actions
-- Relevant memory
-- Current observation
-- Recent world events
-- Current cooldowns/state
-```
-
----
-
-## 11. Agent Tiers
-
-Not every NPC should use a full LLM every few seconds.
-
-### 11.1 Tier 1: Hero Agents
-
-Major story NPCs.
-
-Examples:
-
-```txt
-Gondolf
-Main villain
-Player companion
-Quest giver
-Faction leader
-```
-
-Features:
-
-- Full memory.
-- Goal reasoning.
-- Dialogue.
-- Screenshots when useful.
-- More expensive LLM allowed.
-
-### 11.2 Tier 2: Simulated Agents
-
-Important background NPCs.
-
-Examples:
-
-```txt
-Innkeeper
-Blacksmith
-Guard captain
-Merchant
-```
-
-Features:
-
-- Mostly schedule/routine driven.
-- LLM only when interrupted or near player.
-- Less frequent ticks.
-
-### 11.3 Tier 3: Lightweight NPCs
-
-Generic background actors.
-
-Examples:
-
-```txt
-Villagers
-Animals
-Basic guards
-Random bandits
-```
-
-Features:
-
-- Behavior Tree / Utility AI / State Machine.
-- No LLM unless promoted by an event.
-- Can be controlled indirectly by faction agents.
-
----
-
-## 12. Faction and Location Agents
-
-In addition to character agents, support higher-level agents later.
-
-Examples:
-
-```txt
-VillageAgent
-BanditFactionAgent
-DungeonDirectorAgent
-QuestDirectorAgent
-WeatherMoodAgent
-```
-
-Faction agents can make broad decisions without giving every NPC a full LLM brain.
-
-Example:
-
-```txt
-BanditFactionAgent:
-- Goal: steal supplies from village.
-- Knows: player killed two scouts.
-- Decision: send two bandits to watch the east road.
-```
-
-Individual bandits can then follow simple commands using normal Unreal behavior systems.
-
----
-
-## 13. Event Queue
-
-The Agent Manager should support both polling and events.
-
-### 13.1 Polling
-
-Every N seconds:
-
-```txt
-AgentManager.tick()
-  -> get_world_state()
-  -> choose ready agents
-  -> pulse each ready agent
-```
-
-### 13.2 Events
-
-Unreal can report important events:
-
-```json
-{
-  "type": "world_event",
-  "event": "player_entered_area",
-  "area": "Village_Tavern",
-  "nearby_agents": ["innkeeper", "gondolf"],
-  "importance": 0.75,
-  "timestamp": "2026-04-29T16:05:00Z"
-}
-```
-
-The Agent Manager decides whether to wake agents.
-
-It should not blindly call an LLM for every event.
-
-### 13.3 Suggested Event Types
-
-```txt
-player_entered_area
-player_left_area
-agent_saw_player
-agent_heard_noise
-agent_attacked
-agent_spoke
-item_discovered
-quest_state_changed
-combat_started
-combat_ended
-important_object_moved
-```
-
----
-
-## 14. Screenshots and Vision
-
-Screenshots are powerful but should be used selectively.
-
-Structured Unreal data should be the default.
-
-However, camera capture is not a secondary feature. The central long-term
-loop is:
-
-```txt
-agent camera capture -> scene analysis -> action decision -> Unreal command
-```
-
-The model used for scene analysis must be chosen for visual reasoning quality,
-not only for cheap text decisions. Small models are acceptable for simple
-idle/dialogue/routine movement decisions, but navigation from camera frames,
-object identification, spatial interpretation, and player/pose awareness should
-route to the best available vision-capable model configured for the project.
-
-Use screenshots when:
-
-- The agent is confused.
-- Visual confirmation is needed.
-- The player is nearby and expression/pose/location matters.
-- A new object appeared.
-- The agent is inspecting something.
-- The LLM specifically asks for `ask_for_screenshot`.
-
-Do not send screenshots every tick for every agent.
-
-Use separate model settings for text decisions and visual analysis:
-
-```env
-LLM_PROVIDER=openai
-LLM_MODEL=gpt-5.4-mini
-
-VISION_PROVIDER=openai
-VISION_MODEL=gpt-5.4
-```
-
-The exact model names are configurable. The important design rule is that
-`LLM_MODEL` can optimize for cost/latency, while `VISION_MODEL` optimizes for
-scene understanding. Per-agent overrides should be allowed for special NPCs
-that need better perception.
-
-Screenshot pipeline requirements:
-
-- Preserve enough resolution and color fidelity for scene analysis.
-- Avoid over-compressing or thumbnailing the frame before the model sees it.
-- Attach camera metadata when available: actor name, world location, rotation,
-  FOV, timestamp, and any known nearby actors.
-- Cache the most recent frame per agent so repeated questions do not recapture
-  unnecessarily.
-- Rate-limit vision calls separately from text decision calls.
-- Log which provider/model analyzed each frame.
-- Allow a cheap first-pass decision model to request vision, then hand the
-  screenshot to the configured vision model for a final decision.
-
-Recommended flow:
-
-```txt
-1. Agent receives structured observation.
-2. Agent decides it needs visual context.
-3. Agent returns ask_for_screenshot.
-4. Agent Manager asks Unreal for screenshot.
-5. Agent Manager sends visual observation to the configured vision model.
-6. Agent returns final action.
-```
-
-For agents whose primary job is camera navigation, the Agent Manager may skip
-the first cheap text pass and call the vision model directly when a fresh camera
-frame is available.
-
----
-
-## 15. Action Validation
-
-Never let the LLM directly execute arbitrary Unreal commands.
-
-The Agent Manager must validate:
-
-- JSON is valid.
-- Action type is allowed for that agent.
-- Target exists.
-- Target is reachable if applicable.
-- Agent is not busy.
-- Cooldowns are respected.
-- Speech cooldown is respected.
-- Combat actions are allowed by current game state.
-- Screenshot requests are rate-limited.
-- The action does not control other agents improperly.
-
-Example:
+- **Where** a task happens is resolved through `place_db` and the learned
+  `SpatialMap.where_is(label)` — the agent goes where it *knows* a place to be,
+  exploring if it doesn't.
+- **When** is driven by `world_clock`: the agent executes the task scheduled for
+  the current sim time.
+
+### 14. Reaction Gate
+
+Between retrieve and execute, the agent decides whether to **continue its
+scheduled task or react** to what it just perceived.
 
 ```python
-def validate_action(agent, decision, world_state):
-    action = decision.get("action")
-
-    if not action:
-        return None
-
-    action_type = action.get("type")
-
-    if action_type not in agent.allowed_actions:
-        return None
-
-    if action_type == "speak_to":
-        if not agent.can_speak():
-            return None
-        if not target_exists(action.get("target"), world_state):
-            return None
-
-    if action_type == "walk_to":
-        if not location_exists(action.get("target_location"), world_state):
-            return None
-
-    return action
+def should_react(agent, perceived, retrieved) -> Reaction | None:
+    """LLM (or cheap heuristic for Tier 2/3): given current task + what I see +
+    what I remember, do I keep going, or react? If react: converse / re-plan /
+    new action. On react → planner.revise_plan()."""
 ```
+
+This is what makes routines *interruptible* — the source of emergent
+interaction. It demotes the v1 "one validated action per tick" to exactly this
+interrupt path.
+
+### 15. Conversation
+
+Upgrades single utterances (`command_character_say`) to **multi-turn dialogue**
+that feeds memory.
+
+`conversation.py`:
+
+- Triggered when two agents are in proximity and the reaction gate elects to
+  talk.
+- Each turn is conditioned on the **relationship** (retrieved memories about the
+  other agent) + current context.
+- Dialogue is generated turn-by-turn until a natural close.
+- The exchange is **summarized into a `chat` node** in *both* agents' streams —
+  this is how information diffuses across the population (success criterion #2).
+
+### 16. Spatial Memory (Learned Cognitive Map)
+
+`spatial_memory.py` `SpatialMap` is the canonical spatial memory — **we keep it
+over the paper's hand-authored tree.** It is an egocentric grid + place-cell map:
+
+- **Grid layer:** deterministic tiling of world (x,y) into `cell_size` cells; the
+  occupied cell is derived from the agent's own position (path integration), not
+  an omniscient scan.
+- **Place layer:** each visited cell accumulates VLM-extracted landmark tags;
+  named-place coordinates are derived on demand (`where_is`) as a
+  confidence/closeness-weighted centroid.
+- Supports frontier-based exploration (`nearest_frontier`), nav edges (`link`),
+  blocked cells, and `place_labels` ("what place am I in?").
+
+Planning queries this map to locate task destinations; exploration grows it.
+
+### 17. Scratch / Working Memory
+
+`state.json` formalized as the agent's **scratch**: current action + target,
+today's `daily_schedule` and its decomposition, persona-derived params
+(vision radius, attention bandwidth, speech cooldown), and binding/tier. Loaded
+as live state at runtime, persisted between ticks.
+
+### 18. Perception (symbolic-by-default, vision-on-demand)
+
+`perception.py` builds the observation. Default is **symbolic** (nearby actors,
+places, recent events — cheap engine queries). A **camera frame** is captured and
+sent to the vision model only when: the agent requests it, a scene-diff /
+staleness heuristic fires, or the task is inherently visual (navigation,
+inspecting). This is the frugality contract from §7 expressed at the perception
+layer. (TODO: scene-diff threshold + VLM-fork staleness, per backlog.)
 
 ---
 
-## 16. Cooldowns and Anti-Chaos Controls
+## Part III — Where We Are Ahead of the Paper
 
-Without controls, agentic NPCs will become noisy and expensive.
+Stated as deliberate design, not gaps to "fix back" to Smallville:
 
-Add:
-
-```txt
-- Tick interval per agent
-- Global max LLM calls per minute
-- Speech cooldown
-- Screenshot cooldown
-- Busy/locked state while actions execute
-- Priority system
-- Event deduplication
-- Memory pruning
-- Error fallback behavior
-```
-
-Example state:
-
-```json
-{
-  "agent_id": "gondolf",
-  "unreal_actor_name": "Gondolf",
-  "blueprint_class": "BP_Gondolf_C",
-  "tier": 1,
-  "last_llm_tick": "2026-04-29T16:05:00Z",
-  "min_tick_interval_seconds": 10,
-  "can_speak": true,
-  "speech_cooldown_seconds": 30,
-  "current_goal": "patrol_village",
-  "locked_until_action_complete": true
-}
-```
+1. **Grounded VLM perception** — agents see real rendered frames, not a symbolic
+   tile map. Harder, but the right essence.
+2. **Learned cognitive map** — spatial memory is *acquired through exploration*
+   and *grounded*, not handed to the agent. Place coordinates are inferred, not
+   declared.
+3. **Live director** — interactive observation + intervention via MCP, which the
+   paper's batch simulation lacks.
+4. **Real engine as world authority** — navigation, collision, animation, and
+   physics are Unreal's, not a 2D sandbox's.
 
 ---
 
-## 17. Memory System
+## Part IV — Roadmap
 
-Start simple.
+### Current state (built)
 
-Use local JSON files first.
+Substrate + sim loop, tiers, adaptive pacing, reproducible resets, world grid;
+`SpatialMap`, `place_db`, `world_clock`, `perception`/`explorer` (explore mode
+verified live in PIE); flat `memory_store` with recency+importance retrieval;
+`llm_router`, `action_validator`, `unreal_bridge`.
 
-Later, use SQLite.
+### Milestone 1 — Daily-Schedule Planner *(first slice)*
 
-### 17.1 Memory Record
+Build `planner.py`; add the reaction gate to the tick loop; demote the reactive
+tick to interrupt handler; wire `world_clock` + `place_db`/`SpatialMap` for
+when/where.
 
-```json
-{
-  "timestamp": "2026-04-29T16:10:00Z",
-  "agent_id": "gondolf",
-  "type": "observation_action_result",
-  "observation": {
-    "location": "Village Square",
-    "nearby_characters": ["player"]
-  },
-  "action": {
-    "type": "speak_to",
-    "target": "player",
-    "message": "You tread near dangerous ground."
-  },
-  "result": {
-    "status": "accepted"
-  },
-  "importance": 0.7,
-  "summary": "Gondolf warned the player near the village square."
-}
-```
+**Scenario:** 2–3 personas in `MCP_World`, each with a daily routine. They wake,
+follow routines to places, perceive each other, occasionally react/converse,
+form memories.
+**Done when:** over one sim-day, agents follow visibly distinct routines and ≥1
+unplanned cross-agent interaction is remembered by both (success criteria #1–2).
 
-### 17.2 Retrieval
+### Milestone 2 — Memory Stream + Retrieval
 
-For first version:
+Migrate `memory_store.py` to the SQLite `ConceptNode` stream; add the pluggable
+embedder; implement recency·importance·relevance retrieval; LLM poignancy at
+creation; load `memory.seed.json` as initial rows.
+**Done when:** retrieval visibly surfaces relevant-not-just-recent memories, and
+an agent's behavior changes from a retrieved memory (criterion #3).
 
-- Include last 5 memories.
-- Include important memories with importance > 0.7.
-- Include memories related to nearby characters.
+### Milestone 3 — Reflection
 
-Later:
+Build `reflection.py` with the poignancy-threshold trigger and the
+question→insight→evidence procedure (Tier 1 only at first).
+**Done when:** agents form `thought` nodes that influence later plans.
 
-- Store embeddings.
-- Retrieve memories based on semantic similarity.
-- Summarize old memories.
+### Milestone 4 — Conversation
 
----
+Build `conversation.py`: multi-turn, relationship-conditioned, summarized into
+both streams.
+**Done when:** information demonstrably diffuses between agents who never
+directly observed the source event.
 
-## 18. LLM Routing
+### Milestone 5 — Multi-Agent Emergence
 
-The Agent Manager should not assume every agent uses the same model.
+Scale to several agents; tune frugality (tiers, pacing, vision-on-demand) to hold
+a full day in budget (criterion #4); observe and document emergent behavior.
 
-Use an `LLMRouter`.
+### Milestone 6 — Directed Layer *(deferred / optional)*
 
-Routing must distinguish between:
-
-- **Decision model**: fast/cheap text reasoning for ordinary ticks.
-- **Vision model**: stronger multimodal scene analysis for camera frames.
-
-Provider and model should be configurable through environment variables and
-agent state:
-
-```txt
-LLM_PROVIDER        -> default text-decision provider
-LLM_MODEL           -> provider-agnostic text-decision model override
-OPENAI_MODEL        -> OpenAI text-decision default
-ANTHROPIC_MODEL     -> Anthropic text-decision default
-
-VISION_PROVIDER     -> default image-analysis provider
-VISION_MODEL        -> provider-agnostic image-analysis model override
-OPENAI_VISION_MODEL -> OpenAI image-analysis default
-```
-
-Agent `state.json` may override:
-
-```json
-{
-  "llm_provider": "openai",
-  "model": "gpt-5.4-mini",
-  "vision_provider": "openai",
-  "vision_model": "gpt-5.4"
-}
-```
-
-Example routing:
-
-```txt
-Gondolf              -> Claude / GPT high-end model
-Main villain         -> Claude / GPT high-end model
-Innkeeper            -> cheaper model
-Generic villager     -> local/small model or no LLM
-Bandit grunt         -> Behavior Tree unless special event
-QuestDirectorAgent   -> high-end model
-```
-
-Minimal interface:
-
-```python
-class LLMRouter:
-    async def decide(self, agent, observation):
-        model = self.select_decision_model(agent)
-        prompt = self.build_prompt(agent, observation)
-        return await model.complete_json(prompt)
-
-    async def decide_with_image(self, agent, observation, image):
-        model = self.select_vision_model(agent)
-        prompt = self.build_visual_prompt(agent, observation)
-        return await model.complete_json(prompt, image=image)
-
-    def select_decision_model(self, agent):
-        if agent.tier == 1:
-            return self.high_reasoning_model
-        if agent.tier == 2:
-            return self.light_model
-        return self.local_or_none_model
-
-    def select_vision_model(self, agent):
-        if agent.state.get("vision_model"):
-            return agent.state["vision_model"]
-        return self.best_configured_vision_model
-```
+Only after emergence works: faction agents, `QuestDirectorAgent`,
+`VillageAgent`, shared faction memory, high-level plans that task lower-tier
+NPCs. This is the RPG *application* on top of the sim.
 
 ---
 
-## 19. Manual Override Commands
-
-While the simulation is running, the user should be able to intervene through the CLI.
-
-Examples:
+## Part V — Mental Model & Design Rules
 
 ```txt
-Tell Gondolf to go to the bridge.
-Make the bandits hostile.
-Pause villager agents.
-Give the player a quest clue.
-Force a screenshot from Gondolf's view.
-Set Innkeeper's goal to greet the player.
+Unreal       = body, senses, physics, movement, animation, world truth
+Python MCP   = nervous system: memory, planning, reflection, validation
+Agent loop   = perceive → retrieve → react? → plan → execute → reflect → converse
+LLMs         = minds for selected (tiered) agents
+CLI          = director console (observe + intervene)
+MCP          = the bridge
 ```
 
-Expose MCP tools for this.
-
-Example:
-
-```python
-async def set_agent_goal(self, agent_id: str, goal: str):
-    agent = self.agents[agent_id]
-    agent.current_goal = goal
-    agent.force_next_tick = True
-
-    return {
-        "status": "goal_updated",
-        "agent_id": agent_id,
-        "goal": goal
-    }
-```
-
----
-
-## 20. First Prototype Scope
-
-Do not start with many agents.
-
-Build the first prototype with:
-
-```txt
-- 1 player
-- 1 intelligent NPC
-- 1 simple world-state endpoint
-- 1 screenshot endpoint
-- 1 action endpoint
-- 1 memory file
-- 1 decision loop every 5–10 seconds
-```
-
-Recommended first scenario:
-
-```txt
-Gondolf stands in a village.
-Player walks nearby.
-Agent Manager sends Gondolf world state.
-Gondolf decides whether to greet, ignore, follow, warn, or ask for screenshot.
-Unreal performs the action.
-Gondolf remembers the interaction.
-```
-
-Then add:
-
-```txt
-- Second NPC
-- Shared memory
-- Faction goal
-- Quest state
-- Visual inspection
-- Event queue
-```
-
----
-
-## 21. Implementation Phases
-
-### Phase 1 — Skeleton Agent Manager
-
-Build:
-
-```txt
-agent_runtime/agent.py
-agent_runtime/agent_manager.py
-agent_runtime/memory_store.py
-agent_runtime/unreal_bridge.py
-```
-
-Implement:
-
-```txt
-load_agents()
-start_simulation()
-stop_simulation()
-pause_simulation()
-resume_simulation()
-get_simulation_status()
-tick()
-```
-
-Use mock Unreal responses at first if needed.
-
-### Phase 2 — MCP Tool Exposure
-
-Expose tools from the existing Python MCP server:
-
-```txt
-start_simulation
-stop_simulation
-pause_simulation
-resume_simulation
-get_simulation_status
-list_agents
-inspect_agent
-set_agent_goal
-force_agent_tick
-```
-
-Verify Claude/OpenAI CLI can call them.
-
-### Phase 3 — Unreal Bridge Integration
-
-Connect Agent Manager to the existing Unreal C++ plugin.
-
-Implement or wire:
-
-```txt
-get_world_state
-get_agent_observation
-execute_agent_action
-take_screenshot
-```
-
-### Phase 4 — LLM Decision Loop
-
-Implement:
-
-```txt
-LLMRouter
-agent_decision_prompt
-JSON-only decision parsing
-schema validation
-fallback behavior
-```
-
-The first LLM action set should be small:
-
-```txt
-idle
-walk_to
-speak_to
-ask_for_screenshot
-remember
-```
-
-### Phase 5 — Memory and Logs
-
-Implement:
-
-```txt
-memory.json read/write
-agent_decisions.log
-world_events.log
-recent events MCP tool
-```
-
-### Phase 6 — Screenshots / Vision
-
-Add:
-
-```txt
-ask_for_screenshot action
-take_agent_screenshot MCP call
-vision-specific prompt
-VISION_PROVIDER / VISION_MODEL routing
-optional image input to LLMRouter decisions
-camera metadata attached to image observations
-image quality controls for resolution/compression
-rate limiting
-```
-
-### Phase 7 — Multiple Agents
-
-Add:
-
-```txt
-agent prioritization
-tick staggering
-speech cooldown
-busy state
-near-player filtering
-event queue
-```
-
-### Phase 8 — Factions and Directors
-
-Add:
-
-```txt
-Faction agents
-QuestDirectorAgent
-VillageAgent
-shared memory
-high-level plans that create tasks for lower-tier NPCs
-```
-
----
-
-## 22. Suggested Python Interfaces
-
-### 22.1 Agent
-
-```python
-class Agent:
-    def __init__(
-        self,
-        agent_id: str,
-        name: str,
-        tier: int,
-        character_text: str,
-        goals_text: str,
-        rules_text: str,
-        allowed_actions: list[str],
-        state: dict,
-    ):
-        self.agent_id = agent_id
-        self.name = name
-        self.tier = tier
-        self.character_text = character_text
-        self.goals_text = goals_text
-        self.rules_text = rules_text
-        self.allowed_actions = allowed_actions
-        self.state = state
-
-    @property
-    def is_active(self) -> bool:
-        return self.state.get("is_active", True)
-
-    @property
-    def is_busy(self) -> bool:
-        return self.state.get("is_busy", False)
-
-    def cooldown_expired(self) -> bool:
-        # Check last tick time versus tick interval.
-        return True
-```
-
-### 22.2 AgentManager
-
-```python
-class AgentManager:
-    async def start_simulation(self, tick_seconds: int = 5) -> dict:
-        ...
-
-    async def stop_simulation(self) -> dict:
-        ...
-
-    async def pause_simulation(self) -> dict:
-        ...
-
-    async def resume_simulation(self) -> dict:
-        ...
-
-    def get_status(self) -> dict:
-        ...
-
-    async def tick(self) -> dict:
-        ...
-
-    async def pulse_agent(self, agent_id: str) -> dict:
-        ...
-
-    def list_agents(self) -> list[dict]:
-        ...
-
-    def inspect_agent(self, agent_id: str) -> dict:
-        ...
-
-    def set_agent_goal(self, agent_id: str, goal: str) -> dict:
-        ...
-```
-
----
-
-## 23. Example Runtime Flow
-
-### 23.1 User Starts Simulation
-
-User says in Claude/OpenAI CLI:
-
-```txt
-Begin simulation with Gondolf and the Innkeeper active.
-```
-
-LLM calls MCP:
-
-```json
-{
-  "tool": "start_simulation",
-  "arguments": {
-    "tick_seconds": 5,
-    "active_agents": ["gondolf", "innkeeper"]
-  }
-}
-```
-
-Agent Manager:
-
-```txt
-- sets running = true
-- activates requested agents
-- creates background async simulation task
-- returns status
-```
-
-### 23.2 Simulation Tick
-
-```txt
-AgentManager._simulation_loop()
-  -> AgentManager.tick()
-    -> UnrealBridge.get_world_state()
-    -> AgentManager.get_ready_agents()
-    -> AgentManager.pulse_agent(gondolf)
-      -> build observation
-      -> call LLMRouter.decide()
-      -> validate action
-      -> UnrealBridge.execute_agent_action()
-      -> MemoryStore.record()
-    -> AgentManager.pulse_agent(innkeeper)
-      -> same flow
-```
-
-### 23.3 User Stops Simulation
-
-User says:
-
-```txt
-Stop simulation.
-```
-
-LLM calls:
-
-```json
-{
-  "tool": "stop_simulation",
-  "arguments": {}
-}
-```
-
-Agent Manager:
-
-```txt
-- sets running = false
-- cancels background task
-- returns stopped status
-```
-
----
-
-## 24. Important Design Rules
-
-1. The Agent Manager owns the simulation loop.
-2. The LLM CLI starts/stops/inspects/directs the simulation.
-3. The LLM CLI does not manually tick every agent.
-4. Unreal remains the source of truth for the world.
-5. The Python MCP server is the orchestration brain.
-6. The Unreal C++ plugin is the body/senses/action layer.
-7. Agents choose high-level actions, not low-level movement.
-8. All LLM actions must be validated before hitting Unreal.
-9. Structured world state should be used by default.
-10. Screenshots should be used selectively.
-11. Not every NPC needs an LLM brain.
-12. Start with one agent before scaling.
-13. Keep agent definitions human-editable.
-14. Keep runtime state machine-readable.
-15. Log every decision.
-
----
-
-## 26. Actor Binding Contract
-
-Every agent must declare how it maps to a live Unreal actor.
-
-### 26.1 The Problem
-
-The agent file system uses `agent_id` strings (e.g. `"gondolf"`).
-Unreal actors have their own labels and internal names (e.g. `"Gondolf"`, `"BP_Gondolf_C_0"`).
-These are not automatically the same. The binding must be explicit.
-
-### 26.2 Required Fields in `state.json`
-
-```json
-{
-  "agent_id": "gondolf",
-  "unreal_actor_name": "Gondolf",
-  "blueprint_class": "BP_Gondolf_C",
-  "tier": 1
-}
-```
-
-`unreal_actor_name` — the display label of the Unreal actor as it appears in the Outliner.
-This is what `find_actors_by_name` searches for and what `command_character_*` uses.
-
-`blueprint_class` — the Blueprint class to spawn if the actor is not already in the level.
-
-`tier` — 1, 2, or 3. Controls which LLM model is routed to this agent.
-
-### 26.3 Binding Strategy at Simulation Start
-
-When `start_simulation()` is called, the AgentManager does the following for each active agent:
-
-```txt
-1. Call find_actors_by_name(agent.unreal_actor_name)
-2. If found → bind to that actor, store reference
-3. If not found → call spawn_blueprint_actor(agent.blueprint_class)
-                  → tag the spawned actor with agent_id
-                  → store reference
-4. If spawn fails → mark agent as inactive, log warning, continue
-```
-
-This means agents can work with pre-placed level actors (common case during dev)
-or with dynamically spawned actors (useful for runtime NPC generation).
-
-### 26.4 CLI-First Authoring
-
-Before a web UI, agents are authored using a CLI tool: `Python/npc_cli.py`.
-
-```bash
-python npc_cli.py create gondolf
-python npc_cli.py list
-python npc_cli.py show gondolf
-python npc_cli.py set gondolf current_goal patrol_village
-python npc_cli.py delete gondolf
-```
-
-The CLI prompts for `unreal_actor_name` and `blueprint_class` on create,
-ensuring every agent has a valid Unreal binding from the start.
-
-The web UI (Section 27) is a later layer on top of the same file format.
-
----
-
-## 27. NPC Builder Web App
-
-### 26.1 Purpose
-
-A local web app for authoring and editing the agent definition files consumed by the Agent Manager.
-
-Targets the full file set for each agent:
-
-```txt
-character.md
-goals.md
-rules.md
-tools.json
-state.json
-memory.json
-```
-
-Editing raw files by hand is error-prone and slow. The NPC Builder provides a structured UI so designers can create and manage agents without touching JSON or Markdown directly.
-
-### 26.2 Architecture
-
-```txt
-React Frontend  <-->  FastAPI Backend  <-->  agents/ directory on disk
-```
-
-- React (Vite) runs on `localhost:5173`
-- FastAPI runs on `localhost:8001`
-- FastAPI reads and writes files directly under `Python/agents/`
-- No database — files are the source of truth
-
-### 26.3 Folder Structure
-
-```txt
-npc_builder/
-  backend/
-    main.py           # FastAPI app + CORS config
-    file_manager.py   # read/write agent files
-    models.py         # Pydantic models for request/response
-    requirements.txt  # fastapi, uvicorn, pydantic
-
-  frontend/
-    index.html
-    vite.config.ts
-    package.json
-    src/
-      App.tsx
-      api.ts                   # typed fetch wrappers
-      components/
-        AgentList.tsx           # sidebar: all agents
-        AgentEditor.tsx         # main panel with tabs
-        tabs/
-          CharacterTab.tsx      # edits character.md (textarea)
-          GoalsTab.tsx          # edits goals.md (textarea)
-          RulesTab.tsx          # edits rules.md (textarea)
-          ToolsTab.tsx          # edits tools.json allowed_actions (checkbox list)
-          StateTab.tsx          # edits state.json (form fields)
-          MemoryTab.tsx         # edits memory.json (list + add/remove)
-```
-
-### 26.4 FastAPI Endpoints
-
-```txt
-GET    /agents                     # list all agent IDs
-POST   /agents/{agent_id}          # create agent (scaffold empty files)
-DELETE /agents/{agent_id}          # delete agent folder
-
-GET    /agents/{agent_id}/character
-PUT    /agents/{agent_id}/character
-
-GET    /agents/{agent_id}/goals
-PUT    /agents/{agent_id}/goals
-
-GET    /agents/{agent_id}/rules
-PUT    /agents/{agent_id}/rules
-
-GET    /agents/{agent_id}/tools
-PUT    /agents/{agent_id}/tools
-
-GET    /agents/{agent_id}/state
-PUT    /agents/{agent_id}/state
-
-GET    /agents/{agent_id}/memory
-PUT    /agents/{agent_id}/memory
-```
-
-### 26.5 React UI
-
-```txt
-Left sidebar
-  - List of all agents
-  - "New Agent" button
-  - Delete agent button with confirmation
-
-Main panel — tabs per file:
-  Character   textarea (Markdown)
-  Goals       textarea (Markdown)
-  Rules       textarea (Markdown)
-  Tools       checkbox list of allowed actions
-  State       structured form fields
-  Memory      list of memory entries with add/remove
-
-Each tab has a Save button that PUTs to the backend.
-```
-
-#### State Tab Fields
-
-```txt
-is_active            toggle
-tick_interval_seconds  number input
-current_goal         text input
-speech_cooldown_seconds  number input
-```
-
-#### Memory Tab Fields
-
-```txt
-Each entry:
-  text          text input
-  importance    slider 0.0 – 1.0
-  timestamp     auto-filled on save
-
-Add entry button
-Remove entry button per row
-```
-
-### 26.6 Default Allowed Actions (ToolsTab Checkboxes)
-
-```txt
-idle
-walk_to
-speak_to
-inspect_object
-follow_character
-attack
-flee
-ask_for_screenshot
-remember
-```
-
-### 26.7 Running the App
-
-```bash
-# Backend
-cd npc_builder/backend
-pip install -r requirements.txt
-uvicorn main:app --port 8001 --reload
-
-# Frontend
-cd npc_builder/frontend
-npm install
-npm run dev
-```
-
-Open `http://localhost:5173` to use the builder.
-
----
-
-## 25. Final Mental Model
-
-```txt
-Unreal = body, senses, physics, movement, animation, combat, world truth
-
-Python MCP Server = nervous system, scheduler, memory, validation, orchestration
-
-Agent Manager = simulation brainstem
-
-LLMs = minds for selected agents
-
-Claude/OpenAI CLI = director console
-
-MCP = communication bridge
-```
-
-The final user experience should feel like:
-
-```txt
-User watches Unreal Editor running.
-
-User talks to Claude/OpenAI CLI as the simulation director.
-
-The CLI calls MCP tools on the Python MCP server.
-
-The Agent Manager starts or stops the autonomous sim loop.
-
-Agents observe the Unreal world, reason, speak, move, remember, and pursue goals.
-
-Unreal executes the visible results.
-```
+1. The agent runtime owns the simulation loop; the CLI directs, it doesn't tick.
+2. Unreal is the source of truth for the world.
+3. Agents choose high-level intentions; Unreal executes them.
+4. **Behavior comes from the agent's authored files; code supplies senses.**
+5. The daily plan is the spine; the reaction gate makes it interruptible.
+6. The memory stream is append-only; retrieval is recency·importance·relevance.
+7. Reflection synthesizes thoughts with evidence; thoughts are memories too.
+8. Conversation summaries land in *both* agents' streams (diffusion).
+9. Symbolic-by-default, vision-on-demand; structured state is the cheap default.
+10. Not every NPC needs a mind — tiers + frugality are load-bearing at scale.
+11. Spatial knowledge is *learned and grounded*, not declared.
+12. All actions are validated; every decision is logged.
+13. Success is emergent behavior, measured from logs and memory — not vibes.
+
+The end experience: you watch Unreal running a town of agents living their
+days — keeping routines, bumping into each other, gossiping, remembering, and
+occasionally surprising you — and you lean in through the CLI to ask one what it
+is thinking, or to drop a stone in the pond and watch the ripples spread.

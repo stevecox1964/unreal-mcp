@@ -1,5 +1,5 @@
 [project]
-name = "unreal-mcp"
+name = "unreal-sim"
 version = "0.1.0"
 description = "Unreal MCP Server: A server for Unreal Engine integration via the Model Context Protocol (MCP)."
 readme = "README.md"

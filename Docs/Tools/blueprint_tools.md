@@ -265,4 +265,4 @@ All command responses include a "success" field indicating whether the operation
 - All commands require a successful connection to the Unreal Engine editor
 - Failed operations will return detailed error messages in the response
 - Component types should be specified without the 'U' prefix (e.g., "StaticMeshComponent" instead of "UStaticMeshComponent")
-- For socket-based communication, refer to the test scripts in unreal-mcp/Python/scripts/blueprints for examples
+- For socket-based communication, refer to the test scripts in unreal-sim/Python/scripts/blueprints for examples
