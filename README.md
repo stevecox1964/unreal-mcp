@@ -1,6 +1,6 @@
 <div align="center">
 
-# This is Unreal SIM. It uses chongs MCP, but had a safisticated simp that drives Unreal Engine and LLMs
+# This is Unreal SIM. It uses chongs MCP, but has a safisticated sim that drives Unreal Engine and LLMs
 <span style="color: #555555">unreal-mcp</span>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
