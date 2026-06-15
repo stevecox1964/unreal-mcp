@@ -432,21 +432,94 @@ that feeds memory.
 - The exchange is **summarized into a `chat` node** in *both* agents' streams —
   this is how information diffuses across the population (success criterion #2).
 
-### 16. Spatial Memory (Learned Cognitive Map)
+### 16. Spatial Memory — Two Layers: Grid Cells & Place Cells
 
-`spatial_memory.py` `SpatialMap` is the canonical spatial memory — **we keep it
-over the paper's hand-authored tree.** It is an egocentric grid + place-cell map:
+The spatial memory system has two distinct layers with different purposes,
+lifecycles, and owners.
 
-- **Grid layer:** deterministic tiling of world (x,y) into `cell_size` cells; the
-  occupied cell is derived from the agent's own position (path integration), not
-  an omniscient scan.
-- **Place layer:** each visited cell accumulates VLM-extracted landmark tags;
-  named-place coordinates are derived on demand (`where_is`) as a
-  confidence/closeness-weighted centroid.
-- Supports frontier-based exploration (`nearest_frontier`), nav edges (`link`),
-  blocked cells, and `place_labels` ("what place am I in?").
+#### Grid Cells (world authority, static)
 
-Planning queries this map to locate task destinations; exploration grows it.
+`world_grid.py` `WorldGrid` tiles the world (x, y) into square cells at a fixed
+`cell_size` (default 400 cm). Grid cells are:
+
+- **World-scoped, not agent-scoped** — one `WorldGrid` per level, loaded from
+  `worlds/<level>/world_grid.json` at sim init.
+- **Built once at world-init time** — when a new Unreal level is added to the
+  sim, the bounds are declared and never change.
+- **True XY** — every cell has a stable `(col, row)` index and a computable
+  center coordinate. `WorldGrid` and `SpatialMap` use the same tiling formula
+  so their keys always align.
+- **The coordinate authority** — grid cells are the streets on the map. They
+  carry no meaning by themselves; that is the place layer's job.
+
+#### Place Cells (semantic, learned by AIPCs)
+
+`place_db.py` `PlaceDB` is a shared SQLite database of named places that
+AIPCs build by living in the world. Place cells are:
+
+- **Abstract — no raw XY** — a place cell is a *name* anchored to a grid cell.
+  The APC reasons about `"Joe's Restaurant"` or `"home"`, never about
+  `x=-1200, y=3400`. Location resolves on demand via the grid association.
+- **Built through exploration** — AIPCs roam the world and name what they find.
+  A place cell is born the moment an APC decides a grid cell deserves a name.
+- **Shared, readable by all AIPCs** — once Maren names her vegetable truck's
+  location, Dufus can query it immediately. Geographic knowledge is a public
+  good; it does not have to be re-discovered.
+- **Optionally owned** — a place may be *owned* by one AIPC (who created or
+  claims it) or be a *community* place with no single owner. Ownership
+  determines who has write authority over content; all AIPCs can always read.
+
+**Place types:**
+
+| Type | Example | Typical owner |
+|------|---------|---------------|
+| `home` | Dufus's apartment | Dufus (AIPC) |
+| `work` | Maren's vegetable truck | Maren (AIPC) |
+| `public` | Town square | community (no owner) |
+| `landmark` | Joe's Restaurant, the big fountain | community |
+
+Place cells live *inside* grid cells but expose no raw XY to the APC's
+cognitive layer. When Maren thinks "I want to go to work," she names a place —
+the lizard brain resolves it to coordinates and draws a path.
+
+#### Navigation: Cognitive Query → Lizard Brain → Path
+
+The chain from cognitive desire to movement:
+
+```
+APC thinks: "I want to go to Joe's Restaurant"
+    │
+    ▼  planner.decompose_task(): destination = place name "Joe's Restaurant"
+    │
+    ▼  lizard brain: PlaceDB.get_place("Joe's") or SpatialMap.where_is("Joe's")
+       → grid cell(s) → confidence-weighted center XY
+    │
+    ▼  command_character_move_to(target_x, target_y)
+    │
+    ▼  Unreal NavMesh: actual path executed in the 3D world
+```
+
+`SpatialMap.where_is(label)` is **already built** — returns the
+confidence-weighted centroid of all grid cells reporting a matching label.
+The *lizard brain named-place navigation service* — wiring place-name resolution
+into a move command — is future work (see Roadmap).
+
+#### Current State of This Layer
+
+**Built:**
+- `WorldGrid` — static, bounded, per-level, one JSON at world-init
+- `SpatialMap` — per-agent egocentric map; `ingest`, `where_is`, `nearest_frontier`,
+  `link`, `mark_blocked`, `place_labels`
+- `PlaceDB` — shared SQLite: `place_cells` (named, `named_by` = first-agent-wins),
+  `place_observations` (compass-indexed landmarks), `agent_visits` (per-agent history);
+  `set_name`, `get_place`, `touch`, `ingest_compass`
+
+**Not yet built:**
+- `place_type` column in `place_cells` (`home` / `work` / `public` / `landmark`)
+- Ownership model beyond `named_by` — no write-protection, no community concept
+- Home and work place assignment in each agent's `state.json`
+- Community place creation (no owner, built collectively by any APC that names it)
+- Lizard brain named-place navigation service (resolve name → XY → move path)
 
 ### 17. Scratch / Working Memory
 

@@ -572,9 +572,9 @@
       "blocked": false
     },
     "-21,0": {
-      "visit_count": 7,
+      "visit_count": 8,
       "first_seen": "2026-06-13T02:24:08.899006+00:00",
-      "last_seen": "2026-06-13T02:56:38.135816+00:00",
+      "last_seen": "2026-06-14T01:03:17.573440+00:00",
       "landmarks": {
         "cornfield": {
           "count": 1,
@@ -727,7 +727,7 @@
           "bearing": "center"
         },
         "motel area on main street": {
-          "count": 4,
+          "count": 5,
           "confidence": 0.8,
           "distance": "near",
           "bearing": null
@@ -741,6 +741,237 @@
         "vending machines": {
           "count": 2,
           "confidence": 0.85,
+          "distance": "mid",
+          "bearing": "right"
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-23,-1": {
+      "visit_count": 2,
+      "first_seen": "2026-06-14T01:03:21.896540+00:00",
+      "last_seen": "2026-06-14T01:03:24.589599+00:00",
+      "landmarks": {
+        "mobile home": {
+          "count": 2,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "carport": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "mailbox": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "trash cans": {
+          "count": 2,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "motel area": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-26,-1": {
+      "visit_count": 2,
+      "first_seen": "2026-06-14T01:03:31.197092+00:00",
+      "last_seen": "2026-06-14T01:03:33.307645+00:00",
+      "landmarks": {
+        "cornfield": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "wooden fence": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "water tower": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "red barn": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "white picket fence": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "road": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "near",
+          "bearing": "center"
+        },
+        "rural road near farm": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-30,0": {
+      "visit_count": 2,
+      "first_seen": "2026-06-14T01:03:40.054757+00:00",
+      "last_seen": "2026-06-14T01:03:43.822297+00:00",
+      "landmarks": {
+        "water tower": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "barn": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "road sign": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "fence": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "center"
+        },
+        "corn field": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "near",
+          "bearing": "center"
+        },
+        "cornfield near barn": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-35,1": {
+      "visit_count": 2,
+      "first_seen": "2026-06-14T01:03:49.993234+00:00",
+      "last_seen": "2026-06-14T01:03:52.241473+00:00",
+      "landmarks": {
+        "water tower": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "house": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "barn": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "pickup truck": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "near",
+          "bearing": "center"
+        },
+        "bicycle": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "farmhouse area": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-33,4": {
+      "visit_count": 4,
+      "first_seen": "2026-06-14T01:04:03.517536+00:00",
+      "last_seen": "2026-06-14T01:04:26.386849+00:00",
+      "landmarks": {
+        "corn field": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "center"
+        },
+        "trees": {
+          "count": 2,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "building roof": {
+          "count": 1,
+          "confidence": 0.6,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "bicycle": {
+          "count": 2,
+          "confidence": 0.5,
+          "distance": "far",
+          "bearing": "right"
+        },
+        "cornfield path": {
+          "count": 2,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        },
+        "corn stalks": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "center"
+        },
+        "house": {
+          "count": 1,
+          "confidence": 0.7,
           "distance": "mid",
           "bearing": "right"
         }

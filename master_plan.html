@@ -1,0 +1,1120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI RPG Agent Simulation — Master Plan</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2128;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-dim: #8b949e;
+    --text-bright: #f0f6fc;
+    --green: #3fb950;
+    --green-dim: #1a3a1f;
+    --yellow: #d29922;
+    --yellow-dim: #3a2e0a;
+    --blue: #58a6ff;
+    --blue-dim: #0d2044;
+    --red: #f85149;
+    --gray: #6e7681;
+    --gray-dim: #1a1f26;
+    --purple: #bc8cff;
+    --purple-dim: #1e1433;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+  }
+
+  /* ── Layout ── */
+  .page { max-width: 860px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  /* ── Header ── */
+  .header { margin-bottom: 40px; }
+  .header h1 {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 6px;
+  }
+  .header p { color: var(--text-dim); font-size: 13px; }
+  .header .tagline {
+    color: var(--text);
+    font-size: 15px;
+    margin: 12px 0 20px;
+    border-left: 3px solid var(--blue);
+    padding-left: 12px;
+    font-style: italic;
+  }
+
+  /* ── Overall progress ── */
+  .overall-progress {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 36px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  .overall-progress .label {
+    font-size: 13px;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .overall-progress .count {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-bright);
+    white-space: nowrap;
+  }
+  .bar-wrap { flex: 1; background: var(--border); border-radius: 4px; height: 8px; }
+  .bar-fill { height: 8px; border-radius: 4px; background: var(--green); transition: width 0.3s; }
+
+  /* ── Milestone card ── */
+  .milestone {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 24px;
+    overflow: hidden;
+  }
+
+  .milestone-header {
+    padding: 16px 20px 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+    user-select: none;
+  }
+  .milestone-header:hover { background: var(--surface2); }
+
+  .milestone-header .toggle {
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-top: 2px;
+    transition: transform 0.2s;
+    flex-shrink: 0;
+  }
+  .milestone.collapsed .toggle { transform: rotate(-90deg); }
+
+  .milestone-header .meta { flex: 1; }
+  .milestone-header h2 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 2px;
+  }
+  .milestone-header p {
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 20px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    letter-spacing: 0.03em;
+  }
+  .badge-built   { background: var(--green-dim);  color: var(--green); }
+  .badge-active  { background: var(--yellow-dim); color: var(--yellow); }
+  .badge-next    { background: var(--blue-dim);   color: var(--blue); }
+  .badge-pending { background: var(--gray-dim);   color: var(--gray); }
+  .badge-deferred { background: var(--purple-dim); color: var(--purple); }
+
+  .ms-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 20px 10px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+  .ms-progress .ms-count { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+  .ms-progress .bar-wrap { height: 4px; }
+  .ms-progress .bar-fill { height: 4px; }
+
+  .milestone-body { padding: 4px 0 8px; }
+  .milestone.collapsed .milestone-body,
+  .milestone.collapsed .ms-progress { display: none; }
+
+  /* ── Section within a milestone ── */
+  .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    padding: 10px 20px 4px;
+  }
+
+  /* ── Task row ── */
+  .task {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 5px 20px;
+    border-radius: 4px;
+    margin: 0 4px;
+  }
+  .task:hover { background: var(--surface2); }
+
+  .task input[type="checkbox"] {
+    margin-top: 2px;
+    width: 14px;
+    height: 14px;
+    accent-color: var(--green);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .task label {
+    cursor: pointer;
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .task.done label {
+    color: var(--text-dim);
+    text-decoration: line-through;
+  }
+
+  .task .note {
+    display: block;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 1px;
+  }
+
+  .task .tag {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-left: 6px;
+    vertical-align: middle;
+    font-weight: 600;
+  }
+  .tag-new     { background: var(--blue-dim);   color: var(--blue); }
+  .tag-verify  { background: var(--yellow-dim); color: var(--yellow); }
+  .tag-tier1   { background: var(--purple-dim); color: var(--purple); }
+
+  /* ── Divider ── */
+  .divider { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+
+  /* ── Design rules ── */
+  .rules {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-top: 32px;
+  }
+  .rules h2 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 12px;
+  }
+  .rules ol { padding-left: 18px; }
+  .rules li { font-size: 12px; color: var(--text-dim); margin-bottom: 5px; line-height: 1.5; }
+  .rules li strong { color: var(--text); }
+
+  /* ── Success criteria callout ── */
+  .criteria {
+    background: var(--surface);
+    border: 1px solid var(--green);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 28px;
+  }
+  .criteria h3 {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--green);
+    margin-bottom: 10px;
+  }
+  .criteria ol { padding-left: 18px; }
+  .criteria li { font-size: 13px; color: var(--text); margin-bottom: 6px; line-height: 1.5; }
+
+  /* ── Module table ── */
+  .module-table { width: 100%; border-collapse: collapse; margin: 4px 20px 8px; width: calc(100% - 40px); }
+  .module-table th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    padding: 5px 8px;
+  }
+  .module-table td {
+    font-size: 12px;
+    color: var(--text);
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .module-table tr:last-child td { border-bottom: none; }
+  .module-table code {
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 11px;
+    color: var(--blue);
+  }
+  .module-table .dim { color: var(--text-dim); }
+  .status-dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    margin-right: 5px;
+    vertical-align: middle;
+  }
+  .dot-built   { background: var(--green); }
+  .dot-new     { background: var(--blue); }
+  .dot-planned { background: var(--gray); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ── Header ── -->
+  <div class="header">
+    <h1>AI RPG Agent Simulation — Master Plan</h1>
+    <p>v2 — Generative Simulacra &nbsp;·&nbsp; AIPCs &nbsp;·&nbsp; Unreal Engine 5.5</p>
+    <p class="tagline">
+      A world for AIs to live in. Characters with lives, routines, and inner lives — not props.<br>
+      The test of success: did something unscripted happen, and could both AIPCs remember it the next day?
+    </p>
+  </div>
+
+  <!-- ── Overall progress ── -->
+  <div class="overall-progress">
+    <div class="label">Overall</div>
+    <div class="count" id="overall-count">0 / 0</div>
+    <div class="bar-wrap">
+      <div class="bar-fill" id="overall-bar" style="width:0%"></div>
+    </div>
+  </div>
+
+  <!-- ── Success Criteria ── -->
+  <div class="criteria">
+    <h3>Success Criteria — one simulated day, 2–3+ agents free-running</h3>
+    <ol>
+      <li>Each agent follows a <strong>visibly distinct daily routine</strong> derived from its persona — not idle-until-poked.</li>
+      <li>At least one <strong>unplanned cross-agent interaction</strong> occurs and is <strong>remembered by both agents</strong>.</li>
+      <li>An agent's behavior <strong>changes in response to a remembered event</strong>.</li>
+      <li>The whole day runs within a <strong>bounded LLM budget</strong> — frugality holds at multi-agent scale.</li>
+    </ol>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════
+       MILESTONE 0 — SUBSTRATE
+  ══════════════════════════════════════════════ -->
+  <div class="milestone" id="ms-substrate">
+    <div class="milestone-header" onclick="toggleMilestone('ms-substrate')">
+      <span class="toggle">▼</span>
+      <div class="meta">
+        <h2>Substrate — Body · Brainstem · Director</h2>
+        <p>Sim loop, world bridge, tiers, spatial memory, perception, action validation</p>
+      </div>
+      <span class="badge badge-built">BUILT</span>
+    </div>
+
+    <div class="ms-progress">
+      <div class="ms-count" id="ms-substrate-count">— / —</div>
+      <div class="bar-wrap"><div class="bar-fill" id="ms-substrate-bar" style="width:0%"></div></div>
+    </div>
+
+    <div class="milestone-body">
+
+      <div class="section-label">Simulation Loop</div>
+      <div class="task" id="task-sub-1">
+        <input type="checkbox" id="cb-sub-1" onchange="onCheck('cb-sub-1')">
+        <label for="cb-sub-1">start / stop / pause / resume / reset_agents</label>
+      </div>
+      <div class="task" id="task-sub-2">
+        <input type="checkbox" id="cb-sub-2" onchange="onCheck('cb-sub-2')">
+        <label for="cb-sub-2">Adaptive tick pacing (agents tick slower when nothing salient is near)</label>
+      </div>
+      <div class="task" id="task-sub-3">
+        <input type="checkbox" id="cb-sub-3" onchange="onCheck('cb-sub-3')">
+        <label for="cb-sub-3">Reproducible agent resets</label>
+      </div>
+
+      <div class="section-label">World Bridge</div>
+      <div class="task" id="task-sub-4">
+        <input type="checkbox" id="cb-sub-4" onchange="onCheck('cb-sub-4')">
+        <label for="cb-sub-4"><code>unreal_bridge.py</code> — C++ plugin interface (PIE-world targeting)</label>
+      </div>
+      <div class="task" id="task-sub-5">
+        <input type="checkbox" id="cb-sub-5" onchange="onCheck('cb-sub-5')">
+        <label for="cb-sub-5"><code>action_validator.py</code> — JSON shape, target validity, cooldowns, anti-chaos</label>
+      </div>
+      <div class="task" id="task-sub-6">
+        <input type="checkbox" id="cb-sub-6" onchange="onCheck('cb-sub-6')">
+        <label for="cb-sub-6">World grid</label>
+      </div>
+
+      <div class="section-label">Perception</div>
+      <div class="task" id="task-sub-7">
+        <input type="checkbox" id="cb-sub-7" onchange="onCheck('cb-sub-7')">
+        <label for="cb-sub-7"><code>perception.py</code> — symbolic-default + VLM-on-demand observation</label>
+      </div>
+      <div class="task" id="task-sub-8">
+        <input type="checkbox" id="cb-sub-8" onchange="onCheck('cb-sub-8')">
+        <label for="cb-sub-8"><code>explorer.py</code> — frontier-based exploration (verified live in PIE)</label>
+      </div>
+      <div class="task" id="task-sub-9">
+        <input type="checkbox" id="cb-sub-9" onchange="onCheck('cb-sub-9')">
+        <label for="cb-sub-9"><code>spatial_memory.py</code> — egocentric grid + place-cell cognitive map</label>
+      </div>
+      <div class="task" id="task-sub-10">
+        <input type="checkbox" id="cb-sub-10" onchange="onCheck('cb-sub-10')">
+        <label for="cb-sub-10"><code>place_db.py</code> — shared named-place database (verified live, 2 agents writing)</label>
+      </div>
+      <div class="task" id="task-sub-11">
+        <input type="checkbox" id="cb-sub-11" onchange="onCheck('cb-sub-11')">
+        <label for="cb-sub-11"><code>world_clock.py</code> — simulated time of day</label>
+      </div>
+
+      <div class="section-label">Memory (legacy — superseded by Milestone 2)</div>
+      <div class="task" id="task-sub-12">
+        <input type="checkbox" id="cb-sub-12" onchange="onCheck('cb-sub-12')">
+        <label for="cb-sub-12"><code>memory_store.py</code> — flat JSON store with recency + importance retrieval</label>
+      </div>
+
+      <div class="section-label">LLM Routing</div>
+      <div class="task" id="task-sub-13">
+        <input type="checkbox" id="cb-sub-13" onchange="onCheck('cb-sub-13')">
+        <label for="cb-sub-13"><code>llm_router.py</code> — tier-based model + embedding routing</label>
+      </div>
+
+      <div class="section-label">Agent Definitions</div>
+      <div class="task" id="task-sub-14">
+        <input type="checkbox" id="cb-sub-14" onchange="onCheck('cb-sub-14')">
+        <label for="cb-sub-14"><code>character.md</code>, <code>goals.md</code>, <code>rules.md</code>, <code>state.json</code> per agent</label>
+      </div>
+      <div class="task" id="task-sub-15">
+        <input type="checkbox" id="cb-sub-15" onchange="onCheck('cb-sub-15')">
+        <label for="cb-sub-15">Actor binding at sim start (bind-or-spawn to live Unreal actor)</label>
+      </div>
+      <div class="task" id="task-sub-16">
+        <input type="checkbox" id="cb-sub-16" onchange="onCheck('cb-sub-16')">
+        <label for="cb-sub-16">Tier assignment per agent (Tier 1 / 2 / 3)</label>
+      </div>
+
+      <div class="section-label">Lizard Brain — Robustness Senses</div>
+      <div class="task" id="task-sub-17">
+        <input type="checkbox" id="cb-sub-17" onchange="onCheck('cb-sub-17')">
+        <label for="cb-sub-17">Stuck-detection (<code>_detect_stuck</code>) — position-delta watcher, factual note to LLM
+          <span class="tag tag-verify">VERIFY LIVE</span>
+          <span class="note">Written + unit-tested; not yet confirmed in live PIE run near the van.</span>
+        </label>
+      </div>
+      <div class="task" id="task-sub-18">
+        <input type="checkbox" id="cb-sub-18" onchange="onCheck('cb-sub-18')">
+        <label for="cb-sub-18">Vehicle navmesh carveout (<code>fix_nav_mesh.py</code> → NavArea_Null on <code>veh_*</code>)
+          <span class="tag tag-verify">IN FLIGHT</span>
+          <span class="note">Script written; user has not confirmed clean nav hole on test van. Steps in RUNBOOK.md.</span>
+        </label>
+      </div>
+
+      <div class="section-label">Spatial Memory — Grid Cells (built)</div>
+      <div class="task" id="task-sub-g1">
+        <input type="checkbox" id="cb-sub-g1" onchange="onCheck('cb-sub-g1')">
+        <label for="cb-sub-g1"><code>WorldGrid</code> — static, world-scoped, XY-indexed, built once at world-init from <code>world_grid.json</code>
+          <span class="note">Tiles (x,y) into square cells. Keys match SpatialMap exactly. One per level.</span>
+        </label>
+      </div>
+      <div class="task" id="task-sub-g2">
+        <input type="checkbox" id="cb-sub-g2" onchange="onCheck('cb-sub-g2')">
+        <label for="cb-sub-g2"><code>SpatialMap</code> — per-agent egocentric map: ingest, where_is, nearest_frontier, link, mark_blocked</label>
+      </div>
+      <div class="task" id="task-sub-g3">
+        <input type="checkbox" id="cb-sub-g3" onchange="onCheck('cb-sub-g3')">
+        <label for="cb-sub-g3"><code>PlaceDB</code> — shared SQLite: place_cells (named, first-agent-wins), place_observations (compass), agent_visits</label>
+      </div>
+
+      <div class="section-label">Spatial Memory — Place Cells (future work)</div>
+      <div class="task" id="task-sub-pc1">
+        <input type="checkbox" id="cb-sub-pc1" onchange="onCheck('cb-sub-pc1')">
+        <label for="cb-sub-pc1">Add <code>place_type</code> to <code>place_cells</code>: <code>home</code> / <code>work</code> / <code>public</code> / <code>landmark</code>
+          <span class="tag tag-new">TODO</span>
+          <span class="note">Maren's vegetable truck = work. Dufus's apartment = home. Town square = public. Joe's = landmark.</span>
+        </label>
+      </div>
+      <div class="task" id="task-sub-pc2">
+        <input type="checkbox" id="cb-sub-pc2" onchange="onCheck('cb-sub-pc2')">
+        <label for="cb-sub-pc2">Place ownership model: <code>owned_by</code> AIPC or <code>community</code> (no owner)
+          <span class="tag tag-new">TODO</span>
+          <span class="note">Current <code>named_by</code> = first-to-name, not ownership. Ownership controls write authority; all AIPCs can always read.</span>
+        </label>
+      </div>
+      <div class="task" id="task-sub-pc3">
+        <input type="checkbox" id="cb-sub-pc3" onchange="onCheck('cb-sub-pc3')">
+        <label for="cb-sub-pc3">Community place creation — no single owner; any AIPC can name/enrich it
+          <span class="tag tag-new">TODO</span>
+          <span class="note">Town square, Joe's Restaurant, the fountain. Built collectively by whoever explores first.</span>
+        </label>
+      </div>
+      <div class="task" id="task-sub-pc4">
+        <input type="checkbox" id="cb-sub-pc4" onchange="onCheck('cb-sub-pc4')">
+        <label for="cb-sub-pc4">Home place per agent in <code>state.json</code> — where the agent sleeps/rests
+          <span class="tag tag-new">TODO</span>
+          <span class="note">Maren and Dufus each need a home. Used by the daily planner for sleep/wake routines.</span>
+        </label>
+      </div>
+      <div class="task" id="task-sub-pc5">
+        <input type="checkbox" id="cb-sub-pc5" onchange="onCheck('cb-sub-pc5')">
+        <label for="cb-sub-pc5">Work place per agent in <code>state.json</code> — primary activity location
+          <span class="tag tag-new">TODO</span>
+          <span class="note">Maren's vegetable truck. Dufus may not have a fixed work place until he discovers one.</span>
+        </label>
+      </div>
+      <div class="task" id="task-sub-pc6">
+        <input type="checkbox" id="cb-sub-pc6" onchange="onCheck('cb-sub-pc6')">
+        <label for="cb-sub-pc6">Lizard brain: named-place → grid cell → XY → nav path service
+          <span class="tag tag-new">TODO</span>
+          <span class="note">AIPC says "go to Joe's" → lizard brain calls PlaceDB/SpatialMap.where_is() → resolves XY → issues move command. APC never sees raw coordinates.</span>
+        </label>
+      </div>
+      <div class="task" id="task-sub-pc7">
+        <input type="checkbox" id="cb-sub-pc7" onchange="onCheck('cb-sub-pc7')">
+        <label for="cb-sub-pc7">If place unknown: explore until found (or admit "I don't know where that is")
+          <span class="tag tag-new">TODO</span>
+          <span class="note">where_is() returns None → APC plans an exploration detour, or asks another AIPC who might know.</span>
+        </label>
+      </div>
+
+      <div class="section-label">Director Console (MCP Tools)</div>
+      <div class="task" id="task-sub-19">
+        <input type="checkbox" id="cb-sub-19" onchange="onCheck('cb-sub-19')">
+        <label for="cb-sub-19">start / stop / pause / resume / get_simulation_status / reset_agents</label>
+      </div>
+      <div class="task" id="task-sub-20">
+        <input type="checkbox" id="cb-sub-20" onchange="onCheck('cb-sub-20')">
+        <label for="cb-sub-20">list_agents / inspect_agent / get_character_memory / get_recent_events</label>
+      </div>
+      <div class="task" id="task-sub-21">
+        <input type="checkbox" id="cb-sub-21" onchange="onCheck('cb-sub-21')">
+        <label for="cb-sub-21">force_agent_tick / set_agent_goal / send_character_message / capture_camera_image</label>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════
+       MILESTONE 1 — DAILY PLANNER
+  ══════════════════════════════════════════════ -->
+  <div class="milestone collapsed" id="ms-planner">
+    <div class="milestone-header" onclick="toggleMilestone('ms-planner')">
+      <span class="toggle">▼</span>
+      <div class="meta">
+        <h2>Milestone 1 — Daily-Schedule Planner</h2>
+        <p>Agents get <em>lives</em>. planner.py + reaction gate. The spine of the cognitive loop.</p>
+      </div>
+      <span class="badge badge-next">NEXT</span>
+    </div>
+
+    <div class="ms-progress">
+      <div class="ms-count" id="ms-planner-count">— / —</div>
+      <div class="bar-wrap"><div class="bar-fill" id="ms-planner-bar" style="width:0%"></div></div>
+    </div>
+
+    <div class="milestone-body">
+
+      <div class="section-label">planner.py — New Module</div>
+      <div class="task" id="task-p-1">
+        <input type="checkbox" id="cb-p-1" onchange="onCheck('cb-p-1')">
+        <label for="cb-p-1"><code>generate_daily_plan(agent, date)</code> — broad-strokes agenda from persona + yesterday's reflection
+          <span class="tag tag-new">NEW</span>
+          <span class="note">Reads character.md + goals.md. Output stored in state.json scratch.</span>
+        </label>
+      </div>
+      <div class="task" id="task-p-2">
+        <input type="checkbox" id="cb-p-2" onchange="onCheck('cb-p-2')">
+        <label for="cb-p-2"><code>decompose_hourly(agent, daily_plan)</code> — daily agenda → hour-by-hour blocks
+          <span class="tag tag-new">NEW</span>
+        </label>
+      </div>
+      <div class="task" id="task-p-3">
+        <input type="checkbox" id="cb-p-3" onchange="onCheck('cb-p-3')">
+        <label for="cb-p-3"><code>decompose_task(agent, hourly_block)</code> — hour block → minute-level actions with target place
+          <span class="tag tag-new">NEW</span>
+          <span class="note">Target place resolved by name ("Joe's Restaurant") → lizard brain nav service (cb-sub-pc6) → XY. APC never reasons in raw coords. Explore if unknown (cb-sub-pc7).</span>
+        </label>
+      </div>
+      <div class="task" id="task-p-4">
+        <input type="checkbox" id="cb-p-4" onchange="onCheck('cb-p-4')">
+        <label for="cb-p-4"><code>revise_plan(agent, reason)</code> — re-decompose remainder of day after a reaction
+          <span class="tag tag-new">NEW</span>
+        </label>
+      </div>
+
+      <div class="section-label">Reaction Gate</div>
+      <div class="task" id="task-p-5">
+        <input type="checkbox" id="cb-p-5" onchange="onCheck('cb-p-5')">
+        <label for="cb-p-5"><code>should_react(agent, perceived, retrieved) → Reaction | None</code>
+          <span class="tag tag-new">NEW</span>
+          <span class="note">LLM for Tier 1; cheap heuristic for Tier 2/3. Interrupts plan → converse / re-plan.</span>
+        </label>
+      </div>
+      <div class="task" id="task-p-6">
+        <input type="checkbox" id="cb-p-6" onchange="onCheck('cb-p-6')">
+        <label for="cb-p-6">Wire reaction gate into the agent_manager tick loop</label>
+      </div>
+      <div class="task" id="task-p-7">
+        <input type="checkbox" id="cb-p-7" onchange="onCheck('cb-p-7')">
+        <label for="cb-p-7">Demote old "one validated action per tick" reactive logic to interrupt handler</label>
+      </div>
+
+      <div class="section-label">Clock-Driven Execution</div>
+      <div class="task" id="task-p-8">
+        <input type="checkbox" id="cb-p-8" onchange="onCheck('cb-p-8')">
+        <label for="cb-p-8">world_clock drives which hourly/task block is active each tick</label>
+      </div>
+      <div class="task" id="task-p-9">
+        <input type="checkbox" id="cb-p-9" onchange="onCheck('cb-p-9')">
+        <label for="cb-p-9">Daily plan persisted to state.json scratch; survives tick boundaries</label>
+      </div>
+      <div class="task" id="task-p-10">
+        <input type="checkbox" id="cb-p-10" onchange="onCheck('cb-p-10')">
+        <label for="cb-p-10">Plan auto-regenerates at day rollover (new sim day)</label>
+      </div>
+
+      <div class="section-label">Done-When Scenario</div>
+      <div class="task" id="task-p-11">
+        <input type="checkbox" id="cb-p-11" onchange="onCheck('cb-p-11')">
+        <label for="cb-p-11">2–3 personas in MCP_World each follow visibly distinct routines (success criterion #1)</label>
+      </div>
+      <div class="task" id="task-p-12">
+        <input type="checkbox" id="cb-p-12" onchange="onCheck('cb-p-12')">
+        <label for="cb-p-12">≥1 unplanned cross-agent interaction remembered by both (success criterion #2)</label>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════
+       MILESTONE 2 — MEMORY STREAM
+  ══════════════════════════════════════════════ -->
+  <div class="milestone collapsed" id="ms-memory">
+    <div class="milestone-header" onclick="toggleMilestone('ms-memory')">
+      <span class="toggle">▼</span>
+      <div class="meta">
+        <h2>Milestone 2 — Memory Stream + Retrieval</h2>
+        <p>SQLite ConceptNode stream. Recency · importance · relevance. Embeddings. Poignancy.</p>
+      </div>
+      <span class="badge badge-pending">PENDING</span>
+    </div>
+
+    <div class="ms-progress">
+      <div class="ms-count" id="ms-memory-count">— / —</div>
+      <div class="bar-wrap"><div class="bar-fill" id="ms-memory-bar" style="width:0%"></div></div>
+    </div>
+
+    <div class="milestone-body">
+
+      <div class="section-label">SQLite Schema</div>
+      <div class="task" id="task-m-1">
+        <input type="checkbox" id="cb-m-1" onchange="onCheck('cb-m-1')">
+        <label for="cb-m-1">ConceptNode table: id, agent_id, node_type (event/thought/chat), s-p-o triple, description
+          <span class="tag tag-new">NEW</span>
+        </label>
+      </div>
+      <div class="task" id="task-m-2">
+        <input type="checkbox" id="cb-m-2" onchange="onCheck('cb-m-2')">
+        <label for="cb-m-2">ConceptNode fields: keywords, poignancy (1–10), embedding (BLOB), last_accessed, expiration, evidence</label>
+      </div>
+      <div class="task" id="task-m-3">
+        <input type="checkbox" id="cb-m-3" onchange="onCheck('cb-m-3')">
+        <label for="cb-m-3">Node types: <code>event</code> (perceived/acted), <code>thought</code> (reflection), <code>chat</code> (conversation summary)</label>
+      </div>
+
+      <div class="section-label">memory_store.py Migration</div>
+      <div class="task" id="task-m-4">
+        <input type="checkbox" id="cb-m-4" onchange="onCheck('cb-m-4')">
+        <label for="cb-m-4">Migrate memory_store.py from flat JSON list to append-only SQLite stream</label>
+      </div>
+      <div class="task" id="task-m-5">
+        <input type="checkbox" id="cb-m-5" onchange="onCheck('cb-m-5')">
+        <label for="cb-m-5">Retire the 30-item cap; "30" becomes a retrieval budget, not storage limit</label>
+      </div>
+      <div class="task" id="task-m-6">
+        <input type="checkbox" id="cb-m-6" onchange="onCheck('cb-m-6')">
+        <label for="cb-m-6">Load <code>memory.seed.json</code> as initial event rows on first run / reset</label>
+      </div>
+
+      <div class="section-label">Poignancy</div>
+      <div class="task" id="task-m-7">
+        <input type="checkbox" id="cb-m-7" onchange="onCheck('cb-m-7')">
+        <label for="cb-m-7">One cheap LLM call at event creation → poignancy score (1–10)
+          <span class="tag tag-new">NEW</span>
+        </label>
+      </div>
+      <div class="task" id="task-m-8">
+        <input type="checkbox" id="cb-m-8" onchange="onCheck('cb-m-8')">
+        <label for="cb-m-8">Poignancy drives both retrieval scoring and the reflection trigger</label>
+      </div>
+
+      <div class="section-label">Embeddings</div>
+      <div class="task" id="task-m-9">
+        <input type="checkbox" id="cb-m-9" onchange="onCheck('cb-m-9')">
+        <label for="cb-m-9">Pluggable embedder interface in llm_router.py
+          <span class="tag tag-new">NEW</span>
+        </label>
+      </div>
+      <div class="task" id="task-m-10">
+        <input type="checkbox" id="cb-m-10" onchange="onCheck('cb-m-10')">
+        <label for="cb-m-10">Local-first default (small sentence-transformer); API embeddings as configurable override</label>
+      </div>
+
+      <div class="section-label">Retrieval</div>
+      <div class="task" id="task-m-11">
+        <input type="checkbox" id="cb-m-11" onchange="onCheck('cb-m-11')">
+        <label for="cb-m-11">Keyword pre-filter narrows candidates before embedding pass</label>
+      </div>
+      <div class="task" id="task-m-12">
+        <input type="checkbox" id="cb-m-12" onchange="onCheck('cb-m-12')">
+        <label for="cb-m-12">Recency · importance · relevance scoring (all normalized 0–1; configurable weights)</label>
+      </div>
+      <div class="task" id="task-m-13">
+        <input type="checkbox" id="cb-m-13" onchange="onCheck('cb-m-13')">
+        <label for="cb-m-13">Exponential recency decay on last_accessed; recall bumps last_accessed</label>
+      </div>
+      <div class="task" id="task-m-14">
+        <input type="checkbox" id="cb-m-14" onchange="onCheck('cb-m-14')">
+        <label for="cb-m-14">top-k under token budget returned to prompt</label>
+      </div>
+
+      <div class="section-label">Done-When</div>
+      <div class="task" id="task-m-15">
+        <input type="checkbox" id="cb-m-15" onchange="onCheck('cb-m-15')">
+        <label for="cb-m-15">Retrieval visibly surfaces relevant-not-just-recent memories</label>
+      </div>
+      <div class="task" id="task-m-16">
+        <input type="checkbox" id="cb-m-16" onchange="onCheck('cb-m-16')">
+        <label for="cb-m-16">Agent behavior demonstrably changes from a retrieved memory (success criterion #3)</label>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════
+       MILESTONE 3 — REFLECTION
+  ══════════════════════════════════════════════ -->
+  <div class="milestone collapsed" id="ms-reflection">
+    <div class="milestone-header" onclick="toggleMilestone('ms-reflection')">
+      <span class="toggle">▼</span>
+      <div class="meta">
+        <h2>Milestone 3 — Reflection</h2>
+        <p>Agents synthesize higher-level thoughts. Opinions, generalizations, evolving relationships.</p>
+      </div>
+      <span class="badge badge-pending">PENDING</span>
+    </div>
+
+    <div class="ms-progress">
+      <div class="ms-count" id="ms-reflection-count">— / —</div>
+      <div class="bar-wrap"><div class="bar-fill" id="ms-reflection-bar" style="width:0%"></div></div>
+    </div>
+
+    <div class="milestone-body">
+
+      <div class="section-label">reflection.py — New Module</div>
+      <div class="task" id="task-r-1">
+        <input type="checkbox" id="cb-r-1" onchange="onCheck('cb-r-1')">
+        <label for="cb-r-1">Poignancy-threshold trigger: sum of recent event poignancy crosses threshold → reflect
+          <span class="tag tag-new">NEW</span>
+          <span class="tag tag-tier1">TIER 1 FIRST</span>
+        </label>
+      </div>
+      <div class="task" id="task-r-2">
+        <input type="checkbox" id="cb-r-2" onchange="onCheck('cb-r-2')">
+        <label for="cb-r-2">Step 1: pull N most recent events</label>
+      </div>
+      <div class="task" id="task-r-3">
+        <input type="checkbox" id="cb-r-3" onchange="onCheck('cb-r-3')">
+        <label for="cb-r-3">Step 2: LLM generates salient questions ("What do I now think about X?")</label>
+      </div>
+      <div class="task" id="task-r-4">
+        <input type="checkbox" id="cb-r-4" onchange="onCheck('cb-r-4')">
+        <label for="cb-r-4">Step 3: per question, retrieve relevant nodes → LLM produces insights with evidence pointers</label>
+      </div>
+      <div class="task" id="task-r-5">
+        <input type="checkbox" id="cb-r-5" onchange="onCheck('cb-r-5')">
+        <label for="cb-r-5">Step 4: insert insights as <code>thought</code> nodes with evidence field → back into the stream</label>
+      </div>
+      <div class="task" id="task-r-6">
+        <input type="checkbox" id="cb-r-6" onchange="onCheck('cb-r-6')">
+        <label for="cb-r-6">Recursive reflection: thought nodes are themselves retrievable and can be reflected on</label>
+      </div>
+
+      <div class="section-label">Done-When</div>
+      <div class="task" id="task-r-7">
+        <input type="checkbox" id="cb-r-7" onchange="onCheck('cb-r-7')">
+        <label for="cb-r-7">Agents form thought nodes visible in memory stream</label>
+      </div>
+      <div class="task" id="task-r-8">
+        <input type="checkbox" id="cb-r-8" onchange="onCheck('cb-r-8')">
+        <label for="cb-r-8">Thought nodes demonstrably influence later plans (retrievable, referenced in plan prompt)</label>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════
+       MILESTONE 4 — CONVERSATION
+  ══════════════════════════════════════════════ -->
+  <div class="milestone collapsed" id="ms-conv">
+    <div class="milestone-header" onclick="toggleMilestone('ms-conv')">
+      <span class="toggle">▼</span>
+      <div class="meta">
+        <h2>Milestone 4 — Conversation</h2>
+        <p>Multi-turn dialogue. Information diffuses agent-to-agent via shared memory.</p>
+      </div>
+      <span class="badge badge-pending">PENDING</span>
+    </div>
+
+    <div class="ms-progress">
+      <div class="ms-count" id="ms-conv-count">— / —</div>
+      <div class="bar-wrap"><div class="bar-fill" id="ms-conv-bar" style="width:0%"></div></div>
+    </div>
+
+    <div class="milestone-body">
+
+      <div class="section-label">conversation.py — New Module</div>
+      <div class="task" id="task-c-1">
+        <input type="checkbox" id="cb-c-1" onchange="onCheck('cb-c-1')">
+        <label for="cb-c-1">Proximity trigger: reaction gate elects to talk when two agents are near
+          <span class="tag tag-new">NEW</span>
+        </label>
+      </div>
+      <div class="task" id="task-c-2">
+        <input type="checkbox" id="cb-c-2" onchange="onCheck('cb-c-2')">
+        <label for="cb-c-2">Retrieve relationship context (memories about the other agent) before each turn</label>
+      </div>
+      <div class="task" id="task-c-3">
+        <input type="checkbox" id="cb-c-3" onchange="onCheck('cb-c-3')">
+        <label for="cb-c-3">Turn-by-turn dialogue generation conditioned on relationship + current context</label>
+      </div>
+      <div class="task" id="task-c-4">
+        <input type="checkbox" id="cb-c-4" onchange="onCheck('cb-c-4')">
+        <label for="cb-c-4">Natural close detection (end conversation gracefully)</label>
+      </div>
+      <div class="task" id="task-c-5">
+        <input type="checkbox" id="cb-c-5" onchange="onCheck('cb-c-5')">
+        <label for="cb-c-5">Summarize full exchange → <code>chat</code> node inserted into <em>both</em> agents' streams
+          <span class="note">This is how information diffuses across the population.</span>
+        </label>
+      </div>
+
+      <div class="section-label">Done-When</div>
+      <div class="task" id="task-c-6">
+        <input type="checkbox" id="cb-c-6" onchange="onCheck('cb-c-6')">
+        <label for="cb-c-6">Information demonstrably diffuses between agents who never directly observed the source event</label>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════
+       MILESTONE 5 — EMERGENCE
+  ══════════════════════════════════════════════ -->
+  <div class="milestone collapsed" id="ms-emerge">
+    <div class="milestone-header" onclick="toggleMilestone('ms-emerge')">
+      <span class="toggle">▼</span>
+      <div class="meta">
+        <h2>Milestone 5 — Multi-Agent Emergence</h2>
+        <p>Scale to several agents. Tune frugality. Watch the unscripted happen.</p>
+      </div>
+      <span class="badge badge-pending">PENDING</span>
+    </div>
+
+    <div class="ms-progress">
+      <div class="ms-count" id="ms-emerge-count">— / —</div>
+      <div class="bar-wrap"><div class="bar-fill" id="ms-emerge-bar" style="width:0%"></div></div>
+    </div>
+
+    <div class="milestone-body">
+
+      <div class="section-label">Scale</div>
+      <div class="task" id="task-e-1">
+        <input type="checkbox" id="cb-e-1" onchange="onCheck('cb-e-1')">
+        <label for="cb-e-1">4+ agents running simultaneously in MCP_World</label>
+      </div>
+      <div class="task" id="task-e-2">
+        <input type="checkbox" id="cb-e-2" onchange="onCheck('cb-e-2')">
+        <label for="cb-e-2">Tier assignment tuned per agent (Tier 1 hero / Tier 2 simulated / Tier 3 utility)</label>
+      </div>
+
+      <div class="section-label">Frugality Validation</div>
+      <div class="task" id="task-e-3">
+        <input type="checkbox" id="cb-e-3" onchange="onCheck('cb-e-3')">
+        <label for="cb-e-3">Symbolic-default observation confirmed holding (VLM not called every tick for every agent)</label>
+      </div>
+      <div class="task" id="task-e-4">
+        <input type="checkbox" id="cb-e-4" onchange="onCheck('cb-e-4')">
+        <label for="cb-e-4">Reflection throttle confirmed working at multi-agent scale</label>
+      </div>
+      <div class="task" id="task-e-5">
+        <input type="checkbox" id="cb-e-5" onchange="onCheck('cb-e-5')">
+        <label for="cb-e-5">Global LLM rate cap + per-agent cooldowns holding under load</label>
+      </div>
+      <div class="task" id="task-e-6">
+        <input type="checkbox" id="cb-e-6" onchange="onCheck('cb-e-6')">
+        <label for="cb-e-6">Full simulated day runs within bounded LLM budget (success criterion #4)</label>
+      </div>
+
+      <div class="section-label">Emergence Observation</div>
+      <div class="task" id="task-e-7">
+        <input type="checkbox" id="cb-e-7" onchange="onCheck('cb-e-7')">
+        <label for="cb-e-7">All 4 success criteria met in a single recorded run</label>
+      </div>
+      <div class="task" id="task-e-8">
+        <input type="checkbox" id="cb-e-8" onchange="onCheck('cb-e-8')">
+        <label for="cb-e-8">Emergent behaviors documented from logs + memory streams (not vibes)</label>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════
+       MILESTONE 6 — DIRECTED LAYER (DEFERRED)
+  ══════════════════════════════════════════════ -->
+  <div class="milestone collapsed" id="ms-directed">
+    <div class="milestone-header" onclick="toggleMilestone('ms-directed')">
+      <span class="toggle">▼</span>
+      <div class="meta">
+        <h2>Milestone 6 — Directed RPG Layer</h2>
+        <p>Quests, factions, director agents. An application built <em>on top of</em> the sim — not the sim itself.</p>
+      </div>
+      <span class="badge badge-deferred">DEFERRED</span>
+    </div>
+
+    <div class="ms-progress">
+      <div class="ms-count" id="ms-directed-count">— / —</div>
+      <div class="bar-wrap"><div class="bar-fill" id="ms-directed-bar" style="width:0%"></div></div>
+    </div>
+
+    <div class="milestone-body">
+
+      <div class="section-label">Director Agents</div>
+      <div class="task" id="task-d-1">
+        <input type="checkbox" id="cb-d-1" onchange="onCheck('cb-d-1')">
+        <label for="cb-d-1">QuestDirectorAgent — issues high-level narrative tasks to lower-tier agents</label>
+      </div>
+      <div class="task" id="task-d-2">
+        <input type="checkbox" id="cb-d-2" onchange="onCheck('cb-d-2')">
+        <label for="cb-d-2">VillageAgent — manages faction-wide shared memory + state</label>
+      </div>
+
+      <div class="section-label">Factions</div>
+      <div class="task" id="task-d-3">
+        <input type="checkbox" id="cb-d-3" onchange="onCheck('cb-d-3')">
+        <label for="cb-d-3">Faction definition files (analogous to agent character.md)</label>
+      </div>
+      <div class="task" id="task-d-4">
+        <input type="checkbox" id="cb-d-4" onchange="onCheck('cb-d-4')">
+        <label for="cb-d-4">Shared faction memory store (events visible to all faction members)</label>
+      </div>
+      <div class="task" id="task-d-5">
+        <input type="checkbox" id="cb-d-5" onchange="onCheck('cb-d-5')">
+        <label for="cb-d-5">Faction-level high-level plans that task individual agents</label>
+      </div>
+
+      <div class="section-label">Quest System</div>
+      <div class="task" id="task-d-6">
+        <input type="checkbox" id="cb-d-6" onchange="onCheck('cb-d-6')">
+        <label for="cb-d-6">Quest authoring format (goals injected into agent goal files)</label>
+      </div>
+      <div class="task" id="task-d-7">
+        <input type="checkbox" id="cb-d-7" onchange="onCheck('cb-d-7')">
+        <label for="cb-d-7">Quest state tracking + completion detection</label>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════
+       MODULE MAP
+  ══════════════════════════════════════════════ -->
+  <div class="milestone collapsed" id="ms-modules">
+    <div class="milestone-header" onclick="toggleMilestone('ms-modules')">
+      <span class="toggle">▼</span>
+      <div class="meta">
+        <h2>Module Map</h2>
+        <p>Python/agent_runtime/ — what exists, what's new, what's planned</p>
+      </div>
+      <span class="badge badge-built">REFERENCE</span>
+    </div>
+
+    <div class="milestone-body" style="padding: 12px 0;">
+      <table class="module-table">
+        <thead>
+          <tr>
+            <th>Module</th>
+            <th>Role</th>
+            <th>Cognitive Stage</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><code>agent_manager.py</code></td><td>sim loop, tick orchestration</td><td>orchestration</td><td><span class="status-dot dot-built"></span>built</td></tr>
+          <tr><td><code>agent.py</code></td><td>per-agent state + definition</td><td>—</td><td><span class="status-dot dot-built"></span>built</td></tr>
+          <tr><td><code>perception.py</code></td><td>symbolic + VLM observations</td><td>perceive</td><td><span class="status-dot dot-built"></span>built</td></tr>
+          <tr><td><code>explorer.py</code></td><td>frontier-based exploration</td><td>perceive (spatial)</td><td><span class="status-dot dot-built"></span>built</td></tr>
+          <tr><td><code>spatial_memory.py</code></td><td>learned grid + place-cell map</td><td>spatial memory</td><td><span class="status-dot dot-built"></span>built</td></tr>
+          <tr><td><code>place_db.py</code></td><td>shared named-place database</td><td>spatial / planning</td><td><span class="status-dot dot-built"></span>built</td></tr>
+          <tr><td><code>world_clock.py</code></td><td>simulated time of day</td><td>planning trigger</td><td><span class="status-dot dot-built"></span>built</td></tr>
+          <tr><td><code>memory_store.py</code></td><td>memory persistence + retrieval</td><td>memory / retrieve</td><td><span class="status-dot dot-built"></span>built (flat — M2 migrates)</td></tr>
+          <tr><td><code>llm_router.py</code></td><td>tier-based model + embedding routing</td><td>all LLM calls</td><td><span class="status-dot dot-built"></span>built</td></tr>
+          <tr><td><code>action_validator.py</code></td><td>validates decisions before Unreal</td><td>execute</td><td><span class="status-dot dot-built"></span>built</td></tr>
+          <tr><td><code>unreal_bridge.py</code></td><td>C++ plugin interface</td><td>execute / perceive</td><td><span class="status-dot dot-built"></span>built</td></tr>
+          <tr><td><code>world_grid.py</code></td><td>fixed world grid</td><td>spatial</td><td><span class="status-dot dot-built"></span>built</td></tr>
+          <tr><td><code>planner.py</code></td><td>daily / hourly / task planning</td><td>plan</td><td><span class="status-dot dot-new"></span><strong>NEW — M1</strong></td></tr>
+          <tr><td><code>reflection.py</code></td><td>synthesize higher-level thoughts</td><td>reflect</td><td><span class="status-dot dot-new"></span><strong>NEW — M3</strong></td></tr>
+          <tr><td><code>conversation.py</code></td><td>multi-turn dialogue + summary</td><td>converse</td><td><span class="status-dot dot-new"></span><strong>NEW — M4</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════
+       DESIGN RULES
+  ══════════════════════════════════════════════ -->
+  <div class="rules">
+    <h2>13 Design Rules (load-bearing)</h2>
+    <ol>
+      <li>The agent runtime owns the simulation loop; the CLI directs, it doesn't tick.</li>
+      <li>Unreal is the <strong>source of truth</strong> for the world.</li>
+      <li>Agents choose <strong>high-level intentions</strong>; Unreal executes them.</li>
+      <li><strong>Behavior comes from the agent's authored files; code supplies senses.</strong></li>
+      <li>The daily plan is the spine; the <strong>reaction gate</strong> makes it interruptible.</li>
+      <li>The memory stream is <strong>append-only</strong>; retrieval is recency·importance·relevance.</li>
+      <li>Reflection synthesizes thoughts with evidence; <strong>thoughts are memories too</strong>.</li>
+      <li>Conversation summaries land in <strong>both</strong> agents' streams (diffusion).</li>
+      <li><strong>Symbolic-by-default, vision-on-demand</strong>; structured state is the cheap default.</li>
+      <li>Not every NPC needs a mind — <strong>tiers + frugality are load-bearing</strong> at scale.</li>
+      <li>Spatial knowledge is <strong>learned and grounded</strong>, not declared.</li>
+      <li>All actions are validated; every decision is logged.</li>
+      <li><strong>Success is emergent behavior</strong>, measured from logs and memory — not vibes.</li>
+    </ol>
+  </div>
+
+</div>
+
+<script>
+// ── Persistence ──
+const PREFIX = 'aipc_plan_';
+
+// Default-checked tasks (known-built items)
+const DEFAULT_CHECKED = new Set([
+  'cb-sub-1','cb-sub-2','cb-sub-3','cb-sub-4','cb-sub-5','cb-sub-6',
+  'cb-sub-7','cb-sub-8','cb-sub-9','cb-sub-10','cb-sub-11','cb-sub-12',
+  'cb-sub-13','cb-sub-14','cb-sub-15','cb-sub-16',
+  'cb-sub-19','cb-sub-20','cb-sub-21',
+  // Spatial memory — grid layer is built
+  'cb-sub-g1','cb-sub-g2','cb-sub-g3',
+  // Place cells (pc1–pc7) intentionally NOT checked — future work
+]);
+
+function getStored(id) {
+  const v = localStorage.getItem(PREFIX + id);
+  if (v === null) return null;
+  return v === '1';
+}
+
+function setStored(id, val) {
+  localStorage.setItem(PREFIX + id, val ? '1' : '0');
+}
+
+function onCheck(id) {
+  const cb = document.getElementById(id);
+  setStored(id, cb.checked);
+  const taskEl = cb.closest('.task');
+  if (taskEl) taskEl.classList.toggle('done', cb.checked);
+  updateProgress();
+}
+
+function initCheckboxes() {
+  document.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    const id = cb.id;
+    const stored = getStored(id);
+    const checked = stored !== null ? stored : DEFAULT_CHECKED.has(id);
+    cb.checked = checked;
+    const taskEl = cb.closest('.task');
+    if (taskEl) taskEl.classList.toggle('done', checked);
+  });
+  updateProgress();
+}
+
+// ── Progress ──
+const MILESTONE_IDS = [
+  'ms-substrate','ms-planner','ms-memory','ms-reflection','ms-conv','ms-emerge','ms-directed'
+];
+
+function milestoneCheckboxes(msId) {
+  return document.querySelectorAll(`#${msId} input[type="checkbox"]`);
+}
+
+function updateProgress() {
+  let totalDone = 0, totalAll = 0;
+
+  MILESTONE_IDS.forEach(msId => {
+    const cbs = milestoneCheckboxes(msId);
+    let done = 0;
+    cbs.forEach(cb => { if (cb.checked) done++; });
+    const all = cbs.length;
+    totalDone += done;
+    totalAll += all;
+
+    const countEl = document.getElementById(msId + '-count');
+    const barEl   = document.getElementById(msId + '-bar');
+    if (countEl) countEl.textContent = `${done} / ${all}`;
+    if (barEl)   barEl.style.width = all ? `${(done/all)*100}%` : '0%';
+  });
+
+  const oc = document.getElementById('overall-count');
+  const ob = document.getElementById('overall-bar');
+  if (oc) oc.textContent = `${totalDone} / ${totalAll}`;
+  if (ob) ob.style.width = totalAll ? `${(totalDone/totalAll)*100}%` : '0%';
+}
+
+// ── Collapse / Expand ──
+function toggleMilestone(id) {
+  document.getElementById(id).classList.toggle('collapsed');
+}
+
+// ── Init ──
+initCheckboxes();
+</script>
+</body>
+</html>

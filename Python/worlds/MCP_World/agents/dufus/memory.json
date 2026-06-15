@@ -2,36 +2,6 @@
   "agent_id": "dufus",
   "memories": [
     {
-      "timestamp": "2026-06-11T22:18:34.388710+00:00",
-      "importance": 0.7,
-      "text": "Woke up at Day 1, 08:00 in an unknown place far from the village square."
-    },
-    {
-      "timestamp": "2026-06-11T22:18:43.415205+00:00",
-      "importance": 0.5,
-      "text": "I am traveling forward from an unknown place to get back to the village square."
-    },
-    {
-      "timestamp": "2026-06-11T22:19:02.098675+00:00",
-      "importance": 0.5,
-      "text": "I am on an unknown road, moving forward toward the village square."
-    },
-    {
-      "timestamp": "2026-06-11T22:19:11.298347+00:00",
-      "importance": 0.5,
-      "text": "I am on a road, moving forward toward the village square."
-    },
-    {
-      "timestamp": "2026-06-11T22:19:17.154391+00:00",
-      "importance": 0.5,
-      "text": "I am on a road and should keep going forward toward the village square."
-    },
-    {
-      "timestamp": "2026-06-11T22:19:20.800900+00:00",
-      "importance": 0.5,
-      "text": "I am on a road and should keep going forward toward the village square."
-    },
-    {
       "timestamp": "2026-06-11T22:19:26.587345+00:00",
       "importance": 0.6,
       "text": "I am on a road and should keep going forward toward the village square."
@@ -150,6 +120,36 @@
       "timestamp": "2026-06-13T02:57:19.909967+00:00",
       "importance": 0.6,
       "text": "Greeted unknown person near pawn shop on main street on Day 1 at 08:07\u2014still heading toward village square!"
+    },
+    {
+      "timestamp": "2026-06-14T01:03:17.568118+00:00",
+      "importance": 0.7,
+      "text": "Day 1 08:00 - woke up at motel, heading forward on main street to village square!"
+    },
+    {
+      "timestamp": "2026-06-14T01:03:43.613703+00:00",
+      "importance": 0.6,
+      "text": "Day 1 08:04 - still on main street near motel, greeted another unknown person, continuing toward village square!"
+    },
+    {
+      "timestamp": "2026-06-14T01:03:58.717467+00:00",
+      "importance": 0.6,
+      "text": "Day 1 08:07 - Still on main street near motel with sheriff building and auto service around, lots of people ahead! Keep going forward to village square!"
+    },
+    {
+      "timestamp": "2026-06-14T01:04:18.892106+00:00",
+      "importance": 0.6,
+      "text": "Day 1 08:10 - Still on main street near sheriff and auto service, lots of folks around! Keep pushing forward to village square!"
+    },
+    {
+      "timestamp": "2026-06-14T01:04:26.186953+00:00",
+      "importance": 0.6,
+      "text": "Day 1 08:11 - Still on main street heading forward toward village square! Saw lots of people near Don's Donut and gas station!"
+    },
+    {
+      "timestamp": "2026-06-14T01:04:32.853708+00:00",
+      "importance": 0.6,
+      "text": "Day 1 08:12 - Still pushing forward on main street! See lots of people, bank, gas station, and traffic light ahead - village square must be very close now!"
     }
   ]
 }

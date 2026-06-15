@@ -104,9 +104,9 @@
       "blocked": false
     },
     "-8,-2": {
-      "visit_count": 3,
+      "visit_count": 4,
       "first_seen": "2026-06-11T22:19:08.061791+00:00",
-      "last_seen": "2026-06-13T02:57:12.097786+00:00",
+      "last_seen": "2026-06-14T01:04:37.757228+00:00",
       "landmarks": {
         "unknown road": {
           "count": 1,
@@ -121,7 +121,7 @@
           "bearing": "left"
         },
         "auto service": {
-          "count": 1,
+          "count": 2,
           "confidence": 0.9,
           "distance": "mid",
           "bearing": "left"
@@ -133,7 +133,7 @@
           "bearing": "left"
         },
         "gas station": {
-          "count": 1,
+          "count": 2,
           "confidence": 0.9,
           "distance": "mid",
           "bearing": "center"
@@ -149,6 +149,18 @@
           "confidence": 0.8,
           "distance": "near",
           "bearing": null
+        },
+        "American Bank": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "Pawn Shop": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "center"
         }
       },
       "edges": [],
@@ -839,9 +851,9 @@
       "blocked": false
     },
     "-16,-2": {
-      "visit_count": 2,
+      "visit_count": 4,
       "first_seen": "2026-06-12T15:51:46.778550+00:00",
-      "last_seen": "2026-06-12T15:51:55.926894+00:00",
+      "last_seen": "2026-06-14T01:04:18.890931+00:00",
       "landmarks": {
         "Donuts sign": {
           "count": 1,
@@ -868,12 +880,48 @@
           "bearing": "right"
         },
         "Interstate 4 sign": {
-          "count": 1,
+          "count": 2,
           "confidence": 1.0,
-          "distance": "mid",
+          "distance": "near",
           "bearing": "right"
         },
         "main street with businesses": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        },
+        "Don's Donuts": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "Auto Service": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "Gas Station": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "County Sheriff": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "right"
+        },
+        "Fire hydrant": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "near",
+          "bearing": "right"
+        },
+        "main street near sheriff": {
           "count": 1,
           "confidence": 0.8,
           "distance": "near",
@@ -1082,13 +1130,13 @@
       "blocked": false
     },
     "-24,-2": {
-      "visit_count": 2,
+      "visit_count": 5,
       "first_seen": "2026-06-13T02:24:18.500425+00:00",
-      "last_seen": "2026-06-13T02:24:20.441473+00:00",
+      "last_seen": "2026-06-14T01:03:24.379308+00:00",
       "landmarks": {
         "motel sign": {
-          "count": 1,
-          "confidence": 0.8,
+          "count": 2,
+          "confidence": 0.9,
           "distance": "mid",
           "bearing": "left"
         },
@@ -1123,19 +1171,43 @@
           "bearing": "right"
         },
         "main street motel area": {
-          "count": 1,
+          "count": 3,
           "confidence": 0.8,
           "distance": "near",
           "bearing": null
+        },
+        "gas station": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "town sign": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "building with American flags": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "house": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "left"
         }
       },
       "edges": [],
       "blocked": false
     },
     "-20,-2": {
-      "visit_count": 2,
+      "visit_count": 6,
       "first_seen": "2026-06-13T02:56:35.671650+00:00",
-      "last_seen": "2026-06-13T02:56:37.934277+00:00",
+      "last_seen": "2026-06-14T01:03:58.716312+00:00",
       "landmarks": {
         "Motel sign": {
           "count": 1,
@@ -1168,10 +1240,70 @@
           "bearing": "left"
         },
         "main street near motel": {
-          "count": 1,
+          "count": 3,
           "confidence": 0.8,
           "distance": "near",
           "bearing": null
+        },
+        "motel sign": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "donut shop sign": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "left"
+        },
+        "county sheriff building": {
+          "count": 1,
+          "confidence": 0.95,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "gas station sign": {
+          "count": 1,
+          "confidence": 0.85,
+          "distance": "far",
+          "bearing": "center"
+        },
+        "motel": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "auto service sign": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "donut shop": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "gas station": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "county sheriff": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "press boxes": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "right"
         }
       },
       "edges": [],
@@ -1258,6 +1390,90 @@
           "bearing": "right"
         },
         "main street near gas station and don's donuts": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-14,-2": {
+      "visit_count": 2,
+      "first_seen": "2026-06-14T01:04:24.388934+00:00",
+      "last_seen": "2026-06-14T01:04:26.185745+00:00",
+      "landmarks": {
+        "Don's Donut sign": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "American Bank building": {
+          "count": 1,
+          "confidence": 0.9,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "Gas station sign": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "Water tower": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "far",
+          "bearing": "right"
+        },
+        "Telephone pole": {
+          "count": 1,
+          "confidence": 0.7,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "main street near shops": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "near",
+          "bearing": null
+        }
+      },
+      "edges": [],
+      "blocked": false
+    },
+    "-11,-2": {
+      "visit_count": 2,
+      "first_seen": "2026-06-14T01:04:30.913670+00:00",
+      "last_seen": "2026-06-14T01:04:32.852133+00:00",
+      "landmarks": {
+        "American Bank": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "near",
+          "bearing": "left"
+        },
+        "Gas station sign": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "Auto Service": {
+          "count": 1,
+          "confidence": 0.8,
+          "distance": "mid",
+          "bearing": "right"
+        },
+        "Traffic light": {
+          "count": 1,
+          "confidence": 1.0,
+          "distance": "mid",
+          "bearing": "center"
+        },
+        "main street downtown": {
           "count": 1,
           "confidence": 0.8,
           "distance": "near",
