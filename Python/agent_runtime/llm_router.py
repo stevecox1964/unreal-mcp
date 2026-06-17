@@ -125,18 +125,12 @@ Place: {place}
 {next_cells_text}
 
 Get your bearings by asking yourself, in character:
-1. Where am I? Use what you can see, the place label, and your memories. If you
-   have NOT been here before, name the place you are standing in — it is saved
-   to the shared map so next time you (or anyone) will know it.
-2. What time is it, and what does that time of day mean for my routine?
-3. Where should I be right now — and am I already there? If not, your first
-   action should start getting you there.
-
-Then choose the FIRST action that starts your day. If where you should be is
-visible in one of the views, use {{"type": "walk_to", "direction": "<that
-view's direction>"}} — directions are relative to the way you are facing
-("forward"). If you have nowhere specific to be, do not stand still: walk_to a
-neighboring cell that is still "unexplored" to help map the world.
+1. Where am I? Use the place label, your memories, and what you can see.
+   If you have NOT been here before, name the place — it gets saved to the shared map.
+2. What time is it? Look up that time in your schedule — what location and task does it call for?
+3. Am I already at the scheduled location?
+   - If YES: stay here and do the scheduled task (idle, observe, speak to someone nearby).
+   - If NO: your first action should start getting you to the scheduled location.
 
 Return ONLY valid JSON: no prose, no markdown fences.
 
@@ -310,19 +304,43 @@ class LLMRouter:
         loc = context.get("location") or {}
         place = context.get("place") or []
         known = context.get("known_place")
-        known_line = (
-            f"You have been here before — this place ('{known}') is already on the "
-            f"shared map, so there is nothing new to record. Decide where to go next."
-            if known else
-            "You have not named this spot yet — if you can tell what it is, name it."
-        )
+        fam = context.get("familiarity") or {}
+        visit_count = fam.get("visit_count", 0)
+        named_by_me = fam.get("named_by_me", False)
+
+        if named_by_me and visit_count > 0:
+            known_line = (
+                f"**You named this place yourself** ('{known}'). You have been here "
+                f"{visit_count} time(s). This is YOUR place — you know exactly where you are. "
+                f"If your goals say to be here, you are already there. Act accordingly."
+            )
+        elif visit_count > 0 and known:
+            known_line = (
+                f"You know this place — you have been here {visit_count} time(s). "
+                f"The shared map calls it '{known}'."
+            )
+        elif known:
+            known_line = (
+                f"This place ('{known}') is on the shared map. You have not been here before."
+            )
+        else:
+            known_line = "You have not been here before — if you can tell what it is, name it."
+        # When a confirmed place name exists it takes over the Place: line entirely.
+        # Raw compass observations may include stale or misleading labels (e.g. a
+        # landmark named "motel area" observed from this cell that contradicts the
+        # formal place name), so we suppress them when the identity is certain.
+        if known:
+            place_str = known
+        else:
+            place_str = ", ".join(place) if place else "unknown"
+
         user_text = _USER_TEMPLATE_WAKE.format(
             agent_id=agent.agent_id,
             memories=_memory_lines(memories),
             world_time=context.get("world_time", "unknown"),
             views_text=views_text,
             grid_cell=_grid_text(context.get("grid")),
-            place=", ".join(place) if place else "unknown",
+            place=place_str,
             known_line=known_line,
             next_cells_text=_direction_lines(context.get("directions")),
             x=loc.get("x", 0),

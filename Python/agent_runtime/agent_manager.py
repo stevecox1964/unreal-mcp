@@ -203,6 +203,28 @@ class AgentManager:
             else:
                 logger.warning(f"[{agent.agent_id}] Could not read start transform — reset won't reposition this agent")
 
+        # Clear stale per-run state (goal, timers) so every run wakes clean.
+        for agent in active:
+            agent.reset_runtime_state(self._agents_dir)
+            logger.info(f"[{agent.agent_id}] Runtime state reset for new run")
+
+        # Teleport every agent back to their recorded start position.
+        # Memories and place cells are intentionally preserved across runs.
+        for agent in active:
+            if agent.start_location and agent.has_unreal_binding:
+                result = self.bridge.teleport(
+                    agent.bound_unreal_actor_name, agent.start_location, agent.start_rotation
+                )
+                ok = result.get("success") is True or result.get("status") == "success"
+                if ok:
+                    logger.info(f"[{agent.agent_id}] Repositioned to start transform {agent.start_location}")
+                else:
+                    logger.warning(f"[{agent.agent_id}] Reposition failed: {result.get('error', 'unknown')}")
+            else:
+                logger.warning(f"[{agent.agent_id}] No start transform recorded — skipping reposition")
+
+        self.bridge.clear_scene_cache()
+
         self.running = True
         self.paused = False
         self.tick_seconds = tick_seconds
@@ -351,6 +373,7 @@ class AgentManager:
         if self.mode == "live":
             # Spool-up: each agent wakes and orients itself before the first tick.
             await self._wake_agents()
+            self._print_sim_status()
         logger.info(
             f"Simulation loop running — base tick {self.tick_seconds}s; the sleep starts "
             f"only after each tick's processing, so the interval expands with observation/LLM time"
@@ -371,11 +394,27 @@ class AgentManager:
                         f"Tick #{self._tick_count}: {result['ticked']} agent(s) in {duration:.2f}s "
                         f"— next in {self.tick_seconds}s (effective interval ~{duration + self.tick_seconds:.2f}s)"
                     )
+                self._print_sim_status()
             # Base pacing sleeps AFTER the tick completes: with N avatars the gap
             # between ticks is their full observation + thinking time plus the base,
             # so ticks can never pile up and over-drive the avatars.
             await asyncio.sleep(self.tick_seconds)
         logger.info("Simulation loop exited")
+
+    def _print_sim_status(self) -> None:
+        """Push agent names and current goals to the PIE viewport as on-screen debug messages."""
+        active = sorted(
+            (a for a in self.agents.values() if a.is_active and a.has_unreal_binding),
+            key=lambda a: a.agent_id,
+        )
+        elapsed = int(time.monotonic() - self._started_at) if self._started_at else 0
+        header = f"[SIM] tick={self._tick_count}  elapsed={elapsed}s  mode={self.mode}"
+        self.bridge.print_to_screen(header, key=99, duration=30.0)
+        for i, agent in enumerate(active):
+            goal = agent.current_goal
+            if len(goal) > 45:
+                goal = goal[:42] + "..."
+            self.bridge.print_to_screen(f"  {agent.agent_id}: {goal}", key=100 + i, duration=30.0)
 
     async def _wake_agents(self) -> None:
         """Spool-up: each agent wakes and orients itself before the first tick.
@@ -403,18 +442,20 @@ class AgentManager:
                 col, row = self._cell_col_row(grid)
 
                 known_place = None
+                familiarity: dict = {}
                 if self.place_db and col is not None:
                     known_place = self.place_db.get_place(col, row)
+                    familiarity = self.place_db.agent_familiarity(agent.agent_id, col, row)
 
                 if known_place:
-                    # Been here before — the cell is already on the shared map, so
-                    # skip the (expensive) 180° sweep and don't re-record geography.
-                    # Still orient so the agent picks its next grid/place and MOVES
-                    # — otherwise it wakes standing still and the scene-unchanged
-                    # gate would freeze it in place.
+                    # Place is on the shared map — skip the expensive 180° sweep.
+                    # Pass personal familiarity so the orient prompt can tell the
+                    # agent whether this is THEIR place or just a place they've
+                    # visited, giving them the signal to stay vs. move on.
                     logger.info(
                         f"[{agent.agent_id}] WAKE {world_time} at known place "
-                        f"'{known_place['name']}' — skipping sweep, orienting to next move"
+                        f"'{known_place['name']}' (visits={familiarity.get('visit_count',0)}, "
+                        f"named_by_me={familiarity.get('named_by_me',False)}) — skipping sweep"
                     )
                     memories = self.memory.get_relevant_memories(agent.agent_id)
                     context = {
@@ -422,6 +463,7 @@ class AgentManager:
                         "grid": grid, "place": place, "views": [],
                         "directions": self._direction_places(agent.agent_id, loc, rot),
                         "known_place": known_place["name"],
+                        "familiarity": familiarity,
                     }
                     needs_orient.append((agent, context, memories))
                     continue
@@ -449,6 +491,7 @@ class AgentManager:
                     "grid": grid, "place": place, "views": views,
                     "directions": self._direction_places(agent.agent_id, loc, rot),
                     "known_place": None,
+                    "familiarity": familiarity,
                 }
                 needs_orient.append((agent, context, memories))
             except Exception as e:

@@ -182,6 +182,30 @@ class PlaceDB:
             )
         return True
 
+    def agent_familiarity(self, agent_id: str, col: int, row: int) -> dict:
+        """Return this agent's personal relationship with a grid cell.
+
+        Returns: {visit_count, named_by_me, first_seen, last_seen}
+        visit_count 0 means the agent has never been here.
+        named_by_me True means this agent was the first to name the cell.
+        """
+        with self._connect() as conn:
+            visit = conn.execute(
+                "SELECT visit_count, first_seen, last_seen FROM agent_visits "
+                "WHERE agent_id=? AND col=? AND row=?",
+                (agent_id, col, row),
+            ).fetchone()
+            cell = conn.execute(
+                "SELECT named_by FROM place_cells WHERE col=? AND row=?",
+                (col, row),
+            ).fetchone()
+        return {
+            "visit_count": visit["visit_count"] if visit else 0,
+            "named_by_me": bool(cell and cell["named_by"] == agent_id),
+            "first_seen": visit["first_seen"] if visit else None,
+            "last_seen": visit["last_seen"] if visit else None,
+        }
+
     def ingest_compass(
         self,
         agent_id: str,

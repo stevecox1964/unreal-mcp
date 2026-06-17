@@ -152,8 +152,8 @@ class Agent:
         return True
 
     def reset_runtime_state(self, agents_dir: Path) -> None:
-        """Clear per-run timers so a fresh run behaves like the first one."""
-        for key in ("last_tick_time", "last_spoke_time"):
+        """Clear per-run timers and goal so a fresh run behaves like the first one."""
+        for key in ("last_tick_time", "last_spoke_time", "current_goal"):
             self.state.pop(key, None)
         self.state["is_busy"] = False
         self._save_state(agents_dir)

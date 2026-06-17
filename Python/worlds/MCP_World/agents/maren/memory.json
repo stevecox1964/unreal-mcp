@@ -3,113 +3,47 @@
   "memories": [
     {
       "timestamp": "2026-05-14T00:00:00+00:00",
+      "text": "I stand under the shop canopy on the main street. The pawn shop is nearby.",
       "importance": 0.8,
-      "text": "I stand under the shop canopy on the main street. The pawn shop is nearby."
+      "action_type": "remember"
     },
     {
-      "timestamp": "2026-05-14T00:00:01+00:00",
+      "timestamp": "2026-05-14T00:01:00+00:00",
+      "text": "There is a warehouse district not far from the shops.",
       "importance": 0.7,
-      "text": "There is a warehouse district not far from the shops."
+      "action_type": "remember"
     },
     {
-      "timestamp": "2026-05-14T00:00:02+00:00",
+      "timestamp": "2026-05-14T00:02:00+00:00",
+      "text": "Dufus is the friendly fool who wanders the street. He is wearing his hat but keeps asking about it.",
       "importance": 0.8,
-      "text": "Dufus is the friendly fool who wanders the street. He is wearing his hat but keeps asking about it."
+      "action_type": "remember"
     },
     {
-      "timestamp": "2026-06-11T16:40:59.807231+00:00",
+      "timestamp": "2026-05-14T00:03:00+00:00",
+      "text": "My vegetable truck is right here on main street. This is my post \u2014 I am always here.",
+      "importance": 0.9,
+      "action_type": "remember"
+    },
+    {
+      "timestamp": "2026-06-17T15:29:34.657982+00:00",
       "importance": 0.7,
-      "text": "I woke up away from the truck on Day 1 and need to get back to my stand."
+      "text": "Woke at the motel at 08:00. Time to head to the truck."
     },
     {
-      "timestamp": "2026-06-11T22:18:40.769089+00:00",
-      "importance": 0.7,
-      "text": "Woke under the shop canopy on main street at 08:00, away from the truck and heading back."
-    },
-    {
-      "timestamp": "2026-06-11T22:18:45.944782+00:00",
-      "importance": 0.7,
-      "text": "At 08:02 on Day 1, I was away from the truck near the shop canopy on main street and headed back toward my stand."
-    },
-    {
-      "timestamp": "2026-06-11T22:18:54.190413+00:00",
-      "importance": 0.7,
-      "text": "I was at the shop canopy on main street away from the truck, and I need to keep heading back to my vegetable truck."
-    },
-    {
-      "timestamp": "2026-06-11T22:19:23.238079+00:00",
-      "importance": 0.74,
-      "text": "I was still away from the truck at 08:09 and kept heading back from the main street canopy toward my stand."
-    },
-    {
-      "timestamp": "2026-06-11T22:19:54.781280+00:00",
-      "importance": 0.6,
-      "text": "At 08:14 on Day 1, I was still walking back toward my vegetable truck from the main street canopy."
-    },
-    {
-      "timestamp": "2026-06-11T22:20:11.652222+00:00",
-      "importance": 0.7,
-      "text": "I am on main street away from the truck and moving back toward my vegetable stand."
-    },
-    {
-      "timestamp": "2026-06-11T22:20:18.633168+00:00",
-      "importance": 0.6,
-      "text": "Still on main street away from the vegetable truck at 08:18 and continuing back toward my stand."
-    },
-    {
-      "timestamp": "2026-06-11T22:20:30.661907+00:00",
-      "importance": 0.6,
-      "text": "Still on main street at 08:20, away from the truck and moving back toward my vegetable stand."
-    },
-    {
-      "timestamp": "2026-06-12T15:51:21.269443+00:00",
+      "timestamp": "2026-06-17T15:49:00.179256+00:00",
       "importance": 0.8,
-      "text": "Woke at motel area on main street, Day 1 at 08:00\u2014need to get back to truck."
+      "text": "Woke at motel, now heading to truck on main street at 08:00 to start the day."
     },
     {
-      "timestamp": "2026-06-13T02:24:14.242036+00:00",
+      "timestamp": "2026-06-17T15:51:53.270004+00:00",
       "importance": 0.8,
-      "text": "Woke at motel area on main street Day 1 at 08:00, heading back to truck in the forward-left direction."
+      "text": "Morning routine: woke at motel, heading to truck for 08:00 opening shift."
     },
     {
-      "timestamp": "2026-06-13T02:56:31.149794+00:00",
+      "timestamp": "2026-06-17T15:58:40.817453+00:00",
       "importance": 0.8,
-      "text": "Woke at motel area Day 1 08:00, heading toward vegetable truck."
-    },
-    {
-      "timestamp": "2026-06-14T01:03:17.776711+00:00",
-      "importance": 0.8,
-      "text": "Woke at motel area Day 1 08:00, heading toward vegetable truck via forward-left."
-    },
-    {
-      "timestamp": "2026-06-14T01:03:24.592001+00:00",
-      "importance": 0.7,
-      "text": "At motel area on Day 1 08:01, continuing forward-left toward vegetable truck."
-    },
-    {
-      "timestamp": "2026-06-14T01:03:33.308560+00:00",
-      "importance": 0.7,
-      "text": "Moving toward vegetable truck from farm area on main road."
-    },
-    {
-      "timestamp": "2026-06-14T01:03:43.823698+00:00",
-      "importance": 0.8,
-      "text": "Moving through cornfield area toward vegetable truck on Day 1 at 08:04."
-    },
-    {
-      "timestamp": "2026-06-14T01:03:52.242768+00:00",
-      "importance": 0.8,
-      "text": "At farmhouse area with barn and water tower on Day 1 at 08:06, continuing toward vegetable truck."
-    },
-    {
-      "timestamp": "2026-06-14T01:04:05.007366+00:00",
-      "importance": 0.7,
-      "text": "At cornfield path on Day 1 at 08:08, continuing forward toward vegetable truck."
-    },
-    {
-      "timestamp": "2026-06-14T01:04:26.387865+00:00",
-      "importance": 0.7,
-      "text": "Still moving toward vegetable truck from cornfield area. House and trees visible ahead."
+      "text": "08:00 \u2014 arrived at truck, ready for morning customers."
     }
   ]
 }

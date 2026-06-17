@@ -277,6 +277,10 @@ class UnrealBridge:
         logger.warning(f"Unknown action type: {t}")
         return {"status": "error", "error": f"Unknown action: {t}"}
 
+    def print_to_screen(self, message: str, key: int = -1, duration: float = 30.0) -> None:
+        """Display a debug message in the PIE viewport (key-based replacement)."""
+        self._send("print_to_screen", {"message": message, "key": key, "duration": duration})
+
     def capture_observation(self, agent_id: str, actor_name: str, agents_dir: Path) -> dict:
         """Capture a camera image into <agents_dir>/<agent_id>/observations/."""
         obs_dir = agents_dir / agent_id / "observations"

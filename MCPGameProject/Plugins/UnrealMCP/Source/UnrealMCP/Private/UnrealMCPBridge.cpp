@@ -1,4 +1,5 @@
 #include "UnrealMCPBridge.h"
+#include "Engine/Engine.h"
 #include "MCPServerRunnable.h"
 #include "Sockets.h"
 #include "SocketSubsystem.h"
@@ -326,6 +327,26 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("detach_actor"))
             {
                 ResultJson = AttachmentCommands->HandleCommand(CommandType, Params);
+            }
+            else if (CommandType == TEXT("print_to_screen"))
+            {
+                ResultJson = MakeShareable(new FJsonObject);
+                if (GEngine)
+                {
+                    double KeyDouble = -1;
+                    Params->TryGetNumberField(TEXT("key"), KeyDouble);
+                    FString Message;
+                    Params->TryGetStringField(TEXT("message"), Message);
+                    double Duration = 5.0;
+                    Params->TryGetNumberField(TEXT("duration"), Duration);
+                    GEngine->AddOnScreenDebugMessage((int32)KeyDouble, (float)Duration, FColor::Cyan, Message);
+                    ResultJson->SetBoolField(TEXT("success"), true);
+                }
+                else
+                {
+                    ResultJson->SetBoolField(TEXT("success"), false);
+                    ResultJson->SetStringField(TEXT("error"), TEXT("GEngine not available"));
+                }
             }
             else
             {

@@ -5,7 +5,6 @@
   "tier": 2,
   "is_active": true,
   "is_busy": false,
-  "current_goal": "I'm gonna head forward down main street toward the village square - that's where I belong, where all my friends are!",
   "tick_interval_seconds": 0,
   "speech_cooldown_seconds": 30,
   "start_location": {
@@ -18,10 +17,11 @@
     "y": 0,
     "z": 0
   },
-  "last_tick_time": "2026-06-14T01:04:32.855032+00:00",
-  "last_spoke_time": "2026-06-14T01:03:43.612975+00:00",
   "bound_unreal_actor_name": "BP_CameraNPC_C_1",
   "bound_unreal_actor_label": "Dufus",
   "bound_unreal_actor_class": "BP_CameraNPC_C",
-  "last_bound_time": "2026-06-14T01:03:10.895390+00:00"
+  "last_bound_time": "2026-06-17T15:58:35.035646+00:00",
+  "current_goal": "Head toward the village square - that's where all the action is and where I should be greeting people!",
+  "last_spoke_time": "2026-06-17T15:59:44.865118+00:00",
+  "last_tick_time": "2026-06-17T16:00:19.345381+00:00"
 }

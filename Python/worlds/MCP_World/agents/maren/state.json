@@ -5,22 +5,22 @@
   "tier": 2,
   "is_active": true,
   "is_busy": false,
-  "current_goal": "Get back to my vegetable truck to start the day's work.",
   "tick_interval_seconds": 2,
   "speech_cooldown_seconds": 30,
   "start_location": {
-    "x": -8490,
+    "x": -8400,
     "y": 150,
-    "z": 89.91366181751826
+    "z": 89.9136613166582
   },
   "start_rotation": {
     "x": 0,
     "y": -90.00000209151892,
     "z": 0
   },
-  "last_tick_time": "2026-06-14T01:04:35.311911+00:00",
   "bound_unreal_actor_name": "BP_CameraNPC_C_0",
   "bound_unreal_actor_label": "Maren",
   "bound_unreal_actor_class": "BP_CameraNPC_C",
-  "last_bound_time": "2026-06-14T01:03:11.104857+00:00"
+  "last_bound_time": "2026-06-17T15:58:35.240305+00:00",
+  "current_goal": "Arrange the vegetables and tend my truck for the morning shift.",
+  "last_tick_time": "2026-06-17T16:00:22.465862+00:00"
 }
