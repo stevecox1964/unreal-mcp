@@ -152,19 +152,52 @@ See [Python/README.md](Python/README.md) for detailed Python setup instructions,
 
 ### LLM configuration for NPC simulation
 
-Create `Python/.env` with the provider and model you want the agent runtime to use. The file is ignored by git.
+The agent runtime uses two models, configured independently in `Python/.env`
+(git-ignored): a **decision LLM** (chooses what each NPC does) and a **vision
+model** (turns each screenshot into landmarks/characters). Each can be a cloud
+provider **or** a local [Ollama](https://ollama.com) model.
+
+#### Cloud (Anthropic or OpenAI for decisions, Gemini for vision)
 
 ```dotenv
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-5.4-mini
-
-# Optional Anthropic fallback
+LLM_PROVIDER=anthropic            # decisions: anthropic | openai | ollama
 ANTHROPIC_API_KEY=sk-ant-...
 ANTHROPIC_MODEL=claude-haiku-4-5-20251001
+
+VISION_PROVIDER=gemini            # observations: gemini | ollama
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-2.5-flash-lite
 ```
 
-The OpenAI path uses the Responses HTTP API directly through `requests` instead of the OpenAI Python SDK. This avoids a Python 3.14 compatibility issue observed in the SDK/Pydantic stack while keeping the runtime behavior the same.
+For OpenAI instead, set `LLM_PROVIDER=openai`, `OPENAI_API_KEY`, `OPENAI_MODEL`.
+The OpenAI path uses the Responses HTTP API directly through `requests` instead
+of the OpenAI Python SDK, avoiding a Python 3.14 compatibility issue in the
+SDK/Pydantic stack while keeping runtime behavior the same.
+
+#### Fully local (Ollama)
+
+Run both the decision LLM and vision on a local Ollama model — no API keys, no
+cloud calls. A single **multimodal** model (e.g. `qwen3.5:4b`, which is both
+vision- and tool-capable) can serve both roles:
+
+```dotenv
+LLM_PROVIDER=ollama
+VISION_PROVIDER=ollama
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=qwen3.5:4b           # decision LLM
+VISION_MODEL=qwen3.5:4b           # observations — must be a vision-capable model
+```
+
+Prerequisites: Ollama running locally with the model pulled
+(`ollama pull qwen3.5:4b`). The adapter (`Python/agent_runtime/ollama_adapter.py`)
+talks to Ollama's native `/api/chat`, disables "thinking", and forces JSON
+output. The first call is slow while the model loads into VRAM — a
+`qwen3.5:4b: model LOADED in Xs` line appears on the PIE overlay — and warm calls
+are much faster. Switch back to cloud at any time by setting
+`LLM_PROVIDER` / `VISION_PROVIDER` to their cloud values.
+
+Settings are re-read from `.env` before each batch of LLM calls; the
+`reload_llm_environment()` MCP tool reloads and reports them with secrets masked.
 
 ### Configuring your MCP Client
 
@@ -232,7 +265,8 @@ A first-pass agentic NPC simulation layer driven by an LLM-controlled Agent Mana
 - **Validated action pipeline** â€” LLM decisions are schema-validated before any Unreal command executes
 - **Level-aware loading** â€” agents live under `Python/worlds/<LevelName>/agents/` and are loaded automatically based on the currently open Unreal level; no config field needed
 - **NPC Builder web UI** â€” local FastAPI app (`Python/web_ui/`) for creating and editing NPC agent files without touching the CLI; shows live actor list from the running editor; launch with `start_npc_builder.bat`
-- **Explore mode** â€” a second simulation mode (`start_simulation(mode="explore")`) where the avatar autonomously maps an unknown world by walking it: a VLM (Gemini) turns each camera frame into semantic landmarks, a deterministic frontier explorer chooses where to walk next, and a per-agent engine-agnostic grid/place map is written to `spatial_map.json`. No LLM in the movement loop. See [Explore Mode](#-explore-mode-vlm-spatial-mapping) below.
+- **Explore mode** â€” a second simulation mode (`start_simulation(mode="explore")`) where the avatar autonomously maps an unknown world by walking it: a VLM (Gemini or a local Ollama model) turns each camera frame into semantic landmarks, a deterministic frontier explorer chooses where to walk next, and a per-agent engine-agnostic grid/place map is written to `spatial_map.json`. No LLM in the movement loop. See [Explore Mode](#-explore-mode-vlm-spatial-mapping) below.
+- **Local model support (Ollama)** â€” run both the decision LLM and vision perception fully locally on an Ollama model (e.g. the multimodal `qwen3.5:4b`) with no cloud API keys. Decision and vision providers are selected independently in `Python/.env`. See [LLM configuration for NPC simulation](#llm-configuration-for-npc-simulation).
 
 ---
 
@@ -338,7 +372,7 @@ A second simulation mode where the avatar **discovers a world by looking at it a
 ```
 observe (own pose + camera frame)
   â†’ perceptual-hash diff-gate (skip re-labelling an unchanged view)
-  â†’ Gemini.perceive()            # frame â†’ {landmarks, characters, caption}
+  â†’ VLM.perceive()              # frame â†’ {landmarks, characters, caption}  (Gemini or local Ollama)
   â†’ SpatialMap.ingest()          # write labels into the current grid cell
   â†’ explorer.next_target()       # pick nearest unexplored frontier  (CODE, not LLM)
   â†’ command_character_move_to()  # walk there
@@ -354,7 +388,7 @@ Per-agent (egocentric). Grid cells keyed `"gx,gy"` (`floor(x / cell_size)`, defa
 
 - **PIE must be running** â€” the AIController only possesses the avatar in Play.
 - **Walkable NavMesh under the avatar** â€” a `NavMeshBoundsVolume` that is *tall enough* (its Z extent must clear the floor by more than the agent height; a too-thin volume builds no navmesh and the avatar silently won't move). The avatar must be **standing on green** (on the mesh), not on grass/dirt or floating.
-- **`GEMINI_API_KEY` / `GEMINI_MODEL`** in `Python/.env` (model `gemini-2.5-flash-lite`).
+- **A vision model** in `Python/.env` â€” either Gemini (`VISION_PROVIDER=gemini`, `GEMINI_API_KEY`, `GEMINI_MODEL=gemini-2.5-flash-lite`) or a local Ollama vision model (`VISION_PROVIDER=ollama`, `OLLAMA_HOST`, `VISION_MODEL=qwen3.5:4b`). See [LLM configuration](#llm-configuration-for-npc-simulation).
 - **Pillow** installed (enables the diff-gate; without it every frame is re-perceived).
 
 ### Smoke test

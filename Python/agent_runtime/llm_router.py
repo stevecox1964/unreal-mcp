@@ -200,6 +200,8 @@ class LLMRouter:
 
     def _resolve_api_key(self, provider: str) -> str:
         _reload_env()
+        if provider == "ollama":
+            return "local"  # Ollama runs without auth; sentinel satisfies the key guard
         if self.api_key:
             return self.api_key
         if provider == "openai":
@@ -232,9 +234,13 @@ class LLMRouter:
         provider_env = {
             "openai": "OPENAI_MODEL",
             "anthropic": "ANTHROPIC_MODEL",
+            "ollama": "OLLAMA_MODEL",
         }.get(provider)
         if provider_env and os.environ.get(provider_env):
             return os.environ[provider_env]
+
+        if provider == "ollama":
+            return "qwen3.5:4b"
 
         if provider == "openai":
             return {
@@ -349,7 +355,9 @@ class LLMRouter:
         )
 
         try:
-            if provider == "openai":
+            if provider == "ollama":
+                raw = self._decide_ollama(model, self._system_text(agent), user_text)
+            elif provider == "openai":
                 raw = self._decide_openai(model, self._system_text(agent), user_text)
             else:
                 raw = self._decide_anthropic(model, self._system_text(agent), user_text)
@@ -426,7 +434,9 @@ class LLMRouter:
             )
 
         try:
-            if provider == "openai":
+            if provider == "ollama":
+                raw = self._decide_ollama(model, system_text, user_text)
+            elif provider == "openai":
                 raw = self._decide_openai(model, system_text, user_text)
             elif provider == "anthropic":
                 raw = self._decide_anthropic(model, system_text, user_text)
@@ -452,6 +462,12 @@ class LLMRouter:
         except Exception as e:
             logger.error(f"[{agent.agent_id}] LLM call failed: {e}")
             return None
+
+    def _decide_ollama(
+        self, model: str, system_text: str, user_text: str, image_path: str | None = None
+    ) -> str:
+        from .ollama_adapter import chat
+        return _strip_markdown_fences(chat(model, system_text, user_text, image_path=image_path))
 
     def _decide_anthropic(
         self, model: str, system_text: str, user_text: str, image_path: str | None = None

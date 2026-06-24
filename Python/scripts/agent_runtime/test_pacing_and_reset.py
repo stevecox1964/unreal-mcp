@@ -50,6 +50,9 @@ class SlowBridge:
     def is_scene_changed(self, agent_id, image_path):
         return False  # short-circuits pulse_agent right after the observation
 
+    def print_to_screen(self, message, key=-1, duration=30.0):
+        pass  # PIE overlay is a no-op under test
+
 
 class StubAgent:
     def __init__(self, agent_id):
@@ -60,6 +63,7 @@ class StubAgent:
         self.has_unreal_binding = True
         self.is_active = True
         self.is_busy = False
+        self.current_goal = "test goal"
 
     def cooldown_expired(self):
         return True
@@ -76,6 +80,14 @@ async def run_pacing() -> None:
     mgr.agents = {"a": StubAgent("a")}
     mgr.tick_seconds = base
     mgr.running = True
+
+    # This test exercises only the tick-loop pacing. Skip the live wake-up
+    # preamble — it needs full Agent objects and bridge methods the minimal
+    # stubs here don't provide, and the loop's pacing is identical without it.
+    async def _skip_wake():
+        return None
+    mgr._wake_agents = _skip_wake
+
     task = asyncio.create_task(mgr._loop())
     await asyncio.sleep(runtime)
     mgr.running = False

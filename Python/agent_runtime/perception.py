@@ -63,11 +63,18 @@ class VisionPerceiver:
         self._model = model
         self._timeout = timeout
 
-    def _resolve(self) -> tuple[str, str]:
+    def _resolve(self) -> tuple[str, str, str]:
+        """Return ``(provider, key, model)``. Provider is ``VISION_PROVIDER`` env
+        (``gemini`` default, or ``ollama`` for a local multimodal model)."""
         load_dotenv(_ENV_PATH, override=True)
+        provider = (os.environ.get("VISION_PROVIDER") or "gemini").strip().lower()
+        if provider == "ollama":
+            model = (self._model or os.environ.get("VISION_MODEL")
+                     or os.environ.get("OLLAMA_MODEL") or "qwen3.5:4b")
+            return provider, "", model
         key = os.environ.get("GEMINI_API_KEY", "")
         model = self._model or os.environ.get("GEMINI_MODEL") or _DEFAULT_MODEL
-        return key, model
+        return provider, key, model
 
     def perceive(self, image_path: str, known_characters: list[str] | None = None) -> dict:
         """Return ``{"landmarks", "characters", "caption"}`` for a screenshot.
@@ -84,8 +91,8 @@ class VisionPerceiver:
         """
         import requests
 
-        key, model = self._resolve()
-        if not key:
+        provider, key, model = self._resolve()
+        if provider != "ollama" and not key:
             return _empty("GEMINI_API_KEY not set")
         if not image_path or not Path(image_path).exists():
             return _empty(f"image not found: {image_path}")
@@ -99,28 +106,35 @@ class VisionPerceiver:
         prompt = _PROMPT.format(known_line=known_line)
 
         try:
-            b64 = base64.standard_b64encode(Path(image_path).read_bytes()).decode()
-            response = requests.post(
-                _GEMINI_ENDPOINT,
-                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                json={
-                    "model": model,
-                    "messages": [{
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
-                        ],
-                    }],
-                    "max_tokens": 800,
-                    "response_format": {"type": "json_object"},
-                },
-                timeout=self._timeout,
-            )
-            if response.status_code >= 400:
-                return _empty(f"Gemini {response.status_code}: {response.text[:300]}")
+            if provider == "ollama":
+                # Local multimodal model (e.g. qwen3.5:4b) reads the screenshot.
+                # Vision on a small local model is slower than Gemini — give it room.
+                from .ollama_adapter import chat
+                content = chat(model, "", prompt, image_path=image_path,
+                               timeout=max(self._timeout, 180))
+            else:
+                b64 = base64.standard_b64encode(Path(image_path).read_bytes()).decode()
+                response = requests.post(
+                    _GEMINI_ENDPOINT,
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    json={
+                        "model": model,
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                            ],
+                        }],
+                        "max_tokens": 800,
+                        "response_format": {"type": "json_object"},
+                    },
+                    timeout=self._timeout,
+                )
+                if response.status_code >= 400:
+                    return _empty(f"Gemini {response.status_code}: {response.text[:300]}")
+                content = response.json()["choices"][0]["message"]["content"]
 
-            content = response.json()["choices"][0]["message"]["content"]
             data = json.loads(_strip_fences(content))
         except Exception as e:
             return _empty(f"{type(e).__name__}: {e}")

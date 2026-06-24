@@ -374,6 +374,7 @@ class AgentManager:
             # Spool-up: each agent wakes and orients itself before the first tick.
             await self._wake_agents()
             self._print_sim_status()
+            self._flush_model_pie()
         logger.info(
             f"Simulation loop running — base tick {self.tick_seconds}s; the sleep starts "
             f"only after each tick's processing, so the interval expands with observation/LLM time"
@@ -395,6 +396,7 @@ class AgentManager:
                         f"— next in {self.tick_seconds}s (effective interval ~{duration + self.tick_seconds:.2f}s)"
                     )
                 self._print_sim_status()
+                self._flush_model_pie()
             # Base pacing sleeps AFTER the tick completes: with N avatars the gap
             # between ticks is their full observation + thinking time plus the base,
             # so ticks can never pile up and over-drive the avatars.
@@ -415,6 +417,35 @@ class AgentManager:
             if len(goal) > 45:
                 goal = goal[:42] + "..."
             self.bridge.print_to_screen(f"  {agent.agent_id}: {goal}", key=100 + i, duration=30.0)
+
+    def _agent_slot(self, agent_id: str) -> int:
+        """Stable PIE-line index for an agent (matches _print_sim_status ordering)."""
+        ids = sorted(
+            a.agent_id for a in self.agents.values()
+            if a.is_active and a.has_unreal_binding
+        )
+        try:
+            return ids.index(agent_id)
+        except ValueError:
+            return 0
+
+    def _pie_activity(self, agent_id: str, message: str) -> None:
+        """Update this agent's PIE activity line (key 130+slot), in place each tick.
+
+        Bridge is single-socket, so call only from the sequential tick phases
+        (observe / act) — never from the parallel perceive+decide phase.
+        """
+        self.bridge.print_to_screen(
+            f"  {agent_id}: {message}",
+            key=130 + self._agent_slot(agent_id),
+            duration=30.0,
+        )
+
+    def _flush_model_pie(self) -> None:
+        """Drain queued Ollama model-load lines to PIE (sequential phase only)."""
+        from .ollama_adapter import take_pending_pie
+        for msg in take_pending_pie():
+            self.bridge.print_to_screen(msg, key=200, duration=20.0)
 
     async def _wake_agents(self) -> None:
         """Spool-up: each agent wakes and orients itself before the first tick.
@@ -731,12 +762,13 @@ class AgentManager:
             self._scene_skips[agent_id] = skips
             if not stuck and (moving or skips % _STATIONARY_REDECIDE_TICKS != 0):
                 agent.mark_ticked(self._agents_dir)
+                reason = "moving" if moving else f"idle {skips}/{_STATIONARY_REDECIDE_TICKS}"
                 logger.info(
                     f"[{agent_id}] grid={grid.get('key') if grid else '?'} "
                     f"place={observation.get('place_context', {}) or place or 'unknown'} "
-                    f"— scene unchanged ({'moving' if moving else f'idle {skips}/{_STATIONARY_REDECIDE_TICKS}'}), "
-                    f"skipping LLM"
+                    f"— scene unchanged ({reason}), skipping LLM"
                 )
+                self._pie_activity(agent_id, f"OBS skip ({reason})")
                 return None
             why = "stuck on an obstacle" if stuck else f"stationary {skips} ticks"
             logger.info(
@@ -827,14 +859,18 @@ class AgentManager:
         if not decision:
             logger.warning(f"[{agent_id}] No decision - idling")
             agent.mark_ticked(self._agents_dir)
+            self._pie_activity(agent_id, "OBS fire -> no decision (idle)")
             return {"agent_id": agent_id, "action": "idle", "reason": "no_decision"}
 
         action = validate(agent, decision, observation)
         if not action:
             agent.mark_ticked(self._agents_dir)
+            self._pie_activity(agent_id, "OBS fire -> invalid decision (idle)")
             return {"agent_id": agent_id, "action": "idle", "reason": "validation_failed"}
 
         result = self._execute_world_action(agent, action, observation)
+        status = result.get("status") or result.get("success")
+        self._pie_activity(agent_id, f"OBS fire -> {action.get('type')} [{status}]")
 
         # Name the place if the LLM provided one.
         self._record_place(agent_id, observation.get("location"), decision.get("place"))
