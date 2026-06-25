@@ -13,11 +13,12 @@ handable to a subagent as-is. Action items also distilled into `plan/backlog.md`
 
 | Iteration | File | Theme | Status |
 |-----------|------|-------|--------|
+| 2 | [dreams_2026-06-24_2327.md](dreams_2026-06-24_2327.md) | Decouple Claude-MCP from the world builder | ✅ → backlog #3 |
 | 1 | [dreams_2026-06-24_2308.md](dreams_2026-06-24_2308.md) | APC movement, observation saving, memory, meeting people | ✅ → backlog #5 |
 
 ## Theme queue (planned)
 1. ✅ APC movement / observation / social memory
-2. ⏳ Decouple Claude-MCP from the world builder (process boundary, what depends on Claude being alive)
+2. ✅ Decouple Claude-MCP from the world builder (coupling = stdio MCP server; carve out a standalone runner)
 3. ⏳ World builder → simulation runner + configuration system (controller/configurator)
 4. ⏳ The take-up-slack autonomous loop (deepen backlog #4)
 5. (then) refine/cross-cut: sequencing, dependencies, MVP slice

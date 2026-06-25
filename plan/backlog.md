@@ -102,11 +102,19 @@ Claude isn't running, the sim isn't running. The user wants the world sim to run
 **independently of Claude Code** so it can run overnight or for long stretches
 without Claude Code open.
 
-- [ ] Decouple the agent runtime / Unreal bridge so the sim loop runs as a
-      standalone process (launched from the web app or a CLI/service) with its
-      own lifetime.
-- [ ] Claude Code (and the MCP tools) should be able to **attach to and inspect**
-      a running sim, not be the thing that keeps it alive.
+The coupling is one line: `unreal_sim_server.py:417` `mcp.run(transport='stdio')` — the MCP
+server is a stdio subprocess of Claude Code, and the `AgentManager` (async sim loop) lives inside
+it. `UnrealBridge` (TCP 55557) + the web UI's direct socket are already Claude-independent.
+
+Action breakdown (from dreams iter 2, `plan/dreams/dreams_2026-06-24_2327.md` — subagent-ready):
+- [ ] **2.1** Factor `AgentManager` construction into `agent_runtime/factory.py` (shared by MCP + runner).
+- [ ] **2.2** New `Python/sim_runner.py` — standalone process that runs the loop with no MCP/Claude.
+- [ ] **2.3** Control surface on the runner (localhost HTTP: start/stop/status/tick).
+- [ ] **2.4** Make `simulation_tools.py` thin clients of the runner (attach, don't host).
+- [ ] **2.5** Point web_ui at the runner control API (→ theme #2/③ controller).
+
+Decisions (human): IPC = HTTP (rec)? auto-spawn runner from MCP (rec: no)? Unreal socket owned by
+runner exclusively (rec: yes — bridge isn't concurrency-safe)? one runner/machine vs per-world?
 
 The sim is the product; Claude is a tool for building it, not a required host
 process. The standalone launcher likely belongs in the same web app as #2.
