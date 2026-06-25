@@ -281,6 +281,14 @@ class UnrealBridge:
         """Display a debug message in the PIE viewport (key-based replacement)."""
         self._send("print_to_screen", {"message": message, "key": key, "duration": duration})
 
+    def set_ai_state(self, actor_name: str, state: str) -> dict:
+        """Set the character's AIState label and fire OnAIStateChanged in Blueprint.
+
+        Drives the above-head status bubble. Single-socket, so call only from the
+        sequential tick phases — never from the parallel perceive+decide phase.
+        """
+        return self._send("command_character_set_ai_state", {"character_name": actor_name, "state": state})
+
     def capture_observation(self, agent_id: str, actor_name: str, agents_dir: Path) -> dict:
         """Capture a camera image into <agents_dir>/<agent_id>/observations/."""
         obs_dir = agents_dir / agent_id / "observations"

@@ -441,6 +441,17 @@ class AgentManager:
             duration=30.0,
         )
 
+    def _set_activity(self, agent: Agent, state: str) -> None:
+        """Push a cognitive/physical activity label to the agent's actor.
+
+        Sets AIState (fires OnAIStateChanged) so the above-head status bubble can
+        show what the agent is doing — e.g. "observing", "thinking". Single-socket
+        bridge, so call only from the sequential tick phases (observe / act),
+        never from the parallel perceive+decide phase.
+        """
+        if agent.has_unreal_binding:
+            self.bridge.set_ai_state(agent.bound_unreal_actor_name, state)
+
     def _flush_model_pie(self) -> None:
         """Drain queued Ollama model-load lines to PIE (sequential phase only)."""
         from .ollama_adapter import take_pending_pie
@@ -664,10 +675,15 @@ class AgentManager:
         # Phase 1: observe (sequential, bridge)
         observations: dict[str, dict | None] = {}
         for agent in ready:
+            self._set_activity(agent, "observing")
             observations[agent.agent_id] = self._observe_agent(agent)
 
         # Phase 2: perceive + decide (parallel, thread pool)
         llm_needed = [a for a in ready if observations.get(a.agent_id) is not None]
+        # Flag "thinking" sequentially before launching the parallel decide batch —
+        # the LLM call blocks for the bulk of the tick, so this is what's on screen.
+        for agent in llm_needed:
+            self._set_activity(agent, "thinking")
         decisions: dict[str, dict | None] = {}
         if llm_needed:
             tasks = [
