@@ -197,6 +197,24 @@ def register_simulation_tools(mcp: FastMCP) -> None:
         return await get_agent_manager().reset_agents()
 
     @mcp.tool()
+    async def reset_world_places() -> Dict[str, Any]:
+        """Wipe the shared place-cell DB so the world map starts from scratch.
+
+        Stops the simulation if running, then clears every row from the shared
+        world_places.db: place_cells (named grid cells), place_observations
+        (compass landmarks), and agent_visits (per-agent visit history). The
+        tables and schema are kept; only the data is deleted. This is the
+        geographic counterpart to reset_agents, which preserves the map for
+        reproducible re-runs — use this when you want a truly blank world.
+        Agent JSON state (memories, spatial maps) is left untouched.
+
+        Example valid input:
+            {}
+        """
+        from unreal_sim_server import get_agent_manager
+        return await get_agent_manager().reset_world_places()
+
+    @mcp.tool()
     def generate_world_grid(cell_size: float = 400.0, padding: float = 800.0) -> Dict[str, Any]:
         """Compute the fixed world grid from the current level's actor positions.
 

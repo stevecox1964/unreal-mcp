@@ -1195,6 +1195,34 @@ class AgentManager:
         )
         return {"status": "reset", "stopped_simulation": was_running, "agents": results}
 
+    async def reset_world_places(self) -> dict:
+        """Wipe the shared place-cell DB so the world map starts from scratch.
+
+        Unlike reset_agents (which preserves geography for reproducible re-runs),
+        this clears place_cells, place_observations, and agent_visits entirely.
+        Stops the sim first if running so no tick is mid-write. Agent JSON state
+        (memories, spatial maps) is left untouched — run reset_agents for that.
+        """
+        was_running = self.running
+        if was_running:
+            await self.stop_simulation()
+
+        # Resolve the DB even when the sim has never started this session.
+        if self.place_db is None:
+            if not self.agents:
+                self._load_agents(None)
+            if not self._agents_dir:
+                return {"status": "error", "error": "No agents loaded — cannot locate world_places.db"}
+            self.place_db = PlaceDB(self._agents_dir.parent / "world_places.db")
+
+        removed = self.place_db.reset()
+        logger.info(
+            f"=== WORLD PLACES WIPED === place_cells={removed['place_cells']}, "
+            f"place_observations={removed['place_observations']}, agent_visits={removed['agent_visits']}"
+            f"{', sim stopped first' if was_running else ''}"
+        )
+        return {"status": "reset", "stopped_simulation": was_running, "removed": removed}
+
     def resync(self) -> dict:
         """Re-query the world and rebind agents without a full stop/restart cycle."""
         was_paused = self.paused
