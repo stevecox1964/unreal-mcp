@@ -91,6 +91,20 @@ control surface for the whole simulation.
 
 Config complexity is ours to solve in the UI, not the user's.
 
+Action breakdown (from dreams iter 3, `plan/dreams/dreams_2026-06-25_1131.md` — subagent-ready):
+- [ ] **2.1** Rename surface strings only (`web_ui` templates, `main.py` title/docstring,
+      `start_npc_builder.bat`, `/create-npc` skill prose); leave `npc_builder` *code identifiers* for a
+      separate pass.
+- [ ] **2.2** New `agent_runtime/config_store.py` — `read_config()` (secrets as set/unset, never values)
+      + `write_config()` that rewrites `.env` preserving comments and triggers the existing reload.
+- [ ] **2.3** Settings page: `GET/POST /settings` in `web_ui/main.py` + `settings.html` + nav link.
+- [ ] **2.4** First control — Ollama⇄cloud provider toggle (decision + vision roles, hybrid-selectable),
+      writes both keys and reloads with no restart.
+
+Decisions (human): persistence target `.env` vs new `config.json` (rec: `.env`)? secrets editable in the
+form or set/unset display only (rec: display only)? rename scope surface-only now vs code identifiers too
+(rec: surface-only)?
+
 ---
 
 ## 3. Independent sim lifetime
@@ -111,7 +125,11 @@ Action breakdown (from dreams iter 2, `plan/dreams/dreams_2026-06-24_2327.md` �
 - [ ] **2.2** New `Python/sim_runner.py` — standalone process that runs the loop with no MCP/Claude.
 - [ ] **2.3** Control surface on the runner (localhost HTTP: start/stop/status/tick).
 - [ ] **2.4** Make `simulation_tools.py` thin clients of the runner (attach, don't host).
-- [ ] **2.5** Point web_ui at the runner control API (→ theme #2/③ controller).
+- [ ] **2.5** Point web_ui at the runner control API (→ theme #2/③ controller). Fleshed out in dreams
+      iter 3 (`plan/dreams/dreams_2026-06-25_1131.md` Action 3.5): `sim_runner_client` in
+      `web_ui/unreal_client.py` + a dashboard status panel and start/stop buttons; no auto-spawn (keep
+      lifetime decoupled); if no runner is reachable, render "no sim runner running". **Blocked on 2.2–2.3
+      (the runner + its control API)** — until then, build the UI against a documented mock contract.
 
 Decisions (human): IPC = HTTP (rec)? auto-spawn runner from MCP (rec: no)? Unreal socket owned by
 runner exclusively (rec: yes — bridge isn't concurrency-safe)? one runner/machine vs per-world?
