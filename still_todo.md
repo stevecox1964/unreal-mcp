@@ -11,7 +11,7 @@ Snapshot of verified state and open work. Regenerated after the Dufus session.
 - ✅ `capture_camera_image` — saves timestamped PNG from `CameraCaptureActor_1`
 - ✅ Bartleby — tier 2 agent, `BP_CameraNPC`, ticking with `idle` / `ask_for_screenshot` actions accepted
 - ✅ Dufus — agent files under `Python/agents/dufus/`, binds to `BP_CameraNPC_C_1` (label `Dufus`)
-- ✅ `MCPCharacterComponent` added to `BP_CameraNPC` — `get_character_current_action`, `get_character_messages`, `send_character_message`, `get_character_health`, `get_character_memory`, `command_character_say`, `command_character_set_ai_state` all work for both Bartleby and Dufus
+- ✅ `APCCharacterComponent` added to `BP_CameraNPC` — `get_character_current_action`, `get_character_messages`, `send_character_message`, `get_character_health`, `get_character_memory`, `command_character_say`, `command_character_set_ai_state` all work for both Bartleby and Dufus
 - ✅ `/create-npc` Claude Code skill available for scaffolding new agents
 
 ---

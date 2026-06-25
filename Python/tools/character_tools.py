@@ -2,7 +2,7 @@
 Character Tools for Unreal MCP.
 
 Provides tools for querying character state and issuing commands to NPC characters.
-Requires UMCPCharacterComponent to be attached to the target actor in Unreal.
+Requires UAPCCharacterComponent to be attached to the target actor in Unreal.
 """
 
 import logging
@@ -57,7 +57,7 @@ def register_character_tools(mcp: FastMCP):
 
     @mcp.tool()
     def get_character_health(ctx: Context, character_name: str) -> Dict[str, Any]:
-        """Get the health value of a character (requires MCPCharacterComponent).
+        """Get the health value of a character (requires APCCharacterComponent).
 
         Args:
             character_name: Exact name of the actor in the level

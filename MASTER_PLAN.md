@@ -234,7 +234,7 @@ worlds/<level>/agents/<id>/
 `find_actors_by_name` / `command_character_*` use) and `blueprint_class` (spawn
 fallback). At `start_simulation`, each active agent binds to a live actor or is
 spawned and tagged. NPC hard requirements: ACharacter parent, AIController,
-Auto-Possess AI, MCPCharacterComponent, NavMesh under the character, PIE running.
+Auto-Possess AI, APCCharacterComponent, NavMesh under the character, PIE running.
 
 ### 7. Tiers & Frugality (load-bearing under the emergent north star)
 

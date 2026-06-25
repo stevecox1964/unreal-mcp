@@ -14,7 +14,7 @@ MCP Tool Call (Python)
   â†’ unreal_sim_server.py  â†’  TCP socket to 127.0.0.1:55557
   â†’ unrealSIMBridge::ExecuteCommand()  â†’  routes to CharacterCommands
   â†’ FunrealSIMCharacterCommands::HandleCommand()
-  â†’ reads/writes UMCPCharacterComponent on the target Actor
+  â†’ reads/writes UAPCCharacterComponent on the target Actor
 ```
 
 ---
@@ -23,8 +23,8 @@ MCP Tool Call (Python)
 
 | File | Type | Purpose |
 |------|------|---------|
-| `Public/MCPCharacterComponent.h` | New | `UActorComponent` â€” attach to any NPC Blueprint |
-| `Private/MCPCharacterComponent.cpp` | New | Component constructor, default values |
+| `Public/APCCharacterComponent.h` | New | `UActorComponent` â€” attach to any NPC Blueprint |
+| `Private/APCCharacterComponent.cpp` | New | Component constructor, default values |
 | `Public/Commands/unrealSIMCharacterCommands.h` | New | Handler class declaration |
 | `Private/Commands/unrealSIMCharacterCommands.cpp` | New | All 20 command implementations |
 | `Python/tools/character_tools.py` | New | All 20 MCP Python tools |
@@ -35,7 +35,7 @@ MCP Tool Call (Python)
 
 ---
 
-## UMCPCharacterComponent
+## UAPCCharacterComponent
 
 Add this component to any NPC Blueprint to enable all character commands.
 
@@ -110,7 +110,7 @@ All commands take `character_name` as the first parameter â€” the exact act
 
 ## Setup Checklist (per NPC)
 
-1. Add `UMCPCharacterComponent` to the NPC Blueprint
+1. Add `UAPCCharacterComponent` to the NPC Blueprint
 2. Assign an **AI Controller** class in the NPC Blueprint defaults (required for move/follow/stop)
 3. Ensure the Skeletal Mesh has a `hand_r` socket (required for pickup with default socket name)
 4. Implement the Blueprint events you need (`OnMessageReceived`, `OnSayRequested`, etc.)

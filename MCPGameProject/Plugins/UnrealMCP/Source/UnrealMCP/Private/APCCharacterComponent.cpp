@@ -1,6 +1,6 @@
-#include "MCPCharacterComponent.h"
+#include "APCCharacterComponent.h"
 
-UMCPCharacterComponent::UMCPCharacterComponent()
+UAPCCharacterComponent::UAPCCharacterComponent()
 {
     PrimaryComponentTick.bCanEverTick = false;
 

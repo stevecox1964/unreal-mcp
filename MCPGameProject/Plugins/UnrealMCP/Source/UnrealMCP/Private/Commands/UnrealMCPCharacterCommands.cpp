@@ -1,6 +1,6 @@
 #include "Commands/UnrealMCPCharacterCommands.h"
 #include "Commands/UnrealMCPCommonUtils.h"
-#include "MCPCharacterComponent.h"
+#include "APCCharacterComponent.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -64,10 +64,10 @@ AActor* FUnrealMCPCharacterCommands::FindActorByName(const FString& Name) const
     return FUnrealMCPCommonUtils::FindActorByNameOrLabel(FUnrealMCPCommonUtils::GetGameWorld(), Name);
 }
 
-UMCPCharacterComponent* FUnrealMCPCharacterCommands::GetMCPComponent(AActor* Actor) const
+UAPCCharacterComponent* FUnrealMCPCharacterCommands::GetAPCComponent(AActor* Actor) const
 {
     if (!Actor) return nullptr;
-    return Actor->FindComponentByClass<UMCPCharacterComponent>();
+    return Actor->FindComponentByClass<UAPCCharacterComponent>();
 }
 
 // Shared param extraction: reads "character_name", finds actor, optionally gets component.
@@ -154,7 +154,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterStatus(co
     Result->SetStringField(TEXT("name"), Actor->GetName());
     Result->SetObjectField(TEXT("location"), MakeVec3Field(Actor->GetActorLocation()));
 
-    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
+    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
     if (Comp)
     {
         Result->SetStringField(TEXT("ai_state"), Comp->AIState);
@@ -166,7 +166,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterStatus(co
     }
     else
     {
-        Result->SetStringField(TEXT("warning"), TEXT("No MCPCharacterComponent on actor — attach one to enable full status"));
+        Result->SetStringField(TEXT("warning"), TEXT("No APCCharacterComponent on actor — attach one to enable full status"));
     }
 
     return Result;
@@ -191,8 +191,8 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterHealth(co
     AActor* Actor = ResolveCharacter(Params, Error);
     if (!Actor) return FUnrealMCPCommonUtils::CreateErrorResponse(Error);
 
-    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
-    if (!Comp) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("No MCPCharacterComponent on: %s"), *Actor->GetName()));
+    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
+    if (!Comp) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("No APCCharacterComponent on: %s"), *Actor->GetName()));
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("success"), true);
@@ -207,8 +207,8 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterInventory
     AActor* Actor = ResolveCharacter(Params, Error);
     if (!Actor) return FUnrealMCPCommonUtils::CreateErrorResponse(Error);
 
-    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
-    if (!Comp) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("No MCPCharacterComponent on: %s"), *Actor->GetName()));
+    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
+    if (!Comp) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("No APCCharacterComponent on: %s"), *Actor->GetName()));
 
     TArray<TSharedPtr<FJsonValue>> Items;
     for (const FString& Item : Comp->Inventory)
@@ -227,8 +227,8 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterCurrentAc
     AActor* Actor = ResolveCharacter(Params, Error);
     if (!Actor) return FUnrealMCPCommonUtils::CreateErrorResponse(Error);
 
-    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
-    if (!Comp) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("No MCPCharacterComponent on: %s"), *Actor->GetName()));
+    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
+    if (!Comp) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("No APCCharacterComponent on: %s"), *Actor->GetName()));
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("success"), true);
@@ -314,8 +314,8 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleSendCharacterMessage(
     if (!Params->TryGetStringField(TEXT("message"), Message))
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'message' parameter"));
 
-    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
-    if (!Comp) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("No MCPCharacterComponent on: %s"), *Actor->GetName()));
+    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
+    if (!Comp) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("No APCCharacterComponent on: %s"), *Actor->GetName()));
 
     Comp->Inbox.Add(Message);
     Comp->OnMessageReceived(Message);
@@ -333,8 +333,8 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterMessages(
     AActor* Actor = ResolveCharacter(Params, Error);
     if (!Actor) return FUnrealMCPCommonUtils::CreateErrorResponse(Error);
 
-    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
-    if (!Comp) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("No MCPCharacterComponent on: %s"), *Actor->GetName()));
+    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
+    if (!Comp) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("No APCCharacterComponent on: %s"), *Actor->GetName()));
 
     // Default reads outbox; pass "source": "inbox" to read inbox instead
     FString Source = TEXT("outbox");
@@ -372,8 +372,8 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleSetCharacterMemory(co
     if (!Params->TryGetStringField(TEXT("value"), Value))
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'value' parameter"));
 
-    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
-    if (!Comp) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("No MCPCharacterComponent on: %s"), *Actor->GetName()));
+    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
+    if (!Comp) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("No APCCharacterComponent on: %s"), *Actor->GetName()));
 
     Comp->Memory.Add(Key, Value);
 
@@ -390,8 +390,8 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterMemory(co
     AActor* Actor = ResolveCharacter(Params, Error);
     if (!Actor) return FUnrealMCPCommonUtils::CreateErrorResponse(Error);
 
-    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
-    if (!Comp) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("No MCPCharacterComponent on: %s"), *Actor->GetName()));
+    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
+    if (!Comp) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("No APCCharacterComponent on: %s"), *Actor->GetName()));
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("success"), true);
@@ -462,7 +462,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommandMoveTo(const T
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Provide 'location' [x,y,z] or 'target_actor' name"));
     }
 
-    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
+    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
     if (Comp)
     {
         Comp->AIState = TEXT("moving");
@@ -496,7 +496,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommandFollow(const T
 
     UAIBlueprintHelperLibrary::SimpleMoveToActor(Controller, Target);
 
-    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
+    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
     if (Comp)
     {
         Comp->AIState = TEXT("following");
@@ -522,7 +522,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommandStop(const TSh
     if (AIController)
         AIController->StopMovement();
 
-    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
+    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
     if (Comp)
     {
         Comp->AIState = TEXT("idle");
@@ -560,7 +560,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommandTeleport(const
     if (!Actor->TeleportTo(Location, Rotation, false, true))
         return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("TeleportTo failed for: %s"), *Actor->GetName()));
 
-    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
+    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
     if (Comp)
     {
         Comp->AIState = TEXT("idle");
@@ -637,7 +637,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommandPickup(const T
     else
         ItemActor->AttachToActor(Actor, FAttachmentTransformRules(EAttachmentRule::SnapToTarget, true));
 
-    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
+    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
     if (Comp)
     {
         Comp->Inventory.AddUnique(ItemName);
@@ -686,7 +686,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommandDrop(const TSh
         }
     }
 
-    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
+    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
     if (Comp)
     {
         for (const FString& DroppedName : Dropped)
@@ -715,7 +715,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommandInteract(const
     FString TargetName;
     Params->TryGetStringField(TEXT("target_actor"), TargetName);
 
-    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
+    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
     if (Comp)
     {
         Comp->OnInteractRequested(TargetName);
@@ -758,7 +758,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommandPlayAnimation(
 
     float Duration = AnimInst->Montage_Play(Montage, static_cast<float>(PlayRate));
 
-    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
+    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
     if (Comp)
         Comp->CurrentAction = FString::Printf(TEXT("playing_animation_%s"), *Montage->GetName());
 
@@ -779,8 +779,8 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommandSay(const TSha
     if (!Params->TryGetStringField(TEXT("text"), Text))
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'text' parameter"));
 
-    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
-    if (!Comp) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("No MCPCharacterComponent on: %s"), *Actor->GetName()));
+    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
+    if (!Comp) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("No APCCharacterComponent on: %s"), *Actor->GetName()));
 
     Comp->CurrentDialogue = Text;
     Comp->Outbox.Add(Text);
@@ -802,8 +802,8 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommandSetAIState(con
     if (!Params->TryGetStringField(TEXT("state"), NewState))
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'state' parameter (idle, moving, in_combat, interacting, following, fleeing)"));
 
-    UMCPCharacterComponent* Comp = GetMCPComponent(Actor);
-    if (!Comp) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("No MCPCharacterComponent on: %s"), *Actor->GetName()));
+    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
+    if (!Comp) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("No APCCharacterComponent on: %s"), *Actor->GetName()));
 
     Comp->AIState = NewState;
     Comp->OnAIStateChanged(NewState);

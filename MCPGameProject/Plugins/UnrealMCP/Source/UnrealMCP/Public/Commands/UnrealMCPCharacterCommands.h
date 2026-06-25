@@ -6,7 +6,7 @@
 /**
  * Handler class for character-related MCP commands.
  * Covers messaging, memory, status queries, and action commands (move, pickup, etc.).
- * Requires UMCPCharacterComponent to be present on the target actor for state commands.
+ * Requires UAPCCharacterComponent to be present on the target actor for state commands.
  */
 class UNREALMCP_API FUnrealMCPCharacterCommands
 {
@@ -18,7 +18,7 @@ public:
 private:
     // --- Helpers ---
     AActor* FindActorByName(const FString& Name) const;
-    class UMCPCharacterComponent* GetMCPComponent(AActor* Actor) const;
+    class UAPCCharacterComponent* GetAPCComponent(AActor* Actor) const;
 
     // --- Info / Query ---
     TSharedPtr<FJsonObject> HandleGetCharacterStatus(const TSharedPtr<FJsonObject>& Params);

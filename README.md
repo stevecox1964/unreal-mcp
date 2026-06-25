@@ -240,7 +240,7 @@ Simply place the configuration in the appropriate location for your MCP client.
 This fork adds the following on top of [chongdashu/unreal-mcp](https://github.com/chongdashu/unreal-mcp):
 
 ### Character Interaction System
-A full NPC character command system built on a new `UMCPCharacterComponent`:
+A full NPC character command system built on a new `UAPCCharacterComponent`:
 - **Messaging** â€” send messages to characters and read their replies
 - **Memory** â€” per-character key-value fact store
 - **Status queries** â€” health, inventory, location, AI state, current action, nearby actors
@@ -275,7 +275,7 @@ A first-pass agentic NPC simulation layer driven by an LLM-controlled Agent Mana
 The plugin includes a full NPC character command system added on top of the base MCP tools.
 
 ### Quick setup per NPC
-1. Add `UMCPCharacterComponent` to your NPC Blueprint
+1. Add `UAPCCharacterComponent` to your NPC Blueprint
 2. Assign an AI Controller (required for move/follow/stop)
 3. Implement the Blueprint events you want: `OnMessageReceived`, `OnSayRequested`, `OnAIStateChanged`, `OnInteractRequested`
 
