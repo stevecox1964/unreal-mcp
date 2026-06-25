@@ -3,14 +3,46 @@
 Rolling list of outstanding work — add items as they come up, check off or
 delete them as they land. Not session-scoped; this is the durable home for
 "things I want done but didn't have tokens for this session." Newest
-grooming: 2026-06-24.
+grooming: 2026-06-25.
 
 ## Recently landed
 
+- **Agent activity display** (2026-06-25) — `observing`/`thinking` now push to
+  each NPC's `AIState` from the sequential tick phases (`_set_activity` in
+  `agent_manager.py`, `bridge.set_ai_state`). A Text Render component on
+  `BP_CameraNPC` (bound to `AIState`, added in-editor) shows the word above each
+  head. Verified live on cloud. *(Display lives on the shared base BP → child
+  BPs in "Next up" inherit it for free.)*
+- **Rename MCPCharacterComponent → APCCharacterComponent** (2026-06-25) — moving
+  off MCP branding for the in-world component; `[CoreRedirects]` keeps existing
+  Blueprints intact. Module/plugin stay `UnrealMCP` for now (larger separate job).
 - **Place-cell DB reset** (2026-06-24) — `reset_world_places()` MCP tool wipes
   the shared `world_places.db` (place_cells, place_observations, agent_visits)
   for a true blank world; complements `reset_agents` which preserves the map.
   `PlaceDB.reset()` in `Python/agent_runtime/place_db.py`. *(Part of #1.)*
+
+---
+
+## ▶ Next up: Child Blueprints for per-agent meshes
+
+**Status:** Next · **Independence:** Self-contained
+
+Dufus and Maren currently share one Blueprint (`BP_CameraNPC`) and look
+identical. Give each its own mesh without duplicating logic.
+
+- [ ] Create `BP_Dufus` and `BP_Maren` as **child Blueprints of `BP_CameraNPC`**,
+      overriding **only** the skeletal mesh (keep all shared logic — the
+      `APCCharacterComponent`, the AIState Text Render display, AI controller —
+      on the base so both inherit it).
+- [ ] Rebind the agents to the new child BPs: today `dufus` → `BP_CameraNPC_C_1`,
+      `maren` → `BP_CameraNPC_C_0` (placed actors). Either replace the placed
+      actors with the child BPs or update each agent's `unreal_actor_name` /
+      `blueprint_class` binding so the sim spawns/binds the right one.
+- [ ] Pick the two meshes (project has `SkeletonCharacter` + AssetsvilleTown
+      character skeletal meshes available).
+
+Why child BPs not full copies: fix shared bugs once; the status-bubble display
+and component come along automatically.
 
 ---
 
@@ -81,9 +113,20 @@ process. The standalone launcher likely belongs in the same web app as #2.
 
 ---
 
+## Later / ideas
+
+- **Hybrid provider config (cloud + local mix).** Run some roles on cloud and
+  others local — e.g. cloud Haiku for decisions, local qwen for vision, or vice
+  versa. Already partly possible: `LLM_PROVIDER` and `VISION_PROVIDER` are
+  independent in `.env`. The feature is making the mix easy to manage (per-role,
+  maybe per-agent) and surfacing it in the settings page (#2). Cloud is clearly
+  faster today (~9s/tick vs ~215s cold local first tick); full-local stays the
+  long-term goal once the other pieces are in. Not a priority now.
+
 ## Notes
 
 - **#2 and #3 are coupled** — the standalone launcher probably belongs in the
   same web app that's getting the settings page and rename.
 - **#1 is independent** and the most self-contained — good candidate to tackle
   first.
+- **Child BPs (Next up) are self-contained** and the chosen next task.
