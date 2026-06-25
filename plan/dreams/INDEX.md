@@ -1,7 +1,9 @@
 # Dreams — planning loop index
 
-Self-paced planning loop (no code). Each entry: one architecture theme reviewed + written up,
-with action items distilled into `plan/backlog.md`. Newest first.
+Self-paced planning loop (no code). Each entry = **"here is what I'd do"**: a 1-line context note
+then 3–6 discrete, **subagent-ready actions** (Goal / Files / Steps / Done-when / Deps), plus a
+short "decision needed" list for anything that's the human's call. Concise — each action should be
+handable to a subagent as-is. Action items also distilled into `plan/backlog.md`. Newest first.
 
 | Iteration | File | Theme | Status |
 |-----------|------|-------|--------|
