@@ -113,6 +113,46 @@ process. The standalone launcher likely belongs in the same web app as #2.
 
 ---
 
+## 4. Autonomous building loop (run unattended until limits, resume next session)
+
+**Status:** Not started · **Size:** Process/setup, not a code feature · **Depends on:** local models (cost) + #3 (engine autonomy)
+
+Goal: put Claude into a **self-paced `/loop`** that works this backlog
+unattended — building, testing, committing — until the daily credit/usage limit
+cuts it off, then **resumes the next session** from the handoff. The idea is to
+use up daily credits productively instead of leaving them unspent.
+
+**How it would run:**
+- [ ] `/loop` with no interval (self-paced): work backlog items, each as
+      branch → failing test → implement → run tests → commit on green → update
+      this backlog. Cross-session continuity comes from `plan/handoffs/LATEST.md`
+      + this file (the loop reads them on each start). Optionally a daily
+      `/schedule` routine kicks it off after credits refresh.
+- [ ] There is **no "credits draining" signal** to detect — the session just
+      stops when limits hit. The handoff is what makes it recoverable, so the
+      loop must keep the handoff/backlog current as it goes.
+
+**Guardrails (must have — unattended = errors compound):**
+- [ ] Dedicated branch; commit every green step; **never push** unattended.
+- [ ] **Never** touch C++, Blueprints/UMG, or `.env`; never start the sim / need
+      PIE. (These need an editor rebuild + MCP restart Claude *cannot* do itself —
+      see #3 — or a human decision.)
+- [ ] Skip + log (don't guess) anything needing the editor, a rebuild, a design
+      choice (e.g. meshes), or that's ambiguous. Stop if tests fail and can't be
+      fixed in ~2 tries.
+
+**What's actually loop-safe here:** Python-only, test-verifiable work. Best first
+target is **#1 named-place navigation** (self-contained, testable). Blocked from
+autonomy: Child-BP/meshes (editor + design), settings page UX, anything C++.
+
+**Why local models matter for this (the link):** an unattended loop on cloud
+(Haiku + Gemini) burns paid credits fast and exactly defeats the "use unspent
+credits" aim — the cost lands on API spend instead. **Full-local (or hybrid)
+inference is what makes long autonomous/overnight running viable without blowing
+up credits.** So local models (below) and #3 are the real enablers of this goal.
+
+---
+
 ## Later / ideas
 
 - **Hybrid provider config (cloud + local mix).** Run some roles on cloud and
@@ -121,7 +161,9 @@ process. The standalone launcher likely belongs in the same web app as #2.
   independent in `.env`. The feature is making the mix easy to manage (per-role,
   maybe per-agent) and surfacing it in the settings page (#2). Cloud is clearly
   faster today (~9s/tick vs ~215s cold local first tick); full-local stays the
-  long-term goal once the other pieces are in. Not a priority now.
+  long-term goal once the other pieces are in. **Local/hybrid is the cost enabler
+  for the autonomous loop (#4)** — unattended cloud runs burn credits. Not a
+  priority now, but it's the unlock for overnight autonomy.
 
 ## Notes
 
@@ -130,3 +172,5 @@ process. The standalone launcher likely belongs in the same web app as #2.
 - **#1 is independent** and the most self-contained — good candidate to tackle
   first.
 - **Child BPs (Next up) are self-contained** and the chosen next task.
+- **#4 (autonomous loop) is gated by local models + #3** — its first safe target
+  is #1; don't point a loop at the whole backlog (half needs the editor or you).
