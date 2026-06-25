@@ -13,6 +13,7 @@ handable to a subagent as-is. Action items also distilled into `plan/backlog.md`
 
 | Iteration | File | Theme | Status |
 |-----------|------|-------|--------|
+| 5 | [dreams_2026-06-25_1156.md](dreams_2026-06-25_1156.md) | Cross-cut: sequencing, dependencies, MVP slice | ✅ → backlog (re-order + MVP) |
 | 4 | [dreams_2026-06-25_1149.md](dreams_2026-06-25_1149.md) | The take-up-slack autonomous loop (deepen backlog #4) | ✅ → backlog #4 |
 | 3 | [dreams_2026-06-25_1131.md](dreams_2026-06-25_1131.md) | World builder → simulation runner + configuration system (controller/configurator) | ✅ → backlog #2 + #3 |
 | 2 | [dreams_2026-06-24_2327.md](dreams_2026-06-24_2327.md) | Decouple Claude-MCP from the world builder | ✅ → backlog #3 |
@@ -23,4 +24,7 @@ handable to a subagent as-is. Action items also distilled into `plan/backlog.md`
 2. ✅ Decouple Claude-MCP from the world builder (coupling = stdio MCP server; carve out a standalone runner)
 3. ✅ World builder → simulation runner + configuration system (controller/configurator)
 4. ✅ The take-up-slack autonomous loop (deepen backlog #4)
-5. ⏳ Cross-cut: sequencing across #1–#5, dependency order, MVP slice
+5. ✅ Cross-cut: sequencing across #1–#5, dependency order, MVP slice
+
+**Queue complete (1–5).** The loop pauses here until new themes are added. Say
+**"continue the dreams loop"** to resume once there's more to plan.

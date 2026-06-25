@@ -5,6 +5,14 @@ delete them as they land. Not session-scoped; this is the durable home for
 "things I want done but didn't have tokens for this session." Newest
 grooming: 2026-06-25.
 
+> **★ MVP slice** (dreams iter 5, `plan/dreams/dreams_2026-06-25_1156.md`):
+> *"Runs overnight, navigates to a named place, remembers who it met"* = **#3** (runner /
+> independent lifetime) + **#1** (place-name resolver) + **#5** (social store + consolidation).
+> **#1 is the keystone** (no deps, offline, unblocks #4's first target and #5's social-goal hooks);
+> **#3 is the long pole** (nothing built yet) — start it in parallel. #2 settings, #4 loop, and
+> Child BPs are *off* the MVP critical path. Recommended order: #1 → #5 → (#3 in parallel) → web
+> controller → #2/#4. Design observation→cell storage **once** in #1 for #5 to reuse.
+
 ## Recently landed
 
 - **Agent activity display** (2026-06-25) — `observing`/`thinking` now push to
@@ -140,6 +148,11 @@ process. The standalone launcher likely belongs in the same web app as #2.
 ---
 
 ## 4. Autonomous building loop (run unattended until limits, resume next session)
+
+> **Split (dreams iter 5):** **#4a — the harness** (4.1 contract, 4.2 preflight, 4.3 aggregator) is pure
+> Python/offline and can be built **now**, even exercised on #1 before #3 exists — it makes **no LLM calls**,
+> so it's cheap on cloud. **#4b — running the *live* sim unattended** is what's gated by #3 + local models
+> (per-tick inference cost). Don't let #4b's blockers stall #4a.
 
 **Status:** Not started · **Size:** Process/setup, not a code feature · **Depends on:** local models (cost) + #3 (engine autonomy)
 
