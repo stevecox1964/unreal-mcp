@@ -1,5 +1,11 @@
 # Dreams — planning loop index
 
+> **▶ Resume:** to restart this loop in a fresh session (e.g. after credits refresh), say
+> **"continue the dreams loop."** It reads this INDEX + `plan/backlog.md`, takes the next ⏳ theme,
+> and continues. Planning only · subagent-ready action specs · local commits · **never pushes** ·
+> ~25 min cadence · stops on a human-decision or when usage limits are hit.
+
+
 Self-paced planning loop (no code). Each entry = **"here is what I'd do"**: a 1-line context note
 then 3–6 discrete, **subagent-ready actions** (Goal / Files / Steps / Done-when / Deps), plus a
 short "decision needed" list for anything that's the human's call. Concise — each action should be
