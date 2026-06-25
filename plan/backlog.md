@@ -171,6 +171,24 @@ use up daily credits productively instead of leaving them unspent.
 target is **#1 named-place navigation** (self-contained, testable). Blocked from
 autonomy: Child-BP/meshes (editor + design), settings page UX, anything C++.
 
+Action breakdown (from dreams iter 4, `plan/dreams/dreams_2026-06-25_1149.md` — subagent-ready).
+Key grounding: tests here are **standalone offline scripts** under `Python/scripts/**/test_*.py` (14
+today) that stub Unreal entirely — that offline-stub surface *is* the loop-safe zone (no pytest, no PIE).
+- [ ] **4.1** Write `plan/autonomous_loop.md` — the run-contract the loop reads each start (allowed
+      surface, hard NOs, stop conditions, per-item cycle). Link from #4 + `handoffs/LATEST.md`.
+- [ ] **4.2** `Python/scripts/loop/preflight.py` — refuse to start unless tree clean, on a dedicated
+      loop branch (not `main`), and baseline tests green.
+- [ ] **4.3** `Python/scripts/run_tests.py` — discover + run every `scripts/**/test_*.py` offline,
+      one PASS/FAIL signal; `--only <glob>` for the in-progress test. (The loop has no aggregate signal today.)
+- [ ] **4.4** First target failing-test-first: `test_place_resolver.py` + a PlaceDB place-name→cell-center
+      resolver, wiring `walk_to` to navigate instead of idle (drives backlog #1).
+- [ ] **4.5** Recoverability: update `handoffs/LATEST.md` + check off backlog on every green commit
+      (the `/handoff` skill already does most of this) — this is what makes the loop resumable.
+
+Decisions (human): run on cloud now since the *build/test* loop makes no LLM calls (rec: yes; keep live-sim
+for local models)? kickoff via `/schedule` vs manual `/loop` (rec: manual first)? branch-per-item (rec:
+yes)? human reviews each loop branch before `main` (rec: yes — "never push" implies never auto-merge)?
+
 **Why local models matter for this (the link):** an unattended loop on cloud
 (Haiku + Gemini) burns paid credits fast and exactly defeats the "use unspent
 credits" aim — the cost lands on API spend instead. **Full-local (or hybrid)

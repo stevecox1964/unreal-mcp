@@ -13,6 +13,7 @@ handable to a subagent as-is. Action items also distilled into `plan/backlog.md`
 
 | Iteration | File | Theme | Status |
 |-----------|------|-------|--------|
+| 4 | [dreams_2026-06-25_1149.md](dreams_2026-06-25_1149.md) | The take-up-slack autonomous loop (deepen backlog #4) | ✅ → backlog #4 |
 | 3 | [dreams_2026-06-25_1131.md](dreams_2026-06-25_1131.md) | World builder → simulation runner + configuration system (controller/configurator) | ✅ → backlog #2 + #3 |
 | 2 | [dreams_2026-06-24_2327.md](dreams_2026-06-24_2327.md) | Decouple Claude-MCP from the world builder | ✅ → backlog #3 |
 | 1 | [dreams_2026-06-24_2308.md](dreams_2026-06-24_2308.md) | APC movement, observation saving, memory, meeting people | ✅ → backlog #5 |
@@ -21,5 +22,5 @@ handable to a subagent as-is. Action items also distilled into `plan/backlog.md`
 1. ✅ APC movement / observation / social memory
 2. ✅ Decouple Claude-MCP from the world builder (coupling = stdio MCP server; carve out a standalone runner)
 3. ✅ World builder → simulation runner + configuration system (controller/configurator)
-4. ⏳ The take-up-slack autonomous loop (deepen backlog #4)
-5. (then) refine/cross-cut: sequencing, dependencies, MVP slice
+4. ✅ The take-up-slack autonomous loop (deepen backlog #4)
+5. ⏳ Cross-cut: sequencing across #1–#5, dependency order, MVP slice
