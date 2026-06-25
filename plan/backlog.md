@@ -153,6 +153,31 @@ up credits.** So local models (below) and #3 are the real enablers of this goal.
 
 ---
 
+## 5. Episodic observation + social memory layer
+
+**Status:** Not started · **Independence:** Extends #1 · **Source:** dreams iteration 1
+(`plan/dreams/dreams_2026-06-24_2308.md`)
+
+Today observation is split: spatial facts → `world_places.db` (good); everything episodic →
+free-text `memory.json`, capped at 30 and trimmed. No structured record of *what happened* or
+*who an agent met*, and recall is just importance+recency. Long/overnight runs forget.
+
+- [ ] **Episodic observation record** — persist structured per-tick events
+      `{agent, t, grid_cell, place, saw[], action, outcome}` attached to place cells (extends
+      #1's "how observations save" subtask).
+- [ ] **Social/acquaintance store** (per agent) — `{character: {first_met, last_seen(cell,t),
+      meet_count, sentiment}}`, fed from perceived characters + say/message events; wire into
+      recall and `known_characters`.
+- [ ] **Social goal hooks** — let the decision layer propose "greet <person not seen today>" /
+      "go where people are" (needs #1 to resolve person/place → location to navigate).
+- [ ] **Memory retrieval + consolidation** — relevance = recency ⊕ spatial ⊕ social; periodic
+      consolidation to beat the 30-item amnesia (critical for overnight runs).
+
+Open Qs (for human): episodic obs shared vs private per agent? scripted vs LLM-chosen sociality?
+rolling window + consolidation vs full episodic history?
+
+---
+
 ## Later / ideas
 
 - **Hybrid provider config (cloud + local mix).** Run some roles on cloud and
