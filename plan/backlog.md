@@ -303,15 +303,20 @@ Relates to: #1 (resolver — lookup half done), #5 (social/episodic — "places 
 
 ---
 
-## 7. Unexplored-cell sweep + community breadcrumb place cells
+## 7. Maintenance/monitor APC — unexplored-cell sweep + community breadcrumbs
 
 **Status:** In progress · **Independence:** Builds on #1/#6 + PlaceDB · **Source:** user, 2026-06-26
 
-When an APC enters a grid cell that has **no place cell**, it should drop its
-personality and run a deterministic sweep: walk to the **center** of the grid
-cell, do a **360 observation**, then drop a **community place-cell breadcrumb**
-at the center. The breadcrumb marks the cell explored so future APCs reuse it and
-**skip the costly 360** (vision calls) — shared knowledge, paid once.
+A **maintenance/monitor APC** is a *system worker* — a "streetsweeper for the
+system" with **no personality and no LLM**. Its job: keep the world map current.
+In a grid cell that has **no place cell** it walks to the cell **center**, does a
+**360 observation**, then drops a **community place-cell breadcrumb** there. The
+breadcrumb marks the cell explored so the personality APCs reuse it and **skip
+the costly 360** (vision calls) — shared knowledge, paid once.
+
+> **Design note (user, 2026-06-26):** this is a *dedicated maintenance APC*, **not** a
+> personality NPC "disregarding personality" — that earlier framing was dropped. The
+> sweep is the maintenance APC's *normal* behavior; it has no visual/personality role.
 
 - [x] **PlaceDB sweep state** ✓ 2026-06-26 — `is_explored(col,row)` (named OR swept),
       `mark_swept(agent,col,row,t)` drops an unnamed community breadcrumb (first sweep wins,
@@ -320,12 +325,16 @@ at the center. The breadcrumb marks the cell explored so future APCs reuse it an
 - [x] **Pure sweep planner / state machine** (`cell_sweep.py`) ✓ 2026-06-26 — `CellSweep` sequences
       GOTO_CENTER → observe each of 8 compass headings → DONE (sticky arrival); `default_sweep`
       builds one from the world grid (None if unbounded). Test: `test_cell_sweep.py`.
-- [ ] **Manager `_explore_override`** — unexplored current cell ⇒ forced action (walk to center,
-      then sweep), bypassing the LLM + `validate` (disregards personality), marking swept on finish.
-- [ ] **Forced-action seam in the tick** — skip the LLM/personality while sweeping (also saves cost).
-- [ ] **Live 360 rotation+capture in Unreal** — the actual multi-view sweep at center. *Needs PIE;
-      out of the loop's reach.* Reuses `ingest_compass` so the sweep's landmarks become the shared
-      breadcrumb's content.
+- [x] **Maintenance role + sweep behavior** ✓ 2026-06-26 — `Agent.role`/`is_maintenance` (from
+      `state.json`, default `npc`); `AgentManager._maintenance_sweep` runs the sweep on an unexplored
+      current cell and drops the breadcrumb on finish. All offline-tested.
+- [ ] **Tick dispatch by role** — a maintenance agent's tick runs `_maintenance_sweep` instead of
+      perceive→LLM, and when its cell is already explored navigates toward the nearest unexplored
+      cell (a new "unexplored-frontier" target). Partly live.
+- [ ] **Live 360 rotation+capture in Unreal** — execute `observe_heading` (rotate to yaw + capture +
+      `ingest_compass`) so the sweep's landmarks become the breadcrumb's content. *Needs PIE.*
+- [ ] **Spawn/config a maintenance APC** — a `role: "maintenance"` agent (likely a simple/no-mesh
+      actor). Editor/config + `/create-npc`-style scaffolding. *Needs you.*
 
 Relates to: #1 (cell_center resolve), #6 (map/known_places), #5 (episodic), engine-agnostic nav.
 

@@ -18,6 +18,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]      # Python/
 sys.path.insert(0, str(ROOT))
 
+from agent_runtime.agent import Agent                  # noqa: E402
+from agent_runtime.agent_manager import AgentManager   # noqa: E402
 from agent_runtime.place_db import PlaceDB        # noqa: E402
 from agent_runtime.world_grid import WorldGrid    # noqa: E402
 from agent_runtime import cell_sweep               # noqa: E402
@@ -114,6 +116,61 @@ def test_arrival_is_sticky():
     check("does not restart travel after arriving", a["type"] != "walk_to")
 
 
+# ── Maintenance APC role + sweep behavior ───────────────────────────────────────
+
+def test_agent_maintenance_role():
+    def mk(state):
+        return Agent("a", state, "", "", "", [])
+    check("default role is npc", mk({}).role == "npc")
+    check("default is not maintenance", not mk({}).is_maintenance)
+    check("role read from state", mk({"role": "maintenance"}).is_maintenance)
+    check("npc role is not maintenance", not mk({"role": "npc"}).is_maintenance)
+
+
+def _manager(tmp):
+    mgr = AgentManager(worlds_dir=Path(tmp), llm_router=None,
+                       unreal_bridge=None, memory_store=None)
+    mgr._agents_dir = Path(tmp) / "agents"
+    mgr.world_grid = WorldGrid(cell_size=400.0,
+                               bounds={"min_x": -2000, "min_y": -2000, "max_x": 1999, "max_y": 1999})
+    mgr.place_db = PlaceDB(Path(tmp) / "world_places.db")
+    return mgr
+
+
+def _obs(x, y, col=5, row=5):
+    return {"grid": {"key": f"{col},{row}", "col": col, "row": row},
+            "location": {"x": x, "y": y, "z": 90.0}, "world_time": "Day 1 09:00"}
+
+
+def test_maintenance_skips_explored_cell():
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _manager(tmp)
+        mgr.place_db.set_name("maren", 5, 5, "Village Square", "T0")
+        check("explored cell -> nothing to sweep", mgr._maintenance_sweep("sweeper", _obs(0.0, 0.0)) is None)
+
+
+def test_maintenance_sweeps_then_drops_breadcrumb():
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _manager(tmp)
+        # Cell (5,5) is unexplored; its center is (200,200) for this grid.
+        first = mgr._maintenance_sweep("sweeper", _obs(1500.0, 1500.0))
+        check("unexplored cell -> walk to center", first["type"] == "walk_to")
+        check("action is tagged maintenance", first.get("_maintenance") == "sweep")
+        check("targets the cell center", first["location"] == [200.0, 200.0, 90.0])
+
+        # Arrive at center; the sweep emits observations, then finishes.
+        actions = []
+        for _ in range(10):
+            a = mgr._maintenance_sweep("sweeper", _obs(200.0, 200.0))
+            if a is None:
+                break
+            actions.append(a)
+        observes = [a for a in actions if a["type"] == "observe_heading"]
+        check("ran a full 8-heading sweep", len(observes) == 8)
+        check("breadcrumb dropped at the swept cell", mgr.place_db.is_explored(5, 5))
+        check("breadcrumb is a community marker (unnamed)", mgr.place_db.get_swept(5, 5)["name"] is None)
+
+
 def main():
     test_is_explored_and_mark_swept()
     test_swept_migration_on_existing_db()
@@ -121,6 +178,9 @@ def main():
     test_default_sweep_needs_bounds()
     test_sweep_sequence()
     test_arrival_is_sticky()
+    test_agent_maintenance_role()
+    test_maintenance_skips_explored_cell()
+    test_maintenance_sweeps_then_drops_breadcrumb()
     print("\nAll cell-sweep checks passed.")
 
 

@@ -12,6 +12,7 @@ from .agent import Agent
 from .action_validator import validate
 from . import explorer
 from .perception import VisionPerceiver
+from . import cell_sweep
 from .episodic_memory import EpisodicLog
 from .place_db import PlaceDB, yaw_to_compass
 from .social_memory import SocialMemory, is_anonymous
@@ -134,6 +135,7 @@ class AgentManager:
         self._spatial: dict[str, SpatialMap] = {}   # agent_id -> loaded map (cache)
         self._social_mem: dict[str, SocialMemory] = {}  # agent_id -> acquaintance store (cache)
         self._episodic_log: dict[str, EpisodicLog] = {}  # agent_id -> episodic event log (cache)
+        self._cell_sweeps: dict[str, dict] = {}      # agent_id -> in-progress unexplored-cell sweep
         self._last_cell: dict[str, str] = {}        # agent_id -> previous cell key, for nav edges
         self._frontier_failures: dict[str, dict[str, int]] = {}  # agent_id -> cell key -> consecutive failed walks
         self._scene_skips: dict[str, int] = {}      # agent_id -> consecutive scene-unchanged skips (gate liveness)
@@ -1069,6 +1071,47 @@ class AgentManager:
                 changed = True
         if changed:
             social.save(self._agents_dir / agent_id / "social.json")
+
+    def _maintenance_sweep(self, agent_id: str, observation: dict) -> dict | None:
+        """The maintenance APC's behavior: sweep the current cell if unexplored.
+
+        A maintenance/monitor APC is a system worker — no personality, no LLM. In
+        a grid cell that has no place cell yet it walks to the cell center,
+        observes each compass heading, then drops a community breadcrumb
+        (``PlaceDB.mark_swept``) so the personality APCs skip the costly 360.
+        Returns the next sweep action, or None when there is nothing to do (cell
+        already explored, no PlaceDB / bounds / grid, or the sweep just finished).
+        The returned action carries ``_maintenance`` so the tick runs it directly
+        without the LLM or `validate`.
+        """
+        col, row = self._cell_col_row(observation.get("grid"))
+        if col is None:
+            return None
+        xyz = _loc_xyz(observation.get("location"))
+        if xyz is None:
+            return None
+
+        active = self._cell_sweeps.get(agent_id)
+        if active is None:
+            # Only start a sweep on entering a genuinely unexplored cell.
+            if self.place_db is None or self.place_db.is_explored(col, row):
+                return None
+            sweep = cell_sweep.default_sweep(self.world_grid, col, row, z=xyz[2])
+            if sweep is None:
+                return None
+            active = {"sweep": sweep, "col": col, "row": row}
+            self._cell_sweeps[agent_id] = active
+            logger.info(f"[{agent_id}] maintenance: unexplored cell ({col},{row}) — sweeping")
+
+        action = active["sweep"].next_action((xyz[0], xyz[1]))
+        if action.get("type") == "sweep_done":
+            self.place_db.mark_swept(agent_id, active["col"], active["row"],
+                                     observation.get("world_time", self.world_clock.now_text()))
+            self._cell_sweeps.pop(agent_id, None)
+            logger.info(f"[{agent_id}] maintenance: swept ({active['col']},{active['row']}) — breadcrumb dropped")
+            return None
+        action["_maintenance"] = "sweep"
+        return action
 
     def _episodic(self, agent_id: str) -> EpisodicLog:
         """Load (and cache) this agent's append-only episodic event log."""
