@@ -195,8 +195,9 @@ Key grounding: tests here are **standalone offline scripts** under `Python/scrip
 today) that stub Unreal entirely — that offline-stub surface *is* the loop-safe zone (no pytest, no PIE).
 - [x] **4.1** Write `plan/autonomous_loop.md` — the run-contract the loop reads each start (allowed
       surface, hard NOs, stop conditions, per-item cycle). ✓ 2026-06-26.
-- [ ] **4.2** `Python/scripts/loop/preflight.py` — refuse to start unless tree clean, on a dedicated
-      loop branch (not `main`), and baseline tests green.
+- [x] **4.2** `Python/scripts/loop/preflight.py` — refuse to start unless tree clean, on a dedicated
+      loop branch (not `main`), and baseline tests green. ✓ 2026-06-26 — pure guards
+      (`is_loop_branch`/`tree_is_clean`/`evaluate`) + live git/test gathering. Test: `test_preflight.py`.
 - [x] **4.3** `Python/scripts/run_tests.py` — discover + run every offline `scripts/agent_runtime/test_*.py`,
       one PASS/FAIL signal; `--only <glob>` for the in-progress test. ✓ 2026-06-26. (Socket-based
       actors/node/blueprints tests need live Unreal — excluded.)
