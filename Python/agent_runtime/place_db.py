@@ -192,6 +192,20 @@ class PlaceDB:
                 substring = (r["col"], r["row"])
         return substring
 
+    def all_named_places(self) -> list[dict]:
+        """Return every named cell as ``{"name", "col", "row"}`` — the world map.
+
+        Only cells with a name appear (a bare visit doesn't make a place).
+        Ordered by (col, row) for deterministic output. This is the queryable
+        "map" an agent consults before asking how to get somewhere.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT name, col, row FROM place_cells "
+                "WHERE name IS NOT NULL ORDER BY col, row"
+            ).fetchall()
+        return [{"name": r["name"], "col": r["col"], "row": r["row"]} for r in rows]
+
     def touch(self, agent_id: str, col: int, row: int) -> None:
         """Record a visit for this agent; upsert agent_visits."""
         now = _iso_now()

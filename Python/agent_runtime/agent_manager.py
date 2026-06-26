@@ -873,6 +873,9 @@ class AgentManager:
         # Surface known people for recall so the decision layer can reason about
         # who this agent has met (e.g. greet someone, seek out a friend).
         observation["acquaintances"] = self._social(agent_id).acquaintances()
+        # Surface the named-place map (nearest first) so the agent can pick a
+        # destination by name — walk_to then resolves it to a location (#1).
+        observation["known_places"] = self.known_places(observation.get("location"))[:8]
 
         memories = self.memory.get_relevant_memories(agent_id)
         return self.llm.decide(agent, observation, memories)
@@ -951,6 +954,37 @@ class AgentManager:
         z = xyz[2] if xyz else 0.0
         logger.info(f"Resolved place '{name}' -> cell {cell} center {center}")
         return [center[0], center[1], z]
+
+    def known_places(self, location) -> list[dict]:
+        """The named-place map relative to ``location`` — nearest first.
+
+        Each entry: ``{"name", "bearing", "distance_m", "col", "row"}`` where
+        bearing is a compass label (N..NW) from the agent toward the place and
+        distance is in meters. This is the "map" an agent consults — it answers
+        *what places exist and roughly which way* before any routing. Returns []
+        with no PlaceDB, an unbounded grid, or no location.
+        """
+        if self.place_db is None:
+            return []
+        xyz = _loc_xyz(location)
+        if xyz is None:
+            return []
+        x, y = xyz[0], xyz[1]
+        out: list[dict] = []
+        for place in self.place_db.all_named_places():
+            center = self.world_grid.cell_center(place["col"], place["row"])
+            if center is None:
+                continue
+            dx, dy = center[0] - x, center[1] - y
+            out.append({
+                "name": place["name"],
+                "bearing": yaw_to_compass(math.degrees(math.atan2(dy, dx))),
+                "distance_m": math.hypot(dx, dy) / 100.0,
+                "col": place["col"],
+                "row": place["row"],
+            })
+        out.sort(key=lambda p: p["distance_m"])
+        return out
 
     def _cell_col_row(self, grid: dict | None) -> tuple[int, int] | tuple[None, None]:
         """Extract (col, row) integers from a world_grid.locate() result dict."""

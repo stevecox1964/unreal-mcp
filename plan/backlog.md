@@ -262,9 +262,12 @@ the **map query surface**, a **manual authoring mode**, and the **routing call**
       button + a name, the world position is ours to read.)*
 
 **The agent → map → lizard-brain flow:**
-- [ ] **Map query** — expose the named places to an agent: "what places do I know?" returns the
-      named cells (name + direction/distance from here). Decide: a tool the LLM calls vs. injected
-      into tick context.
+- [x] **Map query** — expose the named places to an agent: "what places do I know?" returns the
+      named cells. ✓ 2026-06-26 — `PlaceDB.all_named_places` + `AgentManager.known_places(location)`
+      (name + compass bearing + distance_m, nearest first); surfaced as `observation["known_places"]`
+      (nearest 8) for recall, so the agent can pick a destination by name and `walk_to` resolves it
+      (#1). Offline test: `test_map_query.py`. *(Chose context-injection over an LLM tool for now —
+      revisit if the place list grows large.)*
 - [ ] **Lizard-brain routing** — agent asks "route me to <named place>"; lizard brain uses a nav
       primitive (navmesh **path query**) and returns a **path** — a sequence of waypoints/headings
       to the place. The LLM still *decides whether to follow it*; lizard brain only reports the route.
