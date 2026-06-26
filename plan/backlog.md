@@ -236,8 +236,9 @@ free-text `memory.json`, capped at 30 and trimmed. No structured record of *what
       (`social_memory.py`, per-agent `social.json`); fed from perceived characters via
       `AgentManager._record_sightings` in the perceive phase; acquaintances surfaced on the
       observation for recall. Offline test: `test_social_memory.py`.
-      *Still open:* say/message → `record_interaction` wiring (needs deciding who speech is
-      directed at) and a sentiment policy; the API + sentiment clamp are built and tested.
+      `speak_to` now logs an interaction with each perceived named person
+      (`AgentManager._record_interactions`, neutral sentiment — affinity isn't inferred without a
+      real signal). *Still open:* a sentiment policy (would need an LLM/heuristic signal).
 - [ ] **Social goal hooks** — let the decision layer propose "greet <person not seen today>" /
       "go where people are" (needs #1 to resolve person/place → location to navigate).
 - [ ] **Memory retrieval + consolidation** — relevance = recency ⊕ spatial ⊕ social; periodic

@@ -112,11 +112,31 @@ def test_manager_records_perceived_characters():
         check("sighting persisted to social.json", reloaded.knows("maren"))
 
 
+def test_manager_records_interactions_on_speech():
+    """When an agent speaks, it logs an interaction with each named person it
+    currently perceives (the meeting is the fact; sentiment stays neutral)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = AgentManager(worlds_dir=Path(tmp), llm_router=None,
+                           unreal_bridge=None, memory_store=None)
+        mgr._agents_dir = Path(tmp) / "agents"
+        observation = {
+            "grid": {"key": "4,4"}, "world_time": "Day 1 09:00",
+            "seen": {"characters": [{"label": "Maren"}, {"label": "unknown person"}]},
+        }
+        mgr._record_interactions("dufus", observation)
+
+        social = mgr._social("dufus")
+        check("interaction logged for named person", social.get("maren")["interaction_count"] == 1)
+        check("anonymous person not logged", not social.knows("unknown person"))
+        check("sentiment stays neutral without a real signal", social.get("maren")["sentiment"] == 0.0)
+
+
 def main():
     test_sightings_and_identity()
     test_interactions_and_sentiment()
     test_ranking_and_persistence()
     test_manager_records_perceived_characters()
+    test_manager_records_interactions_on_speech()
     print("\nAll social-memory checks passed.")
 
 

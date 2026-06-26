@@ -914,6 +914,7 @@ class AgentManager:
 
         if action.get("type") == "speak_to":
             agent.mark_spoke(self._agents_dir)
+            self._record_interactions(agent_id, observation)
 
         observation["_thought"] = decision.get("thought_summary")
         self.memory.record(
@@ -1037,6 +1038,24 @@ class AgentManager:
         changed = False
         for c in characters:
             if social.record_sighting(c.get("label", ""), cell_key, world_time):
+                changed = True
+        if changed:
+            social.save(self._agents_dir / agent_id / "social.json")
+
+    def _record_interactions(self, agent_id: str, observation: dict, sentiment_delta: float = 0.0) -> None:
+        """Log a social interaction with each named person currently perceived.
+
+        Called when the agent speaks: speech has no explicit target, so the
+        interaction is attributed to whoever it can see. Sentiment defaults to
+        neutral — we don't infer affinity from a message without a real signal
+        (that would need an LLM call the loop avoids). Pure, per-agent file.
+        """
+        characters = (observation.get("seen") or {}).get("characters") or []
+        world_time = observation.get("world_time", "")
+        social = self._social(agent_id)
+        changed = False
+        for c in characters:
+            if social.record_interaction(c.get("label", ""), world_time, sentiment_delta):
                 changed = True
         if changed:
             social.save(self._agents_dir / agent_id / "social.json")
