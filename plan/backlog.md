@@ -332,9 +332,11 @@ the costly 360** (vision calls) — shared knowledge, paid once.
       `AgentManager._maintenance_tick_action`: sweep the current cell, else walk to the nearest
       unexplored cell (`_nearest_unexplored_target` + `PlaceDB.explored_cells`); None when the whole
       map is mapped. Offline-tested.
-- [ ] **Wire the tick by role** — make a maintenance agent's loop tick call `_maintenance_tick_action`
-      instead of perceive→LLM (the composed logic is built + tested; this is the loop plumbing). Partly
-      live (needs `observe_heading` execution to be meaningful end-to-end).
+- [x] **Wire the tick by role** ✓ 2026-06-26 — `_pulse_maintenance` runs a maintenance agent's
+      deterministic, no-LLM tick (build obs → `_maintenance_tick_action` → bridge); routed in both
+      `pulse_agent` and the multi-agent `tick()` (peeled out of the perceive/decide phases, run in
+      the sequential bridge phase). Offline-tested. Safe: only `role:"maintenance"` agents take this
+      path, and none exist yet.
 - [ ] **Live 360 rotation+capture in Unreal** — execute `observe_heading` (rotate to yaw + capture +
       `ingest_compass`) so the sweep's landmarks become the breadcrumb's content. *Needs PIE.*
 - [ ] **Spawn/config a maintenance APC** — a `role: "maintenance"` agent (likely a simple/no-mesh

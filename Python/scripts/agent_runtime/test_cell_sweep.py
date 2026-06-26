@@ -219,6 +219,96 @@ def test_maintenance_tick_travels_when_local_cell_done():
         check("travel action is a walk_to", a["type"] == "walk_to")
 
 
+# ── Tick dispatch for a maintenance agent ───────────────────────────────────────
+
+class _StubBridge:
+    def __init__(self, loc):
+        self._loc = loc
+        self.actions = []
+
+    def get_observation(self, actor_name, agent_id, agents_dir):
+        return {"actor_name": actor_name, "image_path": None, "location": dict(self._loc),
+                "current_action": "idle", "ai_state": None}
+
+    def execute_action(self, actor_name, action):
+        self.actions.append(action)
+        return {"status": "accepted", "action": action.get("type")}
+
+
+class _StubAgent:
+    def __init__(self, agent_id, role="npc"):
+        self.agent_id = agent_id
+        self.state = {"role": role}
+        self.bound_unreal_actor_name = f"BP_{agent_id}"
+        self.bound_unreal_actor_label = agent_id
+        self.unreal_actor_name = agent_id
+        self.has_unreal_binding = True
+        self.is_active = True
+        self.is_busy = False
+        self.ticked = 0
+
+    @property
+    def is_maintenance(self):
+        return self.state.get("role") == "maintenance"
+
+    def cooldown_expired(self):
+        return True
+
+    def mark_ticked(self, agents_dir):
+        self.ticked += 1
+
+
+def test_pulse_maintenance_dispatches_sweep():
+    with tempfile.TemporaryDirectory() as tmp:
+        bridge = _StubBridge({"x": 1500.0, "y": 1500.0, "z": 90.0})
+        mgr = _manager(tmp)
+        mgr.bridge = bridge
+        agent = _StubAgent("sweeper", role="maintenance")
+        mgr.agents = {"sweeper": agent}
+
+        result = mgr._pulse_maintenance(agent)
+        check("maintenance pulse acted", agent.ticked == 1)
+        check("dispatched a walk_to toward the cell center",
+              bridge.actions and bridge.actions[-1]["type"] == "walk_to")
+        check("result is tagged maintenance", result.get("maintenance") == "sweep")
+
+
+def test_pulse_maintenance_idles_when_map_done():
+    with tempfile.TemporaryDirectory() as tmp:
+        bridge = _StubBridge({"x": 200.0, "y": 200.0, "z": 90.0})
+        mgr = _manager(tmp)
+        mgr.bridge = bridge
+        # Mark every cell explored so there is nothing to maintain.
+        for c in range(10):
+            for r in range(10):
+                mgr.place_db.mark_swept("sweeper", c, r, "T0")
+        agent = _StubAgent("sweeper", role="maintenance")
+        mgr.agents = {"sweeper": agent}
+
+        result = mgr._pulse_maintenance(agent)
+        check("idles with nothing to maintain", result["action"] == "idle")
+        check("reports the map is fully explored", result.get("reason") == "map_fully_explored")
+        check("did not dispatch any action", bridge.actions == [])
+
+
+def test_tick_routes_maintenance_agent():
+    """In the multi-agent tick, a maintenance agent runs its deterministic pulse
+    (bridge action, no LLM) rather than the perceive→decide phases."""
+    import asyncio
+    with tempfile.TemporaryDirectory() as tmp:
+        bridge = _StubBridge({"x": 1500.0, "y": 1500.0, "z": 90.0})
+        mgr = _manager(tmp)
+        mgr.bridge = bridge
+        mgr.llm = None  # would explode if a maintenance agent were sent to the LLM path
+        agent = _StubAgent("sweeper", role="maintenance")
+        mgr.agents = {"sweeper": agent}
+
+        result = asyncio.run(mgr.tick())
+        check("the maintenance agent was ticked", result["ticked"] == 1)
+        check("it acted through the bridge (no LLM)",
+              bridge.actions and bridge.actions[-1]["type"] == "walk_to")
+
+
 def main():
     test_is_explored_and_mark_swept()
     test_swept_migration_on_existing_db()
@@ -233,6 +323,9 @@ def main():
     test_nearest_unexplored_target()
     test_maintenance_tick_prioritises_local_sweep()
     test_maintenance_tick_travels_when_local_cell_done()
+    test_pulse_maintenance_dispatches_sweep()
+    test_pulse_maintenance_idles_when_map_done()
+    test_tick_routes_maintenance_agent()
     print("\nAll cell-sweep checks passed.")
 
 

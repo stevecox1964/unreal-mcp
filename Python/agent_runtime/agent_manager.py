@@ -678,6 +678,15 @@ class AgentManager:
             a for a in self.agents.values()
             if a.is_active and not a.is_busy and a.cooldown_expired()
         ]
+        # Maintenance APCs run a deterministic, bridge-only, no-LLM tick — keep
+        # them out of the perceive/decide phases (they have no personality).
+        maintenance = [a for a in ready if a.is_maintenance]
+        ready = [a for a in ready if not a.is_maintenance]
+
+        results = []
+        # Maintenance phase (sequential — single bridge socket, like the others).
+        for agent in maintenance:
+            results.append(self._pulse_maintenance(agent))
 
         # Phase 1: observe (sequential, bridge)
         observations: dict[str, dict | None] = {}
@@ -701,8 +710,7 @@ class AgentManager:
             for agent, result in zip(llm_needed, results_raw):
                 decisions[agent.agent_id] = result
 
-        # Phase 3: act (sequential, bridge)
-        results = []
+        # Phase 3: act (sequential, bridge) — appends to the maintenance results.
         for agent in ready:
             obs = observations.get(agent.agent_id)
             decision = decisions.get(agent.agent_id)
@@ -715,6 +723,8 @@ class AgentManager:
         agent = self.agents.get(agent_id)
         if not agent:
             return {"error": f"Agent '{agent_id}' not loaded"}
+        if agent.is_maintenance:
+            return self._pulse_maintenance(agent)
         if self.mode == "explore":
             return self._pulse_explore(agent)
         obs = self._observe_agent(agent)
@@ -1294,6 +1304,34 @@ class AgentManager:
                 action = {**action, "location": target}
 
         return self.bridge.execute_action(agent.bound_unreal_actor_name, action)
+
+    def _pulse_maintenance(self, agent: Agent) -> dict:
+        """One tick for a maintenance/monitor APC — no perception LLM, no personality.
+
+        Builds a minimal observation (position + grid; no vision diff gate, which
+        a deterministic worker doesn't need), then runs the composed maintenance
+        action: sweep the current cell or head to the nearest unexplored one.
+        Idles when the whole map is mapped.
+        """
+        agent_id = agent.agent_id
+        observation = self.bridge.get_observation(
+            agent.bound_unreal_actor_name, agent_id, self._agents_dir
+        )
+        grid, place = self._grid_and_place(agent_id, observation.get("location"))
+        observation["grid"] = grid
+        observation["place"] = place
+        observation["world_time"] = self.world_clock.now_text()
+
+        action = self._maintenance_tick_action(agent_id, observation)
+        if action is None:
+            agent.mark_ticked(self._agents_dir)
+            return {"agent_id": agent_id, "action": "idle", "reason": "map_fully_explored",
+                    "grid": grid}
+
+        result = self._execute_world_action(agent, action, observation)
+        agent.mark_ticked(self._agents_dir)
+        return {"agent_id": agent_id, "action": action, "result": result,
+                "grid": grid, "maintenance": action.get("_maintenance")}
 
     def _pulse_explore(self, agent: Agent) -> dict:
         """One exploration tick: see → perceive → map → pick frontier → walk.

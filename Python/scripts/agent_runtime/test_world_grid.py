@@ -86,6 +86,7 @@ class StubAgent:
         self.has_unreal_binding = True
         self.is_active = True
         self.is_busy = False
+        self.is_maintenance = False
 
     def cooldown_expired(self):
         return True
