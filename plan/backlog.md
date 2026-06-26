@@ -241,8 +241,11 @@ free-text `memory.json`, capped at 30 and trimmed. No structured record of *what
       real signal). *Still open:* a sentiment policy (would need an LLM/heuristic signal).
 - [ ] **Social goal hooks** — let the decision layer propose "greet <person not seen today>" /
       "go where people are" (needs #1 to resolve person/place → location to navigate).
-- [ ] **Memory retrieval + consolidation** — relevance = recency ⊕ spatial ⊕ social; periodic
-      consolidation to beat the 30-item amnesia (critical for overnight runs).
+- [x] **Memory retrieval** — relevance = recency ⊕ spatial (same cell/place) ⊕ social (known face
+      present). ✓ 2026-06-26 — `EpisodicLog.relevant()`; surfaced as `observation["recent_episodes"]`
+      (top 5) in recall. Tested by ordering properties, not magic constants (`test_episodic_memory.py`).
+      *Still open:* periodic **consolidation** (summarising old episodes) — needs an LLM summariser,
+      so deferred out of the loop.
 
 Open Qs (for human): episodic obs shared vs private per agent? scripted vs LLM-chosen sociality?
 rolling window + consolidation vs full episodic history?

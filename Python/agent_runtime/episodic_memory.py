@@ -50,6 +50,42 @@ class EpisodicLog:
         """Return the last ``n`` events, oldest first."""
         return self._all()[-n:]
 
+    # Relevance weights — recency is the base signal; being in the same place or
+    # having a known face present each lift an older memory above newer noise.
+    _W_RECENCY = 1.0
+    _W_SAME_CELL = 2.0
+    _W_SAME_PLACE = 1.0
+    _W_KNOWN_PERSON = 2.0
+
+    def relevant(self, n: int = 5, current_cell: str = None, current_place: str = None,
+                 known_names: list[str] = None) -> list[dict]:
+        """Return the ``n`` most relevant past events, most relevant first.
+
+        Relevance blends recency (newer scores higher), spatial proximity (same
+        grid cell, then same place), and social ties (a known person appears in
+        the event). With no spatial/social context it degrades to "most recent
+        first". Beats the flat recency window for overnight recall.
+        """
+        events = self._all()
+        if not events:
+            return []
+        known = {str(name).strip().lower() for name in (known_names or [])}
+        total = len(events)
+        scored = []
+        for i, e in enumerate(events):
+            recency = (i + 1) / total  # 0..1, newest highest
+            score = self._W_RECENCY * recency
+            if current_cell is not None and e.get("grid_cell") == current_cell:
+                score += self._W_SAME_CELL
+            if current_place is not None and e.get("place") == current_place:
+                score += self._W_SAME_PLACE
+            if known and any(str(s).strip().lower() in known for s in (e.get("saw") or [])):
+                score += self._W_KNOWN_PERSON
+            # Stable tie-break: more recent (higher i) first.
+            scored.append((score, i, e))
+        scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
+        return [e for _, _, e in scored[:n]]
+
     def query(self, place: str = None, character: str = None) -> list[dict]:
         """Return events matching all given filters, oldest first.
 

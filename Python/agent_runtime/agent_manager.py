@@ -874,10 +874,20 @@ class AgentManager:
 
         # Surface known people for recall so the decision layer can reason about
         # who this agent has met (e.g. greet someone, seek out a friend).
-        observation["acquaintances"] = self._social(agent_id).acquaintances()
+        acquaintances = self._social(agent_id).acquaintances()
+        observation["acquaintances"] = acquaintances
         # Surface the named-place map (nearest first) so the agent can pick a
         # destination by name — walk_to then resolves it to a location (#1).
         observation["known_places"] = self.known_places(observation.get("location"))[:8]
+        # Surface the most relevant past episodes (recency ⊕ same place ⊕ known
+        # faces) so overnight runs recall more than the flat 30-item window.
+        place_list = observation.get("place") or []
+        observation["recent_episodes"] = self._episodic(agent_id).relevant(
+            n=5,
+            current_cell=(observation.get("grid") or {}).get("key"),
+            current_place=place_list[0] if place_list else None,
+            known_names=[a["name"] for a in acquaintances],
+        )
 
         memories = self.memory.get_relevant_memories(agent_id)
         return self.llm.decide(agent, observation, memories)

@@ -86,11 +86,39 @@ def test_manager_records_episode():
               (mgr._agents_dir / "dufus" / "episodes.jsonl").exists())
 
 
+def test_relevance_ranking():
+    """relevant() blends recency, spatial proximity, and social ties. Asserted by
+    ordering properties, not magic constants."""
+    with tempfile.TemporaryDirectory() as tmp:
+        log = EpisodicLog(Path(tmp) / "episodes.jsonl")
+        # Oldest -> newest. e0 here-and-now-ish, e1 elsewhere, e2 with a friend.
+        log.record({"world_time": "T0", "grid_cell": "1,1", "place": "square", "saw": []})
+        log.record({"world_time": "T1", "grid_cell": "9,9", "place": "far field", "saw": []})
+        log.record({"world_time": "T2", "grid_cell": "9,9", "place": "far field", "saw": ["Maren"]})
+
+        # Spatial: at cell 1,1 with no social context, the same-cell event wins
+        # over more-recent elsewhere events.
+        top = log.relevant(n=1, current_cell="1,1", current_place="square", known_names=[])
+        check("same-cell event ranks top", top[0]["world_time"] == "T0")
+
+        # Social: knowing Maren lifts the event she appears in.
+        ranked = log.relevant(n=3, current_cell="9,9", current_place="far field", known_names=["Maren"])
+        check("event with a known person outranks its peer",
+              ranked.index(next(e for e in ranked if e["world_time"] == "T2"))
+              < ranked.index(next(e for e in ranked if e["world_time"] == "T1")))
+
+        # Recency: with no spatial/social signal at all, newest comes first.
+        plain = log.relevant(n=3, current_cell=None, current_place=None, known_names=[])
+        check("newest first when nothing else distinguishes", plain[0]["world_time"] == "T2")
+        check("relevant caps at n", len(log.relevant(n=2)) == 2)
+
+
 def main():
     test_append_and_recent()
     test_query_filters()
     test_persistence_is_append_only()
     test_manager_records_episode()
+    test_relevance_ranking()
     print("\nAll episodic-memory checks passed.")
 
 
