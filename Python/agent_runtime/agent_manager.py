@@ -1113,6 +1113,50 @@ class AgentManager:
         action["_maintenance"] = "sweep"
         return action
 
+    def _nearest_unexplored_target(self, observation: dict) -> list[float] | None:
+        """Walk target ``[x,y,z]`` toward the nearest unexplored grid cell, or None.
+
+        Scans the bounded grid once against PlaceDB's explored set and returns the
+        center of the closest cell with no place cell yet — the maintenance APC's
+        next job once its current cell is mapped. None when the grid is unbounded
+        or the whole map is explored.
+        """
+        if self.place_db is None:
+            return None
+        xyz = _loc_xyz(observation.get("location"))
+        if xyz is None:
+            return None
+        probe = self.world_grid.locate(xyz[0], xyz[1])
+        if "cols" not in probe:           # unbounded grid — no fixed cell index space
+            return None
+        explored = self.place_db.explored_cells()
+        best: list[float] | None = None
+        best_d: float | None = None
+        for c in range(probe["cols"]):
+            for r in range(probe["rows"]):
+                if (c, r) in explored:
+                    continue
+                center = self.world_grid.cell_center(c, r)
+                if center is None:
+                    continue
+                d = math.hypot(center[0] - xyz[0], center[1] - xyz[1])
+                if best_d is None or d < best_d:
+                    best_d, best = d, [center[0], center[1], xyz[2]]
+        return best
+
+    def _maintenance_tick_action(self, agent_id: str, observation: dict) -> dict | None:
+        """The maintenance APC's whole tick: sweep here, else head to the nearest
+        unexplored cell. Returns the next action, or None when the map is fully
+        explored (nothing left to maintain).
+        """
+        action = self._maintenance_sweep(agent_id, observation)
+        if action is not None:
+            return action
+        target = self._nearest_unexplored_target(observation)
+        if target is not None:
+            return {"type": "walk_to", "location": target, "_maintenance": "goto_unexplored"}
+        return None
+
     def _episodic(self, agent_id: str) -> EpisodicLog:
         """Load (and cache) this agent's append-only episodic event log."""
         log = self._episodic_log.get(agent_id)

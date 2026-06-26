@@ -232,6 +232,19 @@ class PlaceDB:
             ).fetchone()
         return row_ is not None
 
+    def explored_cells(self) -> set[tuple[int, int]]:
+        """Return the set of (col, row) cells that have a place cell (named or swept).
+
+        One query — cheaper than calling ``is_explored`` per cell when scanning the
+        grid for the nearest unexplored cell.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT col, row FROM place_cells "
+                "WHERE name IS NOT NULL OR swept_at IS NOT NULL"
+            ).fetchall()
+        return {(r["col"], r["row"]) for r in rows}
+
     def get_swept(self, col: int, row: int) -> dict | None:
         """Return ``{name, swept_at, swept_by}`` for a cell's breadcrumb, or None."""
         with self._connect() as conn:

@@ -171,6 +171,54 @@ def test_maintenance_sweeps_then_drops_breadcrumb():
         check("breadcrumb is a community marker (unnamed)", mgr.place_db.get_swept(5, 5)["name"] is None)
 
 
+def test_explored_cells_set():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = PlaceDB(Path(tmp) / "world_places.db")
+        db.set_name("maren", 1, 1, "Square", "T0")
+        db.mark_swept("sweeper", 2, 3, "T0")
+        db.touch("dufus", 8, 8)  # a bare visit is NOT explored
+        check("explored set has named + swept only", db.explored_cells() == {(1, 1), (2, 3)})
+
+
+def test_nearest_unexplored_target():
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _manager(tmp)  # 10x10 grid, cell 400, bounds min -2000
+        # Explore everything except cell (6,5) (center (600,200)) and (0,0).
+        explored = mgr.place_db.explored_cells  # capture method
+        cols = rows = 10
+        for c in range(cols):
+            for r in range(rows):
+                if (c, r) not in {(6, 5), (0, 0)}:
+                    mgr.place_db.mark_swept("sweeper", c, r, "T0")
+
+        # Agent sits at cell (5,5) center (200,200); (6,5) center (600,200) is nearest.
+        target = mgr._nearest_unexplored_target(_obs(200.0, 200.0))
+        check("heads to the nearest unexplored cell center", target == [600.0, 200.0, 90.0])
+
+        # With the whole map explored, there's nothing to head toward.
+        mgr.place_db.mark_swept("sweeper", 6, 5, "T0")
+        mgr.place_db.mark_swept("sweeper", 0, 0, "T0")
+        check("fully-explored map -> no target", mgr._nearest_unexplored_target(_obs(200.0, 200.0)) is None)
+
+
+def test_maintenance_tick_prioritises_local_sweep():
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _manager(tmp)
+        # Current cell (5,5) is unexplored -> sweep it first (walk to its center).
+        a = mgr._maintenance_tick_action("sweeper", _obs(1500.0, 1500.0))
+        check("unexplored current cell -> sweep", a["_maintenance"] == "sweep")
+
+
+def test_maintenance_tick_travels_when_local_cell_done():
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _manager(tmp)
+        mgr.place_db.mark_swept("sweeper", 5, 5, "T0")   # current cell already explored
+        # other cells remain unexplored
+        a = mgr._maintenance_tick_action("sweeper", _obs(200.0, 200.0))
+        check("explored current cell -> travel to unexplored", a["_maintenance"] == "goto_unexplored")
+        check("travel action is a walk_to", a["type"] == "walk_to")
+
+
 def main():
     test_is_explored_and_mark_swept()
     test_swept_migration_on_existing_db()
@@ -181,6 +229,10 @@ def main():
     test_agent_maintenance_role()
     test_maintenance_skips_explored_cell()
     test_maintenance_sweeps_then_drops_breadcrumb()
+    test_explored_cells_set()
+    test_nearest_unexplored_target()
+    test_maintenance_tick_prioritises_local_sweep()
+    test_maintenance_tick_travels_when_local_cell_done()
     print("\nAll cell-sweep checks passed.")
 
 

@@ -328,9 +328,13 @@ the costly 360** (vision calls) — shared knowledge, paid once.
 - [x] **Maintenance role + sweep behavior** ✓ 2026-06-26 — `Agent.role`/`is_maintenance` (from
       `state.json`, default `npc`); `AgentManager._maintenance_sweep` runs the sweep on an unexplored
       current cell and drops the breadcrumb on finish. All offline-tested.
-- [ ] **Tick dispatch by role** — a maintenance agent's tick runs `_maintenance_sweep` instead of
-      perceive→LLM, and when its cell is already explored navigates toward the nearest unexplored
-      cell (a new "unexplored-frontier" target). Partly live.
+- [x] **Maintenance tick action (compose sweep + travel)** ✓ 2026-06-26 —
+      `AgentManager._maintenance_tick_action`: sweep the current cell, else walk to the nearest
+      unexplored cell (`_nearest_unexplored_target` + `PlaceDB.explored_cells`); None when the whole
+      map is mapped. Offline-tested.
+- [ ] **Wire the tick by role** — make a maintenance agent's loop tick call `_maintenance_tick_action`
+      instead of perceive→LLM (the composed logic is built + tested; this is the loop plumbing). Partly
+      live (needs `observe_heading` execution to be meaningful end-to-end).
 - [ ] **Live 360 rotation+capture in Unreal** — execute `observe_heading` (rotate to yaw + capture +
       `ingest_compass`) so the sweep's landmarks become the breadcrumb's content. *Needs PIE.*
 - [ ] **Spawn/config a maintenance APC** — a `role: "maintenance"` agent (likely a simple/no-mesh
