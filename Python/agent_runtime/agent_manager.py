@@ -135,6 +135,7 @@ class AgentManager:
         self._scene_skips: dict[str, int] = {}      # agent_id -> consecutive scene-unchanged skips (gate liveness)
         self._last_pos: dict[str, tuple] = {}       # agent_id -> last (x, y), for stuck detection
         self._no_progress: dict[str, int] = {}      # agent_id -> consecutive "moving but didn't advance" ticks
+        self._last_grid_place: dict[str, tuple] = {}  # agent_id -> (grid, place), reported even when LLM skipped
 
         # Fixed per-level grid; reloaded with the level in _load_agents.
         self.world_grid = WorldGrid()
@@ -712,7 +713,9 @@ class AgentManager:
             return self._pulse_explore(agent)
         obs = self._observe_agent(agent)
         if obs is None:
-            return {"agent_id": agent_id, "action": "idle", "reason": "scene_unchanged"}
+            grid, place = self._last_grid_place.get(agent_id, (None, []))
+            return {"agent_id": agent_id, "action": "idle", "reason": "scene_unchanged",
+                    "grid": grid, "place": place}
         decision = await asyncio.to_thread(self._perceive_and_decide, agent, obs)
         return self._act_agent(agent, decision, obs)
 
@@ -736,6 +739,10 @@ class AgentManager:
         grid, place = self._grid_and_place(agent_id, observation.get("location"))
         observation["grid"] = grid
         observation["place"] = place
+        # Stash so a scene-unchanged skip can still report position (pure lookups,
+        # no engine/LLM) — explore mode reports grid+place every tick and the
+        # standard path must too, even when the diff gate skips perception.
+        self._last_grid_place[agent_id] = (grid, place)
         observation["world_time"] = self.world_clock.now_text()
         observation["directions"] = self._direction_places(
             agent_id, observation.get("location"), observation.get("rotation")

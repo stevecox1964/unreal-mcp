@@ -53,6 +53,9 @@ class SlowBridge:
     def print_to_screen(self, message, key=-1, duration=30.0):
         pass  # PIE overlay is a no-op under test
 
+    def set_ai_state(self, actor_name, state):
+        return {"status": "accepted"}  # activity bubble is a no-op under test
+
 
 class StubAgent:
     def __init__(self, agent_id):
