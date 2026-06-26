@@ -13,6 +13,7 @@ from .action_validator import validate
 from . import explorer
 from .perception import VisionPerceiver
 from .place_db import PlaceDB, yaw_to_compass
+from .social_memory import SocialMemory
 from .spatial_memory import SpatialMap
 from .world_clock import WorldClock
 from .world_grid import WorldGrid
@@ -130,6 +131,7 @@ class AgentManager:
         # Explore-mode state (per agent).
         self.perceiver = VisionPerceiver()
         self._spatial: dict[str, SpatialMap] = {}   # agent_id -> loaded map (cache)
+        self._social_mem: dict[str, SocialMemory] = {}  # agent_id -> acquaintance store (cache)
         self._last_cell: dict[str, str] = {}        # agent_id -> previous cell key, for nav edges
         self._frontier_failures: dict[str, dict[str, int]] = {}  # agent_id -> cell key -> consecutive failed walks
         self._scene_skips: dict[str, int] = {}      # agent_id -> consecutive scene-unchanged skips (gate liveness)
@@ -865,6 +867,13 @@ class AgentManager:
                             seen["landmarks"],
                         )
 
+            # Remember who was seen this tick (named characters → social memory).
+            self._record_sightings(agent_id, observation)
+
+        # Surface known people for recall so the decision layer can reason about
+        # who this agent has met (e.g. greet someone, seek out a friend).
+        observation["acquaintances"] = self._social(agent_id).acquaintances()
+
         memories = self.memory.get_relevant_memories(agent_id)
         return self.llm.decide(agent, observation, memories)
 
@@ -963,6 +972,37 @@ class AgentManager:
             smap = SpatialMap.load(path, cell_size=self.world_grid.cell_size)
             self._spatial[agent_id] = smap
         return smap
+
+    def _social(self, agent_id: str) -> SocialMemory:
+        """Load (and cache) this agent's acquaintance store."""
+        s = self._social_mem.get(agent_id)
+        if s is None:
+            s = SocialMemory.load(self._agents_dir / agent_id / "social.json")
+            self._social_mem[agent_id] = s
+        return s
+
+    def _record_sightings(self, agent_id: str, observation: dict) -> None:
+        """Persist perceived named characters into this agent's social memory.
+
+        Pulls characters out of ``observation["seen"]``, keys each sighting to
+        the current grid cell + world time, and saves. Anonymous figures
+        ("unknown person") are dropped by SocialMemory — only identities are
+        remembered. Pure (no engine/LLM/socket), so it runs in the parallel
+        perceive phase: each agent only writes its own social.json.
+        """
+        characters = (observation.get("seen") or {}).get("characters") or []
+        if not characters:
+            return
+        grid = observation.get("grid") or {}
+        cell_key = grid.get("key")
+        world_time = observation.get("world_time", "")
+        social = self._social(agent_id)
+        changed = False
+        for c in characters:
+            if social.record_sighting(c.get("label", ""), cell_key, world_time):
+                changed = True
+        if changed:
+            social.save(self._agents_dir / agent_id / "social.json")
 
     def _grid_and_place(self, agent_id: str, location) -> tuple[dict | None, list[str]]:
         """Fixed world-grid cell for a location + known place labels for it.

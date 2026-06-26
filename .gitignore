@@ -10,6 +10,7 @@ Python/worlds/*/world_places.db
 # Per-run agent memory + spatial map churn (state.json stays tracked — it holds config)
 Python/worlds/*/agents/*/memory.json
 Python/worlds/*/agents/*/spatial_map.json
+Python/worlds/*/agents/*/social.json
 
 # Camera capture images
 MCPGameProject/CapturedCameraView.png
