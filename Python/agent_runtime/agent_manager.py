@@ -914,6 +914,28 @@ class AgentManager:
             "place":    observation.get("place"),
         }
 
+    def _resolve_place_target(self, name: str, observation: dict) -> list[float] | None:
+        """Resolve a place name to a walk target ``[x, y, z]``, or None.
+
+        Looks the name up in the shared PlaceDB, maps the matched cell to its
+        world center via the bounded world grid, and keeps the agent's current
+        z so it stays on the ground plane. Returns None when there is no PlaceDB,
+        the grid is unbounded, or the name is unknown — callers fall back to the
+        bridge's graceful idle.
+        """
+        if self.place_db is None:
+            return None
+        cell = self.place_db.find_named_cell(name)
+        if cell is None:
+            return None
+        center = self.world_grid.cell_center(*cell)
+        if center is None:
+            return None
+        xyz = _loc_xyz(observation.get("location"))
+        z = xyz[2] if xyz else 0.0
+        logger.info(f"Resolved place '{name}' -> cell {cell} center {center}")
+        return [center[0], center[1], z]
+
     def _cell_col_row(self, grid: dict | None) -> tuple[int, int] | tuple[None, None]:
         """Extract (col, row) integers from a world_grid.locate() result dict."""
         if not grid:
@@ -1032,6 +1054,15 @@ class AgentManager:
                 return {"status": "accepted", "action": "idle",
                         "note": f"walk {direction} blocked: {result.get('error')}"}
             return result
+
+        # walk_to a named place ("village square") — resolve the name to a world
+        # location via PlaceDB + the world grid, instead of letting the bridge
+        # short-circuit string targets to idle.
+        if (t == "walk_to" and isinstance(action.get("target_location"), str)
+                and not action.get("location") and not action.get("target_actor")):
+            target = self._resolve_place_target(action["target_location"], observation)
+            if target is not None:
+                action = {**action, "location": target}
 
         return self.bridge.execute_action(agent.bound_unreal_actor_name, action)
 

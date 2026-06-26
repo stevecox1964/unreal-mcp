@@ -71,6 +71,21 @@ class WorldGrid:
         out["in_bounds"] = min_gx <= gx <= max_gx and min_gy <= gy <= max_gy
         return out
 
+    def cell_center(self, col: int, row: int) -> tuple[float, float] | None:
+        """Return the world (x, y) center of the cell at (col, row).
+
+        The inverse of :meth:`locate`: ``locate(*cell_center(c, r))`` round-trips
+        back to ``(c, r)``. Requires bounds — without them col/row are undefined,
+        so this returns ``None``.
+        """
+        if not self.bounds:
+            return None
+        min_gx = self._index(self.bounds["min_x"])
+        min_gy = self._index(self.bounds["min_y"])
+        cx = (min_gx + col + 0.5) * self.cell_size
+        cy = (min_gy + row + 0.5) * self.cell_size
+        return cx, cy
+
     def describe(self) -> str:
         if self.bounds:
             probe = self.locate(self.bounds["min_x"], self.bounds["min_y"])

@@ -163,6 +163,35 @@ class PlaceDB:
 
     # ── Write ─────────────────────────────────────────────────────────────────
 
+    def find_named_cell(self, name: str) -> tuple[int, int] | None:
+        """Resolve a place name to a grid cell (col, row), or None if unknown.
+
+        Matching is case- and whitespace-insensitive. A normalized **exact**
+        match wins; failing that, a **substring** match (the query inside a cell
+        name, or a cell name inside the query) is accepted. Ties break
+        deterministically by (col, row) so the same name always resolves the same
+        way. Returns the cell of the best match.
+
+        Examples: "village square" -> (3, 4); "  Village Square  " -> (3, 4);
+        "donut" -> the "Don's Donuts" cell; "the moon" -> None.
+        """
+        needle = " ".join(name.split()).lower()
+        if not needle:
+            return None
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT col, row, name FROM place_cells "
+                "WHERE name IS NOT NULL ORDER BY col, row"
+            ).fetchall()
+        substring: tuple[int, int] | None = None
+        for r in rows:
+            cell_name = " ".join(r["name"].split()).lower()
+            if cell_name == needle:
+                return r["col"], r["row"]
+            if substring is None and (needle in cell_name or cell_name in needle):
+                substring = (r["col"], r["row"])
+        return substring
+
     def touch(self, agent_id: str, col: int, row: int) -> None:
         """Record a visit for this agent; upsert agent_visits."""
         now = _iso_now()
