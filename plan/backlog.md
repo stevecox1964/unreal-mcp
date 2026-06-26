@@ -65,8 +65,10 @@ is no resolver mapping a place name to a world location or scene actor. Agents
 wander by direction/frontier but never navigate *to* a stated goal. (Dufus's
 memory is a long loop of "still searching for village square.")
 
-- [ ] Build a place-name → PlaceDB cell-center (or scene actor) resolver so
-      `walk_to <place>` navigates instead of idling.
+- [x] Build a place-name → PlaceDB cell-center resolver so `walk_to <place>`
+      navigates instead of idling. ✓ 2026-06-26 — `PlaceDB.find_named_cell` +
+      `WorldGrid.cell_center` + `AgentManager._resolve_place_target`, wired into
+      `_execute_world_action`. Offline test: `scripts/agent_runtime/test_place_resolver.py`.
 - [ ] Finalize grid cells and place cells.
 - [ ] Design how observations attach to / save against grid/place cells.
 - [x] Reset the place-cell DB to start from scratch (`reset_world_places()`). ✓ 2026-06-24
@@ -232,6 +234,53 @@ free-text `memory.json`, capped at 30 and trimmed. No structured record of *what
 
 Open Qs (for human): episodic obs shared vs private per agent? scripted vs LLM-chosen sociality?
 rolling window + consolidation vs full episodic history?
+
+---
+
+## 6. Map feature — named-place query + manual capture + lizard-brain routing
+
+**Status:** Not started · **Independence:** Builds on #1 (place resolver) · **Source:** user, 2026-06-26
+
+A first-class **"map"**: a queryable set of **named places**. An agent asks the map *what
+places exist* (and roughly where), picks a destination, then asks **lizard brain** *how to get
+there* — lizard brain returns a **path / road-map** (a route to follow). #1 already built the
+*lookup half* (name → cell → world location, `find_named_cell` + `cell_center`); this item adds
+the **map query surface**, a **manual authoring mode**, and the **routing call**.
+
+**Two SIM modes for building the map:**
+- [ ] **Explore mode** (exists today) — agents build the map out themselves via the
+      frontier/explorer policy, naming cells as they go (`PlaceDB.set_name`).
+- [ ] **Manual / authoring mode** (new) — the **end user** moves around the world and takes
+      **"snapshots"** at a spot, creating a named place from that location (screenshot + name +
+      world position → `PlaceDB.set_name`). Lets a human author the map without running agents.
+      *(Per [[feedback_drag_and_drop]]: the user must not need Unreal knowledge — capture is a
+      button + a name, the world position is ours to read.)*
+
+**The agent → map → lizard-brain flow:**
+- [ ] **Map query** — expose the named places to an agent: "what places do I know?" returns the
+      named cells (name + direction/distance from here). Decide: a tool the LLM calls vs. injected
+      into tick context.
+- [ ] **Lizard-brain routing** — agent asks "route me to <named place>"; lizard brain uses a nav
+      primitive (navmesh **path query**) and returns a **path** — a sequence of waypoints/headings
+      to the place. The LLM still *decides whether to follow it*; lizard brain only reports the route.
+
+**Design tension to resolve (human):** returning a *path* brushes against the **lizard-brain
+contract** ([[feedback_lizard_brain_contract]], [[architecture_lizard_brain_sensing]]): lizard
+brain reports **facts**, never advises. Keep it on-contract by treating a path as **facts**
+("waypoints: NE 40m → E past the fountain → N 15m"), **semantic** (per [[architecture_lizard_brain_sensing]]
+the output is generic labels/headings, never raw engine waypoints or actor names), and
+**non-prescriptive** (the LLM chooses to follow, deviate, or ignore it — consistent with
+[[architecture_engine_agnostic_navigation]]: the cognitive loop owns navigation decisions, the
+engine just answers "is there a path and what is it").
+
+Decisions (human): map query as an LLM tool vs. context injection? manual-mode capture UI — where
+(settings page #2 / a new authoring view) and what's in a "snapshot" (screenshot + name + pos)?
+path granularity — coarse semantic directions vs. a waypoint list? does lizard brain *walk* the
+path (follow waypoints) or just *hand it back* for the LLM to drive step by step?
+
+Relates to: #1 (resolver — lookup half done), #5 (social/episodic — "places where people are"),
+[[architecture_engine_agnostic_navigation]], [[architecture_lizard_brain_sensing]],
+[[feedback_lizard_brain_contract]], [[feedback_drag_and_drop]].
 
 ---
 
