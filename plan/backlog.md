@@ -3,18 +3,41 @@
 Rolling list of outstanding work — add items as they come up, check off or
 delete them as they land. Not session-scoped; this is the durable home for
 "things I want done but didn't have tokens for this session." Newest
-grooming: 2026-06-25.
+grooming: 2026-06-26.
 
-> **★ MVP slice** (dreams iter 5, `plan/dreams/dreams_2026-06-25_1156.md`):
-> *"Runs overnight, navigates to a named place, remembers who it met"* = **#3** (runner /
-> independent lifetime) + **#1** (place-name resolver) + **#5** (social store + consolidation).
-> **#1 is the keystone** (no deps, offline, unblocks #4's first target and #5's social-goal hooks);
-> **#3 is the long pole** (nothing built yet) — start it in parallel. #2 settings, #4 loop, and
-> Child BPs are *off* the MVP critical path. Recommended order: #1 → #5 → (#3 in parallel) → web
-> controller → #2/#4. Design observation→cell storage **once** in #1 for #5 to reuse.
+> **★ MVP slice** *"Runs overnight, navigates to a named place, remembers who it met"* —
+> mostly **landed**: **#1** place-name nav ✓, **#5** social + episodic + relevance recall ✓,
+> **#3** factory ✓. The remaining MVP gap is **#3's standalone runner** (the "runs overnight
+> independent of Claude" long pole — nothing built but the factory).
+
+> **⚑ Status (2026-06-26):** an unattended coding loop landed **21 commits on branch
+> `auto-loop/backlog`** (never pushed; `python scripts/run_tests.py` = **15/15 green**). It
+> drained **all loop-safe (offline-testable Python) work**. Everything still open below is blocked
+> on the **Unreal editor**, a **live sim / PIE**, an **LLM signal**, or a **human decision** — see
+> **"Outstanding"** next. First action for a new session: review + merge `auto-loop/backlog`.
+
+## Outstanding — all blocked on editor / live / you (nothing loop-safe left)
+
+- **Merge** `auto-loop/backlog` → `main` (21 commits) and decide on `git push`.
+- **#7 maintenance APC — live half:** implement `observe_heading` in the Unreal bridge/C++
+  (rotate to yaw + capture + `ingest_compass`); spawn a `role:"maintenance"` actor. *Editor/PIE.*
+- **#3 standalone runner:** `sim_runner.py` + localhost control API + thin MCP clients (factory done). *Live Unreal.*
+- **#2 settings page + rename:** UI (`config_store` backend done); "NPC Builder" → "Unreal World Sim". *Live app to verify.*
+- **#6 map:** manual-capture mode (user snapshots) + lizard-brain routing (path-as-facts). *Editor/design.*
+- **#5 consolidation** + a **sentiment policy:** need an LLM summariser/signal.
+- **Child Blueprints** `BP_Dufus`/`BP_Maren` (mesh override) + rebind. *Editor + mesh choice.*
 
 ## Recently landed
 
+- **Autonomous loop — 21 commits on `auto-loop/backlog`** (2026-06-26, offline-tested, unpushed):
+  **#1** place-name nav (`walk_to "village square"` resolves to a location); the **loop harness**
+  (`scripts/run_tests.py`, `plan/autonomous_loop.md`, `scripts/loop/preflight.py` — #4.1–4.3);
+  green baseline (fixed a scene-unchanged grid/place regression + stale stubs); **#5** memory layer
+  (`SocialMemory`, `EpisodicLog`, speech→interaction, relevance recall); **#6** map query
+  (`known_places`); **#2.2** `config_store.py`; **#3/2.1** `factory.build_agent_manager`; and **#7**
+  the **maintenance/monitor APC** (PlaceDB sweep state + community breadcrumbs, `cell_sweep` planner,
+  `Agent.role`, `_maintenance_sweep`/`_nearest_unexplored_target`/`_pulse_maintenance`, tick routing).
+  See `plan/handoffs/LATEST.md` for detail.
 - **Agent activity display** (2026-06-25) — `observing`/`thinking` now push to
   each NPC's `AIState` from the sequential tick phases (`_set_activity` in
   `agent_manager.py`, `bridge.set_ai_state`). A Text Render component on
@@ -360,10 +383,13 @@ Relates to: #1 (cell_center resolve), #6 (map/known_places), #5 (episodic), engi
 
 ## Notes
 
+- **The offline-testable Python core is done.** What remains is the editor/live
+  half: each open item below needs Unreal/PIE, the web app running, an LLM signal,
+  or a human decision. The next loop session has no loop-safe work until one of
+  those unblocks (e.g. the `observe_heading` bridge handler lands).
 - **#2 and #3 are coupled** — the standalone launcher probably belongs in the
   same web app that's getting the settings page and rename.
-- **#1 is independent** and the most self-contained — good candidate to tackle
-  first.
-- **Child BPs (Next up) are self-contained** and the chosen next task.
-- **#4 (autonomous loop) is gated by local models + #3** — its first safe target
-  is #1; don't point a loop at the whole backlog (half needs the editor or you).
+- **#4 (autonomous loop) harness is built** (`run_tests.py`, `preflight.py`,
+  `autonomous_loop.md`); running it *live* is still gated by local models + #3.
+- **The autonomous loop verifies via `python scripts/run_tests.py` (15/15)** — keep
+  it green; preflight refuses to start on a dirty tree or `main`.
