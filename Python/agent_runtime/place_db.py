@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS place_cells (
     name     TEXT,
     named_at TEXT,
     named_by TEXT,          -- agent_id that first named this cell
+    swept_at TEXT,          -- when this cell was 360-swept (community breadcrumb)
+    swept_by TEXT,          -- agent_id that first swept this cell
     PRIMARY KEY (col, row)
 );
 
@@ -92,9 +94,18 @@ class PlaceDB:
         conn = sqlite3.connect(str(db_path))
         try:
             conn.executescript(_SCHEMA)
+            self._migrate(conn)
             conn.commit()
         finally:
             conn.close()
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Add columns introduced after a DB was first created (idempotent)."""
+        have = {r[1] for r in conn.execute("PRAGMA table_info(place_cells)")}
+        for col in ("swept_at", "swept_by"):
+            if col not in have:
+                conn.execute(f"ALTER TABLE place_cells ADD COLUMN {col} TEXT")
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
@@ -205,6 +216,57 @@ class PlaceDB:
                 "WHERE name IS NOT NULL ORDER BY col, row"
             ).fetchall()
         return [{"name": r["name"], "col": r["col"], "row": r["row"]} for r in rows]
+
+    def is_explored(self, col: int, row: int) -> bool:
+        """True if this grid cell already has a place cell (named or swept).
+
+        An unexplored cell (no row, or a row with neither a name nor a sweep)
+        is what triggers an APC's deterministic sweep. Example:
+        ``is_explored(2, 3)`` → False until someone names or sweeps it.
+        """
+        with self._connect() as conn:
+            row_ = conn.execute(
+                "SELECT 1 FROM place_cells WHERE col=? AND row=? "
+                "AND (name IS NOT NULL OR swept_at IS NOT NULL)",
+                (col, row),
+            ).fetchone()
+        return row_ is not None
+
+    def get_swept(self, col: int, row: int) -> dict | None:
+        """Return ``{name, swept_at, swept_by}`` for a cell's breadcrumb, or None."""
+        with self._connect() as conn:
+            r = conn.execute(
+                "SELECT name, swept_at, swept_by FROM place_cells WHERE col=? AND row=?",
+                (col, row),
+            ).fetchone()
+        if not r or (r["swept_at"] is None and r["name"] is None):
+            return None
+        return {"name": r["name"], "swept_at": r["swept_at"], "swept_by": r["swept_by"]}
+
+    def mark_swept(self, agent_id: str, col: int, row: int, world_time: str) -> bool:
+        """Drop a community place-cell breadcrumb after a 360 sweep of a cell.
+
+        Creates (or annotates) the cell's place row with ``swept_at``/``swept_by``
+        without giving it a personal name — so future APCs see the cell is
+        explored and skip the costly re-sweep. Never clobbers an existing name or
+        an earlier sweep (first sweep wins). Returns True if the breadcrumb was
+        written, False if the cell was already swept.
+        """
+        with self._lock, self._connect() as conn:
+            existing = conn.execute(
+                "SELECT swept_at FROM place_cells WHERE col=? AND row=?",
+                (col, row),
+            ).fetchone()
+            if existing and existing["swept_at"]:
+                return False
+            conn.execute(
+                "INSERT INTO place_cells (col, row, swept_at, swept_by) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(col, row) DO UPDATE SET "
+                "  swept_at = excluded.swept_at, swept_by = excluded.swept_by",
+                (col, row, world_time, agent_id),
+            )
+        return True
 
     def touch(self, agent_id: str, col: int, row: int) -> None:
         """Record a visit for this agent; upsert agent_visits."""

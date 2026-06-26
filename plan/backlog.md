@@ -303,6 +303,33 @@ Relates to: #1 (resolver — lookup half done), #5 (social/episodic — "places 
 
 ---
 
+## 7. Unexplored-cell sweep + community breadcrumb place cells
+
+**Status:** In progress · **Independence:** Builds on #1/#6 + PlaceDB · **Source:** user, 2026-06-26
+
+When an APC enters a grid cell that has **no place cell**, it should drop its
+personality and run a deterministic sweep: walk to the **center** of the grid
+cell, do a **360 observation**, then drop a **community place-cell breadcrumb**
+at the center. The breadcrumb marks the cell explored so future APCs reuse it and
+**skip the costly 360** (vision calls) — shared knowledge, paid once.
+
+- [x] **PlaceDB sweep state** ✓ 2026-06-26 — `is_explored(col,row)` (named OR swept),
+      `mark_swept(agent,col,row,t)` drops an unnamed community breadcrumb (first sweep wins,
+      never clobbers a name), `get_swept`. Schema migrates existing DBs (adds `swept_at`/`swept_by`).
+      Test: `test_cell_sweep.py`.
+- [ ] **Pure sweep planner / state machine** (`cell_sweep.py`) — center target + 8 compass
+      headings; sequences GOTO_CENTER → observe each heading → DONE. Offline-testable.
+- [ ] **Manager `_explore_override`** — unexplored current cell ⇒ forced action (walk to center,
+      then sweep), bypassing the LLM + `validate` (disregards personality), marking swept on finish.
+- [ ] **Forced-action seam in the tick** — skip the LLM/personality while sweeping (also saves cost).
+- [ ] **Live 360 rotation+capture in Unreal** — the actual multi-view sweep at center. *Needs PIE;
+      out of the loop's reach.* Reuses `ingest_compass` so the sweep's landmarks become the shared
+      breadcrumb's content.
+
+Relates to: #1 (cell_center resolve), #6 (map/known_places), #5 (episodic), engine-agnostic nav.
+
+---
+
 ## Later / ideas
 
 - **Hybrid provider config (cloud + local mix).** Run some roles on cloud and
