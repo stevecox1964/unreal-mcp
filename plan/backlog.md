@@ -317,8 +317,9 @@ at the center. The breadcrumb marks the cell explored so future APCs reuse it an
       `mark_swept(agent,col,row,t)` drops an unnamed community breadcrumb (first sweep wins,
       never clobbers a name), `get_swept`. Schema migrates existing DBs (adds `swept_at`/`swept_by`).
       Test: `test_cell_sweep.py`.
-- [ ] **Pure sweep planner / state machine** (`cell_sweep.py`) — center target + 8 compass
-      headings; sequences GOTO_CENTER → observe each heading → DONE. Offline-testable.
+- [x] **Pure sweep planner / state machine** (`cell_sweep.py`) ✓ 2026-06-26 — `CellSweep` sequences
+      GOTO_CENTER → observe each of 8 compass headings → DONE (sticky arrival); `default_sweep`
+      builds one from the world grid (None if unbounded). Test: `test_cell_sweep.py`.
 - [ ] **Manager `_explore_override`** — unexplored current cell ⇒ forced action (walk to center,
       then sweep), bypassing the LLM + `validate` (disregards personality), marking swept on finish.
 - [ ] **Forced-action seam in the tick** — skip the LLM/personality while sweeping (also saves cost).

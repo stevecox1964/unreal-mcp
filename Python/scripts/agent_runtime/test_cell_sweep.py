@@ -19,6 +19,8 @@ ROOT = Path(__file__).resolve().parents[2]      # Python/
 sys.path.insert(0, str(ROOT))
 
 from agent_runtime.place_db import PlaceDB        # noqa: E402
+from agent_runtime.world_grid import WorldGrid    # noqa: E402
+from agent_runtime import cell_sweep               # noqa: E402
 
 
 def check(label, cond):
@@ -71,10 +73,55 @@ def test_swept_migration_on_existing_db():
         check("migrated db tracks new sweep", db.is_explored(7, 7))
 
 
+# ── Pure sweep planner / state machine ──────────────────────────────────────────
+
+def test_compass_headings():
+    h = cell_sweep.compass_headings()
+    check("a full 360 in 8 steps", len(h) == 8)
+    check("evenly spaced 45deg", h == [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0])
+
+
+def test_default_sweep_needs_bounds():
+    bounded = WorldGrid(cell_size=400.0, bounds={"min_x": -2000, "min_y": -2000, "max_x": 1999, "max_y": 1999})
+    sweep = cell_sweep.default_sweep(bounded, 5, 5, z=90.0)
+    check("bounded grid yields a sweep", sweep is not None)
+    check("targets the cell center", sweep.center == (200.0, 200.0))
+    check("unbounded grid yields no sweep", cell_sweep.default_sweep(WorldGrid(), 5, 5, z=90.0) is None)
+
+
+def test_sweep_sequence():
+    sweep = cell_sweep.CellSweep(center=(200.0, 200.0), z=90.0,
+                                 headings=[0.0, 90.0, 180.0, 270.0], arrive_tolerance=50.0)
+    # Far from center: keep walking to the center, not yet sweeping.
+    a = sweep.next_action((1000.0, 200.0))
+    check("far -> walk to center", a["type"] == "walk_to" and a["location"] == [200.0, 200.0, 90.0])
+    check("not done while travelling", not sweep.is_done)
+
+    # Arrived: emit one observation per heading, in order.
+    seen = [sweep.next_action((210.0, 205.0))["yaw"] for _ in range(4)]
+    check("observes every heading in order", seen == [0.0, 90.0, 180.0, 270.0])
+
+    # Headings exhausted: done.
+    done = sweep.next_action((210.0, 205.0))
+    check("sweep reports done", done["type"] == "sweep_done")
+    check("is_done set", sweep.is_done)
+
+
+def test_arrival_is_sticky():
+    sweep = cell_sweep.CellSweep(center=(0.0, 0.0), z=0.0, headings=[0.0], arrive_tolerance=50.0)
+    sweep.next_action((10.0, 0.0))                 # arrive
+    a = sweep.next_action((9999.0, 0.0))           # drift far after arriving
+    check("does not restart travel after arriving", a["type"] != "walk_to")
+
+
 def main():
     test_is_explored_and_mark_swept()
     test_swept_migration_on_existing_db()
-    print("\nAll cell-sweep (PlaceDB) checks passed.")
+    test_compass_headings()
+    test_default_sweep_needs_bounds()
+    test_sweep_sequence()
+    test_arrival_is_sticky()
+    print("\nAll cell-sweep checks passed.")
 
 
 if __name__ == "__main__":
