@@ -215,23 +215,10 @@ def get_agent_manager():
     """Return the singleton AgentManager, creating it on first call."""
     global _agent_manager
     if _agent_manager is None:
-        import os
         from pathlib import Path
-        from agent_runtime.agent_manager import AgentManager
-        from agent_runtime.unreal_bridge import UnrealBridge
-        from agent_runtime.llm_router import LLMRouter
-        from agent_runtime.memory_store import MemoryStore
+        from agent_runtime.factory import build_agent_manager
 
-        worlds_dir = Path(__file__).parent / "worlds"
-        bridge = UnrealBridge()
-        llm = LLMRouter()
-        memory = MemoryStore(worlds_dir)
-        _agent_manager = AgentManager(
-            worlds_dir=worlds_dir,
-            llm_router=llm,
-            unreal_bridge=bridge,
-            memory_store=memory,
-        )
+        _agent_manager = build_agent_manager(worlds_dir=Path(__file__).parent / "worlds")
         logger.info("AgentManager created")
     return _agent_manager
 

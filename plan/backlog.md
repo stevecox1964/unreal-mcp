@@ -133,7 +133,9 @@ server is a stdio subprocess of Claude Code, and the `AgentManager` (async sim l
 it. `UnrealBridge` (TCP 55557) + the web UI's direct socket are already Claude-independent.
 
 Action breakdown (from dreams iter 2, `plan/dreams/dreams_2026-06-24_2327.md` — subagent-ready):
-- [ ] **2.1** Factor `AgentManager` construction into `agent_runtime/factory.py` (shared by MCP + runner).
+- [x] **2.1** Factor `AgentManager` construction into `agent_runtime/factory.py` (shared by MCP + runner).
+      ✓ 2026-06-26 — `build_agent_manager(worlds_dir=None)`; `get_agent_manager` now delegates to it.
+      No I/O at construction, so offline-testable: `test_factory.py`.
 - [ ] **2.2** New `Python/sim_runner.py` — standalone process that runs the loop with no MCP/Claude.
 - [ ] **2.3** Control surface on the runner (localhost HTTP: start/stop/status/tick).
 - [ ] **2.4** Make `simulation_tools.py` thin clients of the runner (attach, don't host).
