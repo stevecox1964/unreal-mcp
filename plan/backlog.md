@@ -105,8 +105,10 @@ Action breakdown (from dreams iter 3, `plan/dreams/dreams_2026-06-25_1131.md` �
 - [ ] **2.1** Rename surface strings only (`web_ui` templates, `main.py` title/docstring,
       `start_npc_builder.bat`, `/create-npc` skill prose); leave `npc_builder` *code identifiers* for a
       separate pass.
-- [ ] **2.2** New `agent_runtime/config_store.py` — `read_config()` (secrets as set/unset, never values)
-      + `write_config()` that rewrites `.env` preserving comments and triggers the existing reload.
+- [x] **2.2** New `agent_runtime/config_store.py` — `read_config()` (secrets as set/unset, never values)
+      + `write_config()` that rewrites `.env` preserving comments/order, leaving omitted secrets intact.
+      ✓ 2026-06-26. Offline test: `test_config_store.py`. *(Reload: callers invoke the existing
+      `load_dotenv(override=True)` path — `reload_llm_environment`; not bundled into write_config.)*
 - [ ] **2.3** Settings page: `GET/POST /settings` in `web_ui/main.py` + `settings.html` + nav link.
 - [ ] **2.4** First control — Ollama⇄cloud provider toggle (decision + vision roles, hybrid-selectable),
       writes both keys and reloads with no restart.
