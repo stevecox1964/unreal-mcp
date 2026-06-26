@@ -226,9 +226,11 @@ Today observation is split: spatial facts → `world_places.db` (good); everythi
 free-text `memory.json`, capped at 30 and trimmed. No structured record of *what happened* or
 *who an agent met*, and recall is just importance+recency. Long/overnight runs forget.
 
-- [ ] **Episodic observation record** — persist structured per-tick events
-      `{agent, t, grid_cell, place, saw[], action, outcome}` attached to place cells (extends
-      #1's "how observations save" subtask).
+- [x] **Episodic observation record** — persist structured per-tick events
+      `{world_time, grid_cell, place, saw[], action, outcome}`. ✓ 2026-06-26 — `EpisodicLog`
+      (`episodic_memory.py`, append-only per-agent `episodes.jsonl`); `AgentManager._record_episode`
+      records each acted tick in the live path; `query(place=/character=)` for recall. Offline test:
+      `test_episodic_memory.py`. *(Wired in the live decision path; explore-mode ticks not yet logged.)*
 - [x] **Social/acquaintance store** (per agent) — `{character: {first_met, last_seen, last_cell,
       meet_count, interaction_count, sentiment}}`. ✓ 2026-06-26 — `SocialMemory`
       (`social_memory.py`, per-agent `social.json`); fed from perceived characters via

@@ -18,6 +18,14 @@ def _norm(name: str) -> str:
     return " ".join(str(name).split()).lower()
 
 
+def is_anonymous(name: str) -> bool:
+    """True if ``name`` carries no identity (empty or 'unknown person', etc.).
+
+    Such a sighting can't become an acquaintance or a named ``saw`` entry.
+    """
+    return _norm(name) in _ANONYMOUS
+
+
 class SocialMemory:
     """Per-agent acquaintance store — who this agent has met, when, and where.
 

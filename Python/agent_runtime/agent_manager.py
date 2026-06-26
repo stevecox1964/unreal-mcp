@@ -12,8 +12,9 @@ from .agent import Agent
 from .action_validator import validate
 from . import explorer
 from .perception import VisionPerceiver
+from .episodic_memory import EpisodicLog
 from .place_db import PlaceDB, yaw_to_compass
-from .social_memory import SocialMemory
+from .social_memory import SocialMemory, is_anonymous
 from .spatial_memory import SpatialMap
 from .world_clock import WorldClock
 from .world_grid import WorldGrid
@@ -132,6 +133,7 @@ class AgentManager:
         self.perceiver = VisionPerceiver()
         self._spatial: dict[str, SpatialMap] = {}   # agent_id -> loaded map (cache)
         self._social_mem: dict[str, SocialMemory] = {}  # agent_id -> acquaintance store (cache)
+        self._episodic_log: dict[str, EpisodicLog] = {}  # agent_id -> episodic event log (cache)
         self._last_cell: dict[str, str] = {}        # agent_id -> previous cell key, for nav edges
         self._frontier_failures: dict[str, dict[str, int]] = {}  # agent_id -> cell key -> consecutive failed walks
         self._scene_skips: dict[str, int] = {}      # agent_id -> consecutive scene-unchanged skips (gate liveness)
@@ -922,6 +924,7 @@ class AgentManager:
             memory_update=decision.get("memory_update"),
             importance=float(decision.get("importance", 0.5)),
         )
+        self._record_episode(agent_id, observation, action, result)
         agent.mark_ticked(self._agents_dir)
 
         return {
@@ -1037,6 +1040,35 @@ class AgentManager:
                 changed = True
         if changed:
             social.save(self._agents_dir / agent_id / "social.json")
+
+    def _episodic(self, agent_id: str) -> EpisodicLog:
+        """Load (and cache) this agent's append-only episodic event log."""
+        log = self._episodic_log.get(agent_id)
+        if log is None:
+            log = EpisodicLog(self._agents_dir / agent_id / "episodes.jsonl")
+            self._episodic_log[agent_id] = log
+        return log
+
+    def _record_episode(self, agent_id: str, observation: dict, action: dict, result: dict) -> None:
+        """Append a structured "what happened" event for this acted tick.
+
+        Captures where (grid cell + place), who was seen (named only), what the
+        agent did, and the outcome — so overnight runs keep a queryable history
+        beyond the 30-item memory.json window.
+        """
+        grid = observation.get("grid") or {}
+        place_list = observation.get("place") or []
+        characters = (observation.get("seen") or {}).get("characters") or []
+        saw = [c.get("label") for c in characters
+               if c.get("label") and not is_anonymous(c.get("label", ""))]
+        self._episodic(agent_id).record({
+            "world_time": observation.get("world_time", ""),
+            "grid_cell": grid.get("key"),
+            "place": place_list[0] if place_list else None,
+            "saw": saw,
+            "action": action.get("type"),
+            "outcome": result.get("status") or result.get("success"),
+        })
 
     def _grid_and_place(self, agent_id: str, location) -> tuple[dict | None, list[str]]:
         """Fixed world-grid cell for a location + known place labels for it.
