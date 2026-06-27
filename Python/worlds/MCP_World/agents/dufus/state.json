@@ -4,7 +4,6 @@
   "blueprint_class": "/Game/Blueprints/BP_CameraNPC.BP_CameraNPC_C",
   "tier": 2,
   "is_active": true,
-  "is_busy": false,
   "tick_interval_seconds": 0,
   "speech_cooldown_seconds": 30,
   "start_location": {
@@ -16,11 +15,5 @@
     "x": 0,
     "y": 0,
     "z": 0
-  },
-  "bound_unreal_actor_name": "BP_CameraNPC_C_1",
-  "bound_unreal_actor_label": "Dufus",
-  "bound_unreal_actor_class": "BP_CameraNPC_C",
-  "last_bound_time": "2026-06-25T03:31:50.249852+00:00",
-  "current_goal": "Head toward the village square - that's where all the excitement happens and where I can greet folks!",
-  "last_tick_time": "2026-06-25T03:32:57.633700+00:00"
+  }
 }

@@ -4,7 +4,6 @@
   "blueprint_class": "/Game/Blueprints/BP_CameraNPC.BP_CameraNPC_C",
   "tier": 2,
   "is_active": true,
-  "is_busy": false,
   "tick_interval_seconds": 2,
   "speech_cooldown_seconds": 30,
   "start_location": {
@@ -16,12 +15,5 @@
     "x": 0,
     "y": -90.00000209151892,
     "z": 0
-  },
-  "bound_unreal_actor_name": "BP_CameraNPC_C_0",
-  "bound_unreal_actor_label": "Maren",
-  "bound_unreal_actor_class": "BP_CameraNPC_C",
-  "last_bound_time": "2026-06-25T03:31:50.456230+00:00",
-  "current_goal": "I'm already at my truck post. Time to arrange the vegetables and tend to business.",
-  "last_spoke_time": "2026-06-25T03:32:06.657876+00:00",
-  "last_tick_time": "2026-06-25T03:32:50.559334+00:00"
+  }
 }
