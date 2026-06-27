@@ -283,6 +283,18 @@ A cognitive layer the agents build and share as they run (verified live in PIE, 
 - **Maintenance/monitor APC** â€” an optional system-worker role (`"role": "maintenance"` in `state.json`) with **no personality or LLM** that sweeps unexplored grid cells (walk to cell center â†’ 360 observe â†’ drop a *community breadcrumb*) so the personality NPCs skip the costly re-sweep. *Decision + navigation logic is complete and tested; the live 360 rotation+capture in Unreal is pending.*
 - **`.env` config store** â€” `agent_runtime/config_store.py` reads/writes provider/model settings with secrets shown set/unset only (backs a future settings UI; no hand-editing `.env`).
 
+### Standalone runner & web settings
+
+- **Standalone sim runner** (`Python/sim_runner.py`) â€” runs the simulation in its **own process,
+  independent of Claude/MCP** (the "runs overnight without Claude open" host). It owns the
+  AgentManager and the single Unreal socket, and exposes a localhost HTTP control surface
+  (`/status`, `/start`, `/stop`, `/tick`); MCP tools and the web UI can *attach* via
+  `agent_runtime.runner_client.RunnerClient` instead of hosting the manager themselves. Run it with
+  `python sim_runner.py --port 8777` (Unreal in PIE). The control API + client are offline-tested.
+- **Web settings page** (`/settings` in the web app) â€” manage provider/model config (the Ollama vs
+  cloud switch, models) through the UI instead of hand-editing `.env`. Secret keys show only
+  whether they are *set*; a blank secret field is left untouched. Backed by `agent_runtime/config_store.py`.
+
 ### Offline test suite
 
 The agent-runtime logic is covered by offline tests that stub Unreal entirely (no editor, no network, no LLM call) â€” the loop-safe surface for automated/unattended development:
