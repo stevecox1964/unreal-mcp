@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Sim · Unreal World Sim{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="/">Home</a> / Sim</div>
+<h2>Simulation</h2>
+<p><small>Drives the standalone <code>sim_runner</code> at <code>{{ runner_url }}</code>. Start it
+with <code>python sim_runner.py</code> (Unreal in PIE). <strong>Step</strong> advances one tick for
+debugging.</small></p>
+
+<article id="status-card">
+  <header><strong>Status:</strong> <span id="status-line">checking…</span></header>
+  <div id="agents"></div>
+</article>
+
+<div class="grid">
+  <label>Tick seconds <input type="number" id="tick_seconds" value="2" min="0"></label>
+  <label>Mode
+    <select id="mode"><option value="live">live</option><option value="explore">explore</option></select>
+  </label>
+</div>
+<div role="group">
+  <button id="btn-start">▶ Start</button>
+  <button id="btn-step" class="secondary">⏭ Step (1 tick)</button>
+  <button id="btn-stop" class="danger">■ Stop</button>
+</div>
+
+<h3>Recent decisions <small>(live)</small></h3>
+<pre id="events" style="max-height: 22rem; overflow:auto; font-size:.85rem;">…</pre>
+
+<script>
+async function getJSON(u){ const r = await fetch(u); return r.json(); }
+async function postJSON(u, body){ const r = await fetch(u, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})}); return r.json(); }
+
+async function refreshStatus(){
+  const s = await getJSON('/api/sim/status');
+  const line = document.getElementById('status-line');
+  if(!s.online){ line.textContent = 'no sim runner running'; document.getElementById('agents').textContent = ''; return; }
+  line.textContent = `${s.running ? 'running' : 'idle'} · tick ${s.tick_count ?? 0} · ${s.agent_count ?? 0} agents · ${s.mode ?? ''}`;
+  document.getElementById('agents').innerHTML = (s.agents||[]).map(a =>
+    `<small><strong>${a.agent_id}</strong> — ${a.current_goal||''}</small>`).join('<br>');
+}
+async function refreshEvents(){
+  const {events} = await getJSON('/api/sim/events');
+  document.getElementById('events').textContent =
+    (events||[]).map(e => `[${e.agent_id}] ${e.action_type||''} — ${e.thought||''}`).join('\n') || '(no events yet)';
+}
+async function refresh(){ try{ await refreshStatus(); await refreshEvents(); }catch(e){} }
+
+document.getElementById('btn-start').onclick = async () => {
+  await postJSON('/api/sim/start', {tick_seconds: +document.getElementById('tick_seconds').value, mode: document.getElementById('mode').value});
+  refresh();
+};
+document.getElementById('btn-stop').onclick = async () => { await postJSON('/api/sim/stop'); refresh(); };
+document.getElementById('btn-step').onclick = async () => { await postJSON('/api/sim/tick'); refresh(); };
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+{% endblock %}

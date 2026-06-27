@@ -67,10 +67,23 @@ even though final live execution may need PIE. Commit each green step, never pus
    `start_npc_builder.bat`; added a Settings nav link. `npc_builder` *code identifiers* and the .bat
    *filename* left for a later pass. Branding/nav asserted in `test_settings_page.py`.
 
-**✅ Queue drained (2026-06-26).** All five loop-safe items landed (18/18 tests green). What remains
-across the backlog is editor/live/human work — see "Outstanding". Next session can groom more
-loop-safe items, but the obvious ones are done; the highest-value *live* follow-ups are running
-`sim_runner.py` in PIE and the maintenance APC's `observe_heading` handler.
+**Direction (user, 2026-06-26):** the **web UI is the cockpit** — drive/step/log the sim for
+debugging and CRUD the providers — and the **sim engine runs standalone** (`sim_runner`), so it can
+run slow **local/offline models** with no Claude attached. Claude shifts to **plain API calls** for
+coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal MCP now). New items:
+
+6. ~~**Web sim controller (drive + step + log)**~~ ✓ 2026-06-26 — `web_ui` `/sim` cockpit:
+   status panel (running/tick/agents), **Start/Stop**, single-tick **Step** (debugging), and a live
+   decision-log panel — JS polls `/api/sim/status` + `/api/sim/events` every 2s. Routes proxy to
+   `sim_runner` via `RunnerClient`; "no sim runner running" handled. Runner gained `GET /events` +
+   `recent_events` (and a `get_status` bugfix the stub had masked). `start_sim.bat` boots engine +
+   cockpit with no Claude. Nav link added. Offline-tested with a stub runner (`test_sim_controller.py`).
+   *Live verify: run `start_sim.bat` with Unreal in PIE and drive it in a browser.*
+7. **Provider CRUD** — evolve the settings page into a CRUD interface for providers/models
+   (list/add/edit/remove named provider configs; pick the active decision + vision providers;
+   Ollama⇄cloud). Backed by `config_store` (or a `config.json`). Route/data logic offline-tested.
+
+(Items 1–5 landed 2026-06-26, 18/18 green.)
 
 ---
 
@@ -428,6 +441,14 @@ Relates to: #1 (cell_center resolve), #6 (map/known_places), #5 (episodic), engi
 ---
 
 ## Later / ideas
+
+- **Deprecate the custom MCP server** (user direction, 2026-06-26). Move Claude to plain **API calls**
+  for coding help and back away from the bespoke `UnrealMCP` Python MCP server entirely — **Epic now
+  ships an official Unreal MCP server**, so maintaining ours isn't worth it. Phased, and done *last*
+  (once the web UI fully drives the sim): (a) sim fully drivable with **no MCP** (web UI → `sim_runner`);
+  (b) anything Claude needs goes through API calls / the runner's HTTP API; (c) retire
+  `unreal_sim_server.py` + the `tools/*` MCP registration. The standalone-sim + web-cockpit work
+  (queue #6/#7) is the on-ramp to this.
 
 - **Hybrid provider config (cloud + local mix).** Run some roles on cloud and
   others local — e.g. cloud Haiku for decisions, local qwen for vision, or vice

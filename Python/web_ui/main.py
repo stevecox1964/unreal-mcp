@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from agent_runtime.config_store import read_config, write_config, is_secret
+from agent_runtime.runner_client import RunnerClient, DEFAULT_BASE_URL
 from web_ui import unreal_client
 
 BASE_DIR = Path(__file__).parent
@@ -201,6 +202,67 @@ async def api_actors():
     actors = unreal_client.get_actors()
     labels = sorted({a.get("label") or a.get("name", "") for a in actors if a.get("label") or a.get("name")})
     return JSONResponse({"online": bool(actors), "actors": labels})
+
+
+# ── Sim controller (cockpit over the standalone sim_runner) ───────────────────
+
+RUNNER_URL = DEFAULT_BASE_URL   # where sim_runner.py serves its control API
+
+
+def get_runner() -> RunnerClient:
+    """The control client for the standalone sim runner (overridable in tests)."""
+    return RunnerClient(base_url=RUNNER_URL)
+
+
+@app.get("/sim", response_class=HTMLResponse)
+async def sim_page(request: Request):
+    return templates.TemplateResponse("sim.html", {"request": request, "runner_url": RUNNER_URL})
+
+
+@app.get("/api/sim/status")
+def api_sim_status():
+    """Runner status, or ``{"online": false}`` when no runner is reachable."""
+    try:
+        return JSONResponse({"online": True, **get_runner().status()})
+    except Exception:
+        return JSONResponse({"online": False})
+
+
+@app.get("/api/sim/events")
+def api_sim_events(limit: int = 30):
+    try:
+        return JSONResponse({"events": get_runner().events(limit)})
+    except Exception:
+        return JSONResponse({"events": []})
+
+
+@app.post("/api/sim/start")
+async def api_sim_start(request: Request):
+    body = await _maybe_json(request)
+    return JSONResponse(get_runner().start(
+        tick_seconds=int(body.get("tick_seconds", 1)),
+        active_agents=body.get("active_agents"),
+        mode=body.get("mode", "live"),
+    ))
+
+
+@app.post("/api/sim/stop")
+def api_sim_stop():
+    return JSONResponse(get_runner().stop())
+
+
+@app.post("/api/sim/tick")
+def api_sim_tick():
+    """Advance exactly one tick — the single-step debugging control."""
+    return JSONResponse(get_runner().tick())
+
+
+async def _maybe_json(request: Request) -> dict:
+    try:
+        data = await request.json()
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
 
 
 # ── Settings ──────────────────────────────────────────────────────────────────
