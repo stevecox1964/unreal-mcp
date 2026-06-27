@@ -49,10 +49,13 @@ even though final live execution may need PIE. Commit each green step, never pus
    `load()` merges runtime over config; legacy dirs (no runtime.json) load fine. Test: `test_agent_state.py`.
    *(One-time: the committed `dufus`/`maren` state.json shed their stale runtime keys on the next live
    save — expected, then stable.)*
-3. **#3 standalone runner** — `Python/sim_runner.py` (builds the manager via `factory`, runs the
-   async loop in its own process) + a localhost HTTP control API (start/stop/status/tick) + a small
-   client. Build the **control logic + handlers + client offline-tested** (stub/real manager that
-   never connects to Unreal); the *live* sim run is deferred to PIE.
+3. ~~**#3 standalone runner (control surface)**~~ ✓ 2026-06-26 — `runner_app.build_control_app`
+   (FastAPI: `/health`, `/status`, `/start`, `/stop`, `/tick` over the manager), `runner_client.RunnerClient`
+   (injectable HTTP client + `is_running`/`reachable`), and `sim_runner.py` entry point (`create_app`
+   via `factory` + `uvicorn.run`). Routes + client + wiring offline-tested via `TestClient`/ASGI
+   (`test_runner_api.py`). **Remaining (live, deferred):** run `sim_runner.py` against Unreal in PIE;
+   wire `simulation_tools.py` + `web_ui` as thin `RunnerClient` attachers (#3 actions 2.4/2.5) — both
+   need a live runner to verify.
 4. **#2 web settings backend** — `GET/POST /settings` in `web_ui` via `config_store` (secrets shown
    set/unset only); test with Starlette/FastAPI `TestClient` offline. UI polish/visual check deferred.
 5. **"NPC Builder" → "Unreal World Sim" rename** — surface strings in `web_ui` templates, `main.py`
