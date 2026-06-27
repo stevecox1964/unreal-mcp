@@ -10,10 +10,12 @@ from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from agent_runtime.config_store import read_config, write_config, is_secret
 from web_ui import unreal_client
 
 BASE_DIR = Path(__file__).parent
 WORLDS_DIR = BASE_DIR.parent / "worlds"
+ENV_PATH = BASE_DIR.parent / ".env"   # provider/model config the settings page manages
 
 app = FastAPI(title="NPC Builder")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -199,6 +201,36 @@ async def api_actors():
     actors = unreal_client.get_actors()
     labels = sorted({a.get("label") or a.get("name", "") for a in actors if a.get("label") or a.get("name")})
     return JSONResponse({"online": bool(actors), "actors": labels})
+
+
+# ── Settings ──────────────────────────────────────────────────────────────────
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    return templates.TemplateResponse("settings.html", {
+        "request": request,
+        "config": read_config(ENV_PATH),
+    })
+
+
+@app.get("/api/settings")
+async def api_settings():
+    """Current config; secret values are masked (set/unset only)."""
+    return JSONResponse(read_config(ENV_PATH))
+
+
+@app.post("/settings")
+async def settings_save(request: Request):
+    """Persist edited config to .env. A blank secret field means "leave as-is" —
+    so the form (which never receives secret values) can't wipe a key."""
+    form = await request.form()
+    updates = {
+        key: value for key, value in form.items()
+        if not (is_secret(key) and value == "")
+    }
+    write_config(ENV_PATH, updates)
+    # The sim process reloads .env before each LLM decision, so writing is enough.
+    return RedirectResponse("/settings", status_code=303)
 
 
 LOG_PATH = BASE_DIR.parent / "unreal_mcp.log"

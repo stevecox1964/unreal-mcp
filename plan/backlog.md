@@ -56,8 +56,11 @@ even though final live execution may need PIE. Commit each green step, never pus
    (`test_runner_api.py`). **Remaining (live, deferred):** run `sim_runner.py` against Unreal in PIE;
    wire `simulation_tools.py` + `web_ui` as thin `RunnerClient` attachers (#3 actions 2.4/2.5) — both
    need a live runner to verify.
-4. **#2 web settings backend** — `GET/POST /settings` in `web_ui` via `config_store` (secrets shown
-   set/unset only); test with Starlette/FastAPI `TestClient` offline. UI polish/visual check deferred.
+4. ~~**#2 web settings backend**~~ ✓ 2026-06-26 — `web_ui`: `GET /settings` (page), `GET /api/settings`
+   (JSON, secrets masked), `POST /settings` (form → `config_store.write_config`; a blank secret field
+   is left as-is so it can't be wiped). `settings.html` template + `ENV_PATH`. Offline-tested via
+   `TestClient` over a temp .env (`test_settings_page.py`). *Remaining (live): a nav link + visual
+   polish, and surfacing the Ollama⇄cloud toggle nicely — verify in a browser.*
 5. **"NPC Builder" → "Unreal World Sim" rename** — surface strings in `web_ui` templates, `main.py`
    title/docstring, `start_npc_builder.bat`; leave `npc_builder` code identifiers for a later pass.
 

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Settings · Unreal World Sim{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="/">Home</a> / Settings</div>
+<h2>Settings</h2>
+<p><small>Provider &amp; model configuration. Saved to <code>Python/.env</code>; the simulation
+reloads it before each decision. Secret keys show only whether they are set — leave a secret
+field blank to keep its current value.</small></p>
+
+<form method="post" action="/settings">
+  {% for key, item in config.items() %}
+  <label for="{{ key }}">
+    {{ key }}
+    {% if item.is_secret %}<small>({{ "set" if item.set else "unset" }})</small>{% endif %}
+  </label>
+  {% if item.is_secret %}
+  <input type="password" id="{{ key }}" name="{{ key }}" value=""
+         placeholder="{{ '•••••• (set)' if item.set else 'not set' }}">
+  {% else %}
+  <input type="text" id="{{ key }}" name="{{ key }}" value="{{ item.value or '' }}">
+  {% endif %}
+  {% endfor %}
+  <button type="submit">Save</button>
+</form>
+{% endblock %}
