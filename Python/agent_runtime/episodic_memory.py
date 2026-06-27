@@ -19,16 +19,84 @@ class EpisodicLog:
     partially-written tail can't crash recall.
     """
 
+    # Auto-consolidation defaults: once the log passes ``_max_events``, roll up
+    # everything older than the most recent ``_keep_recent`` into per-place
+    # summaries. Checked only every ``_consolidate_every`` appends so the rewrite
+    # cost is amortised (a no-op below the threshold).
+    _max_events = 1000
+    _keep_recent = 200
+    _consolidate_every = 200
+
     def __init__(self, path: Path):
         self._path = path
+        self._since_consolidate = 0
 
     # ── Write ───────────────────────────────────────────────────────────────────
 
     def record(self, event: dict) -> None:
-        """Append one event as a JSON line."""
+        """Append one event as a JSON line; consolidate periodically when large."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with open(self._path, "a", encoding="utf-8") as f:
             f.write(json.dumps(event) + "\n")
+        self._since_consolidate += 1
+        if self._since_consolidate >= self._consolidate_every:
+            self._since_consolidate = 0
+            self.consolidate()
+
+    def consolidate(self, max_events: int = None, keep_recent: int = None) -> dict:
+        """Roll up old events into compact per-place summaries to cap file growth.
+
+        A no-op while the log has ``<= max_events`` rows. Otherwise everything
+        older than the most recent ``keep_recent`` events is grouped by ``place``
+        into one summary row each — ``{kind:"summary", place, count, first_time,
+        last_time, actions:{...}, saw:[unique], grid_cells:[unique]}`` — and the
+        recent tail is kept verbatim. Summary rows carry ``place``/``saw`` so
+        ``query``/``relevant`` keep working across them. Returns a small report.
+        """
+        max_events = self._max_events if max_events is None else max_events
+        keep_recent = self._keep_recent if keep_recent is None else keep_recent
+        events = self._all()
+        if len(events) <= max_events:
+            return {"consolidated": 0, "summaries": 0, "kept": len(events)}
+
+        old, recent = events[:-keep_recent], events[-keep_recent:]
+        # Don't re-summarise existing summary rows away — carry them through.
+        passthrough = [e for e in old if e.get("kind") == "summary"]
+        to_roll = [e for e in old if e.get("kind") != "summary"]
+
+        groups: dict[str, list[dict]] = {}
+        for e in to_roll:
+            groups.setdefault(e.get("place") or "", []).append(e)
+
+        summaries: list[dict] = list(passthrough)
+        for place, evs in groups.items():
+            times = [e.get("world_time", "") for e in evs]
+            actions: dict[str, int] = {}
+            saw: set[str] = set()
+            cells: set[str] = set()
+            for e in evs:
+                actions[e.get("action")] = actions.get(e.get("action"), 0) + 1
+                saw.update(s for s in (e.get("saw") or []) if s)
+                if e.get("grid_cell"):
+                    cells.add(e["grid_cell"])
+            summaries.append({
+                "kind": "summary",
+                "place": place or None,
+                "count": len(evs),
+                "first_time": min(times) if times else None,
+                "last_time": max(times) if times else None,
+                "actions": actions,
+                "saw": sorted(saw),
+                "grid_cells": sorted(cells),
+            })
+        # Oldest-first overall: summaries (by their last_time) then recent verbatim.
+        summaries.sort(key=lambda s: (s.get("last_time") or ""))
+        rows = summaries + recent
+
+        tmp = self._path.with_suffix(self._path.suffix + ".tmp")
+        tmp.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        tmp.replace(self._path)
+        return {"consolidated": len(to_roll), "summaries": len(summaries), "kept": len(recent)}
 
     # ── Read ────────────────────────────────────────────────────────────────────
 

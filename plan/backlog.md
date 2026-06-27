@@ -37,9 +37,11 @@ grooming: 2026-06-26.
 Build these in order on an `auto-loop/*` branch; each is Python whose **logic** is offline-testable
 even though final live execution may need PIE. Commit each green step, never push.
 
-1. **Episodic consolidation** (`episodic_memory.py`) — heuristic (non-LLM) rollup: when
-   `episodes.jsonl` exceeds N, summarise the oldest events per place into compact records, keep the
-   recent K verbatim; caps overnight growth. `recent`/`relevant`/`query` must tolerate summary rows.
+1. ~~**Episodic consolidation**~~ ✓ 2026-06-26 — `EpisodicLog.consolidate()` rolls events older than
+   `keep_recent` into compact per-place summary rows `{kind:"summary", place, count, first/last_time,
+   actions, saw, grid_cells}`; auto-runs from `record()` every `_consolidate_every` appends once over
+   `_max_events` (1000/200/200 defaults), atomic tmp-rewrite. `query`/`relevant`/`recent` tolerate
+   summary rows. Test: `test_episodic_memory.py`.
 2. **`state.json` config/runtime split** — stop the per-run tree churn (last_tick_time/current_goal
    re-dirty every run). Persist runtime fields to a separate git-ignored `runtime.json`; keep
    `state.json` config-only and tracked. Update `Agent` load/save + `reset`.

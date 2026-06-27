@@ -113,12 +113,74 @@ def test_relevance_ranking():
         check("relevant caps at n", len(log.relevant(n=2)) == 2)
 
 
+def test_consolidate_rolls_up_old_keeps_recent():
+    with tempfile.TemporaryDirectory() as tmp:
+        log = EpisodicLog(Path(tmp) / "episodes.jsonl")
+        # 30 events at "square", 10 at "market"; oldest first.
+        for i in range(30):
+            log.record({"world_time": f"T{i:03d}", "grid_cell": "1,1", "place": "square",
+                        "saw": (["Maren"] if i % 2 == 0 else []), "action": "walk_to", "outcome": "ok"})
+        for i in range(30, 40):
+            log.record({"world_time": f"T{i:03d}", "grid_cell": "2,2", "place": "market",
+                        "saw": [], "action": "idle", "outcome": "ok"})
+
+        # Below threshold: no-op.
+        res = log.consolidate(max_events=100, keep_recent=10)
+        check("no-op below threshold", res["consolidated"] == 0)
+        check("nothing changed below threshold", len(log.recent(999)) == 40)
+
+        # Above threshold: summarise all but the most recent 10.
+        res = log.consolidate(max_events=20, keep_recent=10)
+        check("rolled up the old events", res["consolidated"] == 30)
+        rows = log.recent(999)
+        summaries = [r for r in rows if r.get("kind") == "summary"]
+        verbatim = [r for r in rows if r.get("kind") != "summary"]
+        check("recent 10 kept verbatim", len(verbatim) == 10)
+        check("the kept events are the newest", verbatim[-1]["world_time"] == "T039")
+        check("old events summarised by place", {s["place"] for s in summaries} == {"square"})
+        sq = next(s for s in summaries if s["place"] == "square")
+        check("summary counts the rolled-up events", sq["count"] == 30)
+        check("summary preserves unique faces seen", sq["saw"] == ["Maren"])
+        check("summary records its time span", (sq["first_time"], sq["last_time"]) == ("T000", "T029"))
+
+
+def test_reads_tolerate_summaries():
+    with tempfile.TemporaryDirectory() as tmp:
+        log = EpisodicLog(Path(tmp) / "episodes.jsonl")
+        for i in range(40):
+            log.record({"world_time": f"T{i:03d}", "grid_cell": "1,1", "place": "square",
+                        "saw": ["Maren"], "action": "a", "outcome": "ok"})
+        log.consolidate(max_events=20, keep_recent=10)
+        # query/relevant must still work across summary + verbatim rows.
+        check("query by place spans summaries", len(log.query(place="square")) >= 1)
+        check("query by character spans summaries", len(log.query(character="maren")) >= 1)
+        check("relevant() does not crash on summaries",
+              isinstance(log.relevant(n=5, current_place="square", known_names=["Maren"]), list))
+
+
+def test_record_auto_consolidates_when_large():
+    with tempfile.TemporaryDirectory() as tmp:
+        log = EpisodicLog(Path(tmp) / "episodes.jsonl")
+        # Tight thresholds so the auto-trigger fires within the test.
+        log._max_events, log._keep_recent, log._consolidate_every = 50, 20, 25
+        for i in range(120):
+            log.record({"world_time": f"T{i:03d}", "grid_cell": "1,1", "place": "square",
+                        "saw": [], "action": "a", "outcome": "ok"})
+        rows = log.recent(999)
+        check("auto-consolidation kept the file bounded", len(rows) < 120)
+        check("a summary row is present", any(r.get("kind") == "summary" for r in rows))
+        check("newest event still present verbatim", rows[-1]["world_time"] == "T119")
+
+
 def main():
     test_append_and_recent()
     test_query_filters()
     test_persistence_is_append_only()
     test_manager_records_episode()
     test_relevance_ranking()
+    test_consolidate_rolls_up_old_keeps_recent()
+    test_reads_tolerate_summaries()
+    test_record_auto_consolidates_when_large()
     print("\nAll episodic-memory checks passed.")
 
 
