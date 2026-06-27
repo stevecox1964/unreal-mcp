@@ -1,4 +1,4 @@
-"""NPC Builder — local web UI for managing agents under Python/worlds/."""
+"""Unreal World Sim — local web UI for managing agents under Python/worlds/."""
 
 import json
 import re
@@ -17,7 +17,7 @@ BASE_DIR = Path(__file__).parent
 WORLDS_DIR = BASE_DIR.parent / "worlds"
 ENV_PATH = BASE_DIR.parent / ".env"   # provider/model config the settings page manages
 
-app = FastAPI(title="NPC Builder")
+app = FastAPI(title="Unreal World Sim")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 

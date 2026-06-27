@@ -17,11 +17,12 @@ grooming: 2026-06-26.
 > **#3** factory ✓. The remaining MVP gap is **#3's standalone runner** (the "runs overnight
 > independent of Claude" long pole — nothing built but the factory).
 
-> **⚑ Status (2026-06-26):** an unattended coding loop landed **~23 commits on branch
-> `auto-loop/backlog`** (never pushed; `python scripts/run_tests.py` = **15/15 green**). It
-> drained **all loop-safe (offline-testable Python) work**. Everything still open below is blocked
-> on the **Unreal editor**, a **live sim / PIE**, an **LLM signal**, or a **human decision** — see
-> **"Outstanding"** next. First action for a new session: review + merge `auto-loop/backlog`.
+> **⚑ Status (2026-06-26, eve):** the autonomous loop ran again and **cleared the entire
+> "Autonomous queue" (5/5 items)** on branch `auto-loop/backlog` — episodic consolidation,
+> state.json config/runtime split, the standalone-runner control surface, the web settings backend,
+> and the NPC-Builder→Unreal-World-Sim rename. `python scripts/run_tests.py` = **18/18 green**,
+> never pushed. First action for a new session: review + merge `auto-loop/backlog`. After that the
+> remaining work is live/editor (see "Outstanding").
 
 > **✅ Validated live (PIE sim run, 2026-06-26 — 23 ticks, cloud, zero errors):** the new
 > agent_manager path runs clean end-to-end. **Confirmed working:** episodic memory (`episodes.jsonl`
@@ -61,11 +62,15 @@ even though final live execution may need PIE. Commit each green step, never pus
    is left as-is so it can't be wiped). `settings.html` template + `ENV_PATH`. Offline-tested via
    `TestClient` over a temp .env (`test_settings_page.py`). *Remaining (live): a nav link + visual
    polish, and surfacing the Ollama⇄cloud toggle nicely — verify in a browser.*
-5. **"NPC Builder" → "Unreal World Sim" rename** — surface strings in `web_ui` templates, `main.py`
-   title/docstring, `start_npc_builder.bat`; leave `npc_builder` code identifiers for a later pass.
+5. ~~**"NPC Builder" → "Unreal World Sim" rename**~~ ✓ 2026-06-26 — display strings in `web_ui`
+   templates (`base.html`, `index.html`, `settings.html`), `main.py` title/docstring, and
+   `start_npc_builder.bat`; added a Settings nav link. `npc_builder` *code identifiers* and the .bat
+   *filename* left for a later pass. Branding/nav asserted in `test_settings_page.py`.
 
-When this queue empties, groom more loop-safe items from "Outstanding" / "Later"; don't invent
-busywork — stop and leave a note if only editor/live/human-decision work remains.
+**✅ Queue drained (2026-06-26).** All five loop-safe items landed (18/18 tests green). What remains
+across the backlog is editor/live/human work — see "Outstanding". Next session can groom more
+loop-safe items, but the obvious ones are done; the highest-value *live* follow-ups are running
+`sim_runner.py` in PIE and the maintenance APC's `observe_heading` handler.
 
 ---
 

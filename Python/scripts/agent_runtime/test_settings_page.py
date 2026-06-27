@@ -74,10 +74,22 @@ def test_settings_page_renders():
     _with_temp_env(body)
 
 
+def test_branding_renamed():
+    """Surface strings renamed NPC Builder -> Unreal World Sim (queue #5)."""
+    def body(env, client):
+        text = client.get("/settings").text
+        check("page shows the new brand", "Unreal World Sim" in text)
+        check("old brand gone from the chrome", "NPC Builder" not in text)
+        check("app title renamed", wm.app.title == "Unreal World Sim")
+        check("nav links to the settings page", 'href="/settings"' in text)
+    _with_temp_env(body)
+
+
 def main():
     test_api_settings_get_masks_secrets()
     test_post_settings_writes_and_preserves_secret()
     test_settings_page_renders()
+    test_branding_renamed()
     print("\nAll settings-page checks passed.")
 
 
