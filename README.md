@@ -67,15 +67,20 @@ All these capabilities are accessible through natural language commands via AI a
 
 - **Python/** â€” Python MCP server and agent runtime
   - **tools/** â€” MCP tool modules (editor, blueprint, character, simulationâ€¦)
-  - **agent_runtime/** â€” AgentManager, LLMRouter, MemoryStore, UnrealBridge
+  - **agent_runtime/** â€” the cognitive loop: `agent_manager` (tick orchestration), `factory`
+    (shared AgentManager construction), `llm_router`, `perception` (VLM), `memory_store`,
+    `social_memory` + `episodic_memory` (per-agent memory), `place_db` + `world_grid` (shared
+    spatial map), `cell_sweep` (maintenance-APC sweep), `config_store`, `unreal_bridge`
+  - **scripts/** â€” offline test suite (`run_tests.py`) + the loop harness (`loop/preflight.py`)
   - **worlds/** â€” Level-scoped NPC data (one folder per Unreal level)
     - **`<LevelName>`/agents/`<agent_id>`/** â€” per-NPC config files
-      - `state.json` â€” identity, binding, tier, goal, tick settings
+      - `state.json` â€” identity, binding, tier, `role` (`npc` | `maintenance`), goal, tick settings
       - `character.md` â€” role, personality, backstory
       - `goals.md` â€” long-term and current goals
       - `rules.md` â€” decision constraints
       - `tools.json` â€” allowed action list
-      - `memory.json` â€” accumulated runtime memories
+      - `memory.json` / `social.json` / `episodes.jsonl` â€” accumulated runtime memory (git-ignored)
+    - **`<LevelName>`/`world_places.db`** â€” shared spatial map (place cells + landmarks; git-ignored)
     - **`<LevelName>`/logs/** â€” per-world decision logs (runtime, git-ignored)
   - **web_ui/** â€” Local NPC Builder web UI (FastAPI + Jinja2)
   - `start_npc_builder.bat` â€” launcher for the web UI
@@ -267,6 +272,28 @@ A first-pass agentic NPC simulation layer driven by an LLM-controlled Agent Mana
 - **NPC Builder web UI** â€” local FastAPI app (`Python/web_ui/`) for creating and editing NPC agent files without touching the CLI; shows live actor list from the running editor; launch with `start_npc_builder.bat`
 - **Explore mode** â€” a second simulation mode (`start_simulation(mode="explore")`) where the avatar autonomously maps an unknown world by walking it: a VLM (Gemini or a local Ollama model) turns each camera frame into semantic landmarks, a deterministic frontier explorer chooses where to walk next, and a per-agent engine-agnostic grid/place map is written to `spatial_map.json`. No LLM in the movement loop. See [Explore Mode](#-explore-mode-vlm-spatial-mapping) below.
 - **Local model support (Ollama)** â€” run both the decision LLM and vision perception fully locally on an Ollama model (e.g. the multimodal `qwen3.5:4b`) with no cloud API keys. Decision and vision providers are selected independently in `Python/.env`. See [LLM configuration for NPC simulation](#llm-configuration-for-npc-simulation).
+
+### Spatial knowledge, memory & navigation
+
+A cognitive layer the agents build and share as they run (verified live in PIE, 2026-06-26):
+
+- **Named-place navigation** â€” `walk_to "<place name>"` resolves a place name â†’ grid cell â†’ world location (`PlaceDB.find_named_cell` + `WorldGrid.cell_center`), so an agent navigates to a stated destination instead of idling. Unknown names fall back gracefully.
+- **Shared world map (place cells)** â€” a SQLite `world_places.db` of named grid cells + compass-indexed landmark observations, **shared across all agents** (one agent's discoveries steer the others). `known_places` surfaces the named-place map (bearing + distance, nearest first) to each agent so it can pick a destination by name.
+- **Episodic + social memory (per agent)** â€” `episodes.jsonl` records structured per-tick events `{world_time, grid_cell, place, saw[], action, outcome}`; `social.json` tracks acquaintances `{first_met, last_seen, meet_count, sentiment}` from perceived characters and speech. Recall blends recency + spatial proximity + social ties â€” beating the flat 30-item `memory.json` window for long/overnight runs.
+- **Maintenance/monitor APC** â€” an optional system-worker role (`"role": "maintenance"` in `state.json`) with **no personality or LLM** that sweeps unexplored grid cells (walk to cell center â†’ 360 observe â†’ drop a *community breadcrumb*) so the personality NPCs skip the costly re-sweep. *Decision + navigation logic is complete and tested; the live 360 rotation+capture in Unreal is pending.*
+- **`.env` config store** â€” `agent_runtime/config_store.py` reads/writes provider/model settings with secrets shown set/unset only (backs a future settings UI; no hand-editing `.env`).
+
+### Offline test suite
+
+The agent-runtime logic is covered by offline tests that stub Unreal entirely (no editor, no network, no LLM call) â€” the loop-safe surface for automated/unattended development:
+
+```bash
+cd Python
+.venv/Scripts/python.exe scripts/run_tests.py            # one PASS/FAIL across the suite
+.venv/Scripts/python.exe scripts/run_tests.py --only test_place_resolver   # a single test
+```
+
+The socket-based `scripts/{actors,node,blueprints}` scripts are integration demos that need a live editor and are excluded from this suite.
 
 ---
 

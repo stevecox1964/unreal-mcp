@@ -25,7 +25,16 @@ At this point, you can configure your MCP Client (Claude Desktop, Cursor, Windsu
 
 ## Testing Scripts
 
-There are several scripts in the [scripts](./scripts) folder. They are useful for testing the tools and the Unreal Bridge via a direct connection. This means that you do not need to have an MCP Server running.
+Two kinds of scripts live in the [scripts](./scripts) folder:
+
+- **Offline agent-runtime tests** (`scripts/agent_runtime/test_*.py`) stub Unreal entirely â€” no
+  editor, no network, no LLM. Run the whole suite with one PASS/FAIL signal:
+  ```bash
+  .venv/Scripts/python.exe scripts/run_tests.py
+  .venv/Scripts/python.exe scripts/run_tests.py --only test_place_resolver   # a single test
+  ```
+- **Integration demos** (`scripts/{actors,node,blueprints}/*.py`) talk to the Unreal Bridge over a
+  direct socket, so they need the editor running in PIE. These are excluded from `run_tests.py`.
 
 You should make sure you have installed dependencies and/or are running in the `uv` virtual environment in order for the scripts to work.
 
@@ -37,4 +46,4 @@ You should make sure you have installed dependencies and/or are running in the `
 
 ## Development
 
-To add new tools, modify the `unrealSIMBridge.py` file to add new command handlers, and update the `unreal_sim_server.py` file to expose them through the HTTP API. 
+To add new tools, modify `agent_runtime/unreal_bridge.py` to add new command handlers, and register the MCP tool in the relevant `tools/*.py` module exposed by `unreal_sim_server.py`. 
