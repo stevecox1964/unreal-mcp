@@ -34,6 +34,10 @@ class RunnerClient:
     def status(self) -> dict:
         return self._client.get("/status").json()
 
+    def events(self, limit: int = 20) -> list:
+        """Recent decision-log entries for the cockpit's live log."""
+        return self._client.get("/events", params={"limit": limit}).json().get("events", [])
+
     def start(self, tick_seconds: int = 1, active_agents: list[str] = None,
               mode: str = "live") -> dict:
         return self._client.post("/start", json={

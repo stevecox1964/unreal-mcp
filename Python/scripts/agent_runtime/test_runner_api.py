@@ -28,13 +28,18 @@ def check(label, cond):
 
 
 class StubManager:
-    """Stand-in for AgentManager — records control calls, no Unreal."""
+    """Stand-in for AgentManager — mirrors its REAL control method names
+    (get_status/recent_events/start_simulation/stop_simulation/tick), records
+    calls, no Unreal."""
     def __init__(self):
         self.running = False
         self.calls = []
 
-    def get_simulation_status(self) -> dict:
+    def get_status(self) -> dict:
         return {"running": self.running, "tick_count": 3, "agent_count": 2}
+
+    def recent_events(self, limit: int = 20) -> list:
+        return [{"agent_id": "dufus", "action_type": "walk_to"}][:limit]
 
     async def start_simulation(self, tick_seconds=1, active_agents=None, mode="live") -> dict:
         self.calls.append(("start", tick_seconds, tuple(active_agents or []), mode))
@@ -66,6 +71,9 @@ def test_control_app_routes():
     check("status reflects running after start", client.get("/status").json()["running"] is True)
 
     check("tick proxies the manager", client.post("/tick").json()["ticked"] == 2)
+    check("events endpoint returns the decision log",
+          client.get("/events").json()["events"][0]["action_type"] == "walk_to")
+    check("events respects the limit", client.get("/events?limit=0").json()["events"] == [])
 
     check("stop returns the manager result", client.post("/stop").json()["ticks"] == 5)
     check("status reflects stopped", client.get("/status").json()["running"] is False)
@@ -91,6 +99,7 @@ def test_runner_client_round_trip():
     check("client.start forwarded args", mgr.calls[-1] == ("start", 3, ("maren",), "live"))
 
     check("client.tick", rc.tick()["ticked"] == 2)
+    check("client.events returns the log list", rc.events()[0]["action_type"] == "walk_to")
     check("client.stop", rc.stop()["status"] == "stopped")
 
 

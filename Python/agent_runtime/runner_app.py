@@ -11,12 +11,13 @@ def build_control_app(manager) -> FastAPI:
     """Build the runner's localhost HTTP control surface over an AgentManager.
 
     Routes (all JSON):
-      - ``GET  /health`` → ``{"ok": true}`` (liveness; no manager call)
-      - ``GET  /status`` → ``manager.get_simulation_status()``
-      - ``POST /start``  → ``manager.start_simulation(**body)``
+      - ``GET  /health``        → ``{"ok": true}`` (liveness; no manager call)
+      - ``GET  /status``        → ``manager.get_status()``
+      - ``GET  /events?limit=N`` → ``{"events": manager.recent_events(N)}`` (decision log)
+      - ``POST /start``         → ``manager.start_simulation(**body)``
         (body: ``{tick_seconds?, active_agents?, mode?}``)
-      - ``POST /stop``   → ``manager.stop_simulation()``
-      - ``POST /tick``   → ``manager.tick()`` (run one tick now)
+      - ``POST /stop``          → ``manager.stop_simulation()``
+      - ``POST /tick``          → ``manager.tick()`` (run one tick now — single-step debugging)
 
     This is transport only — all behavior lives in the manager, so the same app
     serves the standalone ``sim_runner`` and is exercised offline with a stub
@@ -31,7 +32,11 @@ def build_control_app(manager) -> FastAPI:
 
     @app.get("/status")
     def status() -> dict:
-        return manager.get_simulation_status()
+        return manager.get_status()
+
+    @app.get("/events")
+    def events(limit: int = 20) -> dict:
+        return {"events": manager.recent_events(limit)}
 
     @app.post("/start")
     async def start(request: Request) -> dict:

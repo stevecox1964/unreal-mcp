@@ -288,6 +288,10 @@ class AgentManager:
             "agents": [self._agent_summary(a) for a in self.agents.values()],
         }
 
+    def recent_events(self, limit: int = 20) -> list[dict]:
+        """Recent agent decision-log entries (for the web cockpit's live log)."""
+        return self.memory.get_recent_events(limit) if self.memory else []
+
     # Agent loading and binding
 
     def _load_agents(self, active_only: list[str] | None) -> None:
