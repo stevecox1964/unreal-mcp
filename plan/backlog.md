@@ -5,6 +5,13 @@ delete them as they land. Not session-scoped; this is the durable home for
 "things I want done but didn't have tokens for this session." Newest
 grooming: 2026-06-26.
 
+> **▶ Resume the autonomous loop:** next credit window, say **"run the autonomous loop."**
+> It reads the **"## Autonomous queue"** below, takes the next unchecked item, and grinds
+> loop-safe (offline-testable) work on an `auto-loop/*` branch per `plan/autonomous_loop.md`:
+> failing test → implement → `python scripts/run_tests.py` green → commit → check off.
+> **Never pushes** — work piles up for human review + merge. (Handoffs are retired; this
+> backlog is the single source of truth — see memory `feedback-no-handoffs`.)
+
 > **★ MVP slice** *"Runs overnight, navigates to a named place, remembers who it met"* —
 > mostly **landed**: **#1** place-name nav ✓, **#5** social + episodic + relevance recall ✓,
 > **#3** factory ✓. The remaining MVP gap is **#3's standalone runner** (the "runs overnight
@@ -25,7 +32,32 @@ grooming: 2026-06-26.
 > recording *by name* (the two NPCs never came within range), and the #7 maintenance APC (no
 > `role:"maintenance"` agent configured). System is healthy for multi-day running.
 
-## Outstanding — all blocked on editor / live / you (nothing loop-safe left)
+## Autonomous queue — loop-safe (offline-testable), grind hands-off
+
+Build these in order on an `auto-loop/*` branch; each is Python whose **logic** is offline-testable
+even though final live execution may need PIE. Commit each green step, never push.
+
+1. **Episodic consolidation** (`episodic_memory.py`) — heuristic (non-LLM) rollup: when
+   `episodes.jsonl` exceeds N, summarise the oldest events per place into compact records, keep the
+   recent K verbatim; caps overnight growth. `recent`/`relevant`/`query` must tolerate summary rows.
+2. **`state.json` config/runtime split** — stop the per-run tree churn (last_tick_time/current_goal
+   re-dirty every run). Persist runtime fields to a separate git-ignored `runtime.json`; keep
+   `state.json` config-only and tracked. Update `Agent` load/save + `reset`.
+3. **#3 standalone runner** — `Python/sim_runner.py` (builds the manager via `factory`, runs the
+   async loop in its own process) + a localhost HTTP control API (start/stop/status/tick) + a small
+   client. Build the **control logic + handlers + client offline-tested** (stub/real manager that
+   never connects to Unreal); the *live* sim run is deferred to PIE.
+4. **#2 web settings backend** — `GET/POST /settings` in `web_ui` via `config_store` (secrets shown
+   set/unset only); test with Starlette/FastAPI `TestClient` offline. UI polish/visual check deferred.
+5. **"NPC Builder" → "Unreal World Sim" rename** — surface strings in `web_ui` templates, `main.py`
+   title/docstring, `start_npc_builder.bat`; leave `npc_builder` code identifiers for a later pass.
+
+When this queue empties, groom more loop-safe items from "Outstanding" / "Later"; don't invent
+busywork — stop and leave a note if only editor/live/human-decision work remains.
+
+---
+
+## Outstanding — human / editor / live (not loop-safe)
 
 - **Merge** `auto-loop/backlog` → `main` (21 commits) and decide on `git push`.
 - **#7 maintenance APC — live half:** implement `observe_heading` in the Unreal bridge/C++
