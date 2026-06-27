@@ -10,11 +10,20 @@ grooming: 2026-06-26.
 > **#3** factory ✓. The remaining MVP gap is **#3's standalone runner** (the "runs overnight
 > independent of Claude" long pole — nothing built but the factory).
 
-> **⚑ Status (2026-06-26):** an unattended coding loop landed **21 commits on branch
+> **⚑ Status (2026-06-26):** an unattended coding loop landed **~23 commits on branch
 > `auto-loop/backlog`** (never pushed; `python scripts/run_tests.py` = **15/15 green**). It
 > drained **all loop-safe (offline-testable Python) work**. Everything still open below is blocked
 > on the **Unreal editor**, a **live sim / PIE**, an **LLM signal**, or a **human decision** — see
 > **"Outstanding"** next. First action for a new session: review + merge `auto-loop/backlog`.
+
+> **✅ Validated live (PIE sim run, 2026-06-26 — 23 ticks, cloud, zero errors):** the new
+> agent_manager path runs clean end-to-end. **Confirmed working:** episodic memory (`episodes.jsonl`
+> written + growing), grid/place pipeline incl. the scene-unchanged regression fix, `walk_to`
+> execution, and the social store correctly staying empty for anonymous-only sightings (no false
+> acquaintances). **Built + offline-tested but not yet hit by this run's scenario:** the #1 *named-place
+> resolver* (no cell was named "village square" in PlaceDB, so agents walked by frontier), social
+> recording *by name* (the two NPCs never came within range), and the #7 maintenance APC (no
+> `role:"maintenance"` agent configured). System is healthy for multi-day running.
 
 ## Outstanding — all blocked on editor / live / you (nothing loop-safe left)
 
