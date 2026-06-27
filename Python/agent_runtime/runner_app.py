@@ -26,6 +26,18 @@ def build_control_app(manager) -> FastAPI:
     """
     app = FastAPI(title="Unreal World Sim Runner", docs_url=None, redoc_url=None)
 
+    @app.get("/")
+    def root() -> dict:
+        """Friendly landing for someone who opens the engine URL in a browser —
+        the runner is a JSON control API; the human-facing cockpit is the web UI."""
+        return {
+            "service": "Unreal World Sim runner",
+            "ok": True,
+            "hint": "This is the JSON control API. Open the web cockpit to drive it: "
+                    "http://127.0.0.1:8765/sim",
+            "endpoints": ["/health", "/status", "/events", "/start", "/stop", "/tick"],
+        }
+
     @app.get("/health")
     def health() -> dict:
         return {"ok": True}

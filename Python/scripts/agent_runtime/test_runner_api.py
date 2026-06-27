@@ -61,6 +61,8 @@ def test_control_app_routes():
     mgr = StubManager()
     client = TestClient(build_control_app(mgr))
 
+    check("root gives a friendly pointer (no bare 404)", client.get("/").status_code == 200)
+    check("root names the service", client.get("/").json()["service"] == "Unreal World Sim runner")
     check("health endpoint", client.get("/health").json()["ok"] is True)
     check("status proxies the manager", client.get("/status").json()["tick_count"] == 3)
 
