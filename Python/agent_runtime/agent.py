@@ -10,6 +10,14 @@ logger = logging.getLogger("AgentRuntime")
 
 
 class Agent:
+    # Fields that change every run — persisted to a git-ignored runtime.json so
+    # state.json (config) stays stable and out of git's churn. self.state keeps
+    # the merged view in memory, so every property/caller is unchanged.
+    _RUNTIME_KEYS = frozenset({
+        "last_tick_time", "last_spoke_time", "current_goal", "is_busy", "last_bound_time",
+        "bound_unreal_actor_name", "bound_unreal_actor_label", "bound_unreal_actor_class",
+    })
+
     def __init__(
         self,
         agent_id: str,
@@ -32,6 +40,14 @@ class Agent:
     def load(cls, agents_dir: Path, agent_id: str) -> "Agent":
         path = agents_dir / agent_id
         state = json.loads((path / "state.json").read_text(encoding="utf-8"))
+        # Merge in runtime fields (git-ignored), overriding any stale seed values
+        # left in state.json. Legacy dirs with no runtime.json load unchanged.
+        runtime_path = path / "runtime.json"
+        if runtime_path.exists():
+            try:
+                state.update(json.loads(runtime_path.read_text(encoding="utf-8")))
+            except json.JSONDecodeError:
+                logger.warning(f"[{agent_id}] bad runtime.json — ignoring")
         character = (path / "character.md").read_text(encoding="utf-8")
         goals = (path / "goals.md").read_text(encoding="utf-8")
         rules = (path / "rules.md").read_text(encoding="utf-8")
@@ -195,5 +211,11 @@ class Agent:
         self._save_state(agents_dir)
 
     def _save_state(self, agents_dir: Path) -> None:
-        p = agents_dir / self.agent_id / "state.json"
-        p.write_text(json.dumps(self.state, indent=2), encoding="utf-8")
+        """Persist config to state.json (stable, tracked) and runtime fields to
+        runtime.json (churning, git-ignored), split by ``_RUNTIME_KEYS``."""
+        d = agents_dir / self.agent_id
+        d.mkdir(parents=True, exist_ok=True)
+        config = {k: v for k, v in self.state.items() if k not in self._RUNTIME_KEYS}
+        runtime = {k: v for k, v in self.state.items() if k in self._RUNTIME_KEYS}
+        (d / "state.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
+        (d / "runtime.json").write_text(json.dumps(runtime, indent=2), encoding="utf-8")

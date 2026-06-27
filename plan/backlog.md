@@ -42,9 +42,13 @@ even though final live execution may need PIE. Commit each green step, never pus
    actions, saw, grid_cells}`; auto-runs from `record()` every `_consolidate_every` appends once over
    `_max_events` (1000/200/200 defaults), atomic tmp-rewrite. `query`/`relevant`/`recent` tolerate
    summary rows. Test: `test_episodic_memory.py`.
-2. **`state.json` config/runtime split** — stop the per-run tree churn (last_tick_time/current_goal
-   re-dirty every run). Persist runtime fields to a separate git-ignored `runtime.json`; keep
-   `state.json` config-only and tracked. Update `Agent` load/save + `reset`.
+2. ~~**`state.json` config/runtime split**~~ ✓ 2026-06-26 — runtime fields (`_RUNTIME_KEYS`:
+   last_tick_time/last_spoke_time/current_goal/is_busy/last_bound_time/bound_*) now persist to a
+   git-ignored `runtime.json`; `state.json` is config-only and stays byte-stable across ticks (no more
+   churn). `self.state` is still the merged in-memory view, so all callers/properties are unchanged;
+   `load()` merges runtime over config; legacy dirs (no runtime.json) load fine. Test: `test_agent_state.py`.
+   *(One-time: the committed `dufus`/`maren` state.json shed their stale runtime keys on the next live
+   save — expected, then stable.)*
 3. **#3 standalone runner** — `Python/sim_runner.py` (builds the manager via `factory`, runs the
    async loop in its own process) + a localhost HTTP control API (start/stop/status/tick) + a small
    client. Build the **control logic + handlers + client offline-tested** (stub/real manager that

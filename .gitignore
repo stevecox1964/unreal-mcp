@@ -12,6 +12,7 @@ Python/worlds/*/agents/*/memory.json
 Python/worlds/*/agents/*/spatial_map.json
 Python/worlds/*/agents/*/social.json
 Python/worlds/*/agents/*/episodes.jsonl
+Python/worlds/*/agents/*/runtime.json
 
 # Camera capture images
 MCPGameProject/CapturedCameraView.png
