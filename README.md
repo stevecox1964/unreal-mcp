@@ -40,6 +40,13 @@ The Unreal MCP integration provides comprehensive tools for controlling Unreal E
 
 All these capabilities are accessible through natural language commands via AI assistants, making it easy to automate and control Unreal Engine workflows.
 
+> **Note (2026-06-28):** the **Python MCP editor-authoring tools were retired** (Actor Management,
+> Blueprint Development, Blueprint Node Graph, Editor Control, Character, Camera, Project). Epic now
+> ships an official Unreal MCP for editor authoring, and this project's sim is driven by the
+> standalone runner + web UI rather than these tools. The underlying C++ commands still exist in the
+> plugin (reachable over the raw socket), but the Python MCP server now exposes only the
+> **simulation control surface** (`simulation_tools.py` — start/stop/inspect the agent loop).
+
 ## ðŸ§© Components
 
 ### Sample Project (MCPGameProject) `MCPGameProject`
@@ -66,7 +73,8 @@ All these capabilities are accessible through natural language commands via AI a
   - **Plugins/UnrealMCP/** — C++ plugin source
 
 - **Python/** â€” Python MCP server and agent runtime
-  - **tools/** â€” MCP tool modules (editor, blueprint, character, simulationâ€¦)
+  - **tools/** â€” MCP tool modules (`simulation_tools` — the sim control surface; editor-authoring
+    tools retired 2026-06-28, see the Overview note)
   - **agent_runtime/** â€” the cognitive loop: `agent_manager` (tick orchestration), `factory`
     (shared AgentManager construction), `llm_router`, `perception` (VLM), `memory_store`,
     `social_memory` + `episodic_memory` (per-agent memory), `place_db` + `world_grid` (shared
@@ -383,12 +391,11 @@ With Unreal running in PIE and `unrealSIM` connected:
 reload_llm_environment()
 start_simulation(tick_seconds=10, active_agents=["dufus"])
 force_agent_tick("dufus")
-capture_camera_image()
 get_recent_events(limit=10)
 stop_simulation()
 ```
 
-Expected: Dufus binds to the `BP_CameraNPC_C_1` actor in MCP_World, the camera capture tool saves a PNG, and the LLM decision loop returns a validated action logged in `get_recent_events`. Generated captures and decision logs are ignored by git.
+Expected: Dufus binds to the `BP_CameraNPC_C_1` actor in MCP_World; each tick the agent captures a camera PNG internally (via `UnrealBridge`, not a separate MCP tool), and the LLM decision loop returns a validated action logged in `get_recent_events`. Generated captures and decision logs are ignored by git.
 
 ### Agent tiers
 
