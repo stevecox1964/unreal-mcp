@@ -144,7 +144,36 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
    - **Offline-testable:** counter increment/persistence, filename prefixing, the log-record field, the
      filter injection — all without Unreal. Live verify: filenames + log prefixes appear in a real run.
 
-(Items 1–6 landed 2026-06-26, 19/19 green; #7.0–7.2 + #8 landed 2026-06-28, 22/22.)
+10. **Daily-schedule planner + sequencer — MASTER_PLAN Milestone 1 (the cognitive-loop spine).**
+    *(Claude-driven, 2026-06-28. The biggest behavioral gap: agents decide tick-by-tick with no
+    routine. The plan makes the daily schedule the **spine** and the reactive tick the interrupt
+    handler.)* User framing: not just a planner but a **sequencer** — "I wake, what time is it, I
+    should be at the stall, oh I'm already there, what next, 12:00 → go to lunch."
+    - [x] **10.1 Planner module (loop-safe)** ✓ 2026-06-28 — `agent_runtime/planner.py`, a dependency-free,
+          offline-testable module. Deterministic core: `to_minutes`/`minute_of_day` (parses
+          `WorldClock.now_text()`), `normalize_schedule` (drops malformed blocks, sorts), and the spine
+          `current_block(schedule, minute)` ("what should I be doing now?", start-inclusive/end-exclusive).
+          LLM **injected** as a `prompt->text` callable so it's provider-free: `generate_daily_plan(...,
+          ask=None)` returns a deterministic all-day fallback; with `ask` it parses a JSON block list and
+          degrades to fallback on any failure. Blocks carry place **names** (resolution stays the existing
+          `walk_to` named-place job, not declared here). Test: `test_planner.py`.
+    - [x] **10.2 Sequencer step (loop-safe)** ✓ 2026-06-28 — `planner.step(schedule, minute, current_place,
+          prev_activity)` returns a directive `{block, activity, place, status, transition, intent}`:
+          **travel** (go to the place), **act** (already there → LLM picks the sub-action), or **idle**;
+          `transition=True` when a block boundary flips (noon → lunch). `_same_place` does loose
+          containment matching ("vegetable truck" ⊆ a richer perceived label). Pure/testable; the LLM
+          owns only the sub-action, grounded by `intent`. Tests in `test_planner.py` walk the wake →
+          travel → arrived → noon-transition narrative.
+    - [ ] **10.3 Persist the day's schedule in scratch (loop-safe-ish)** — store today's blocks +
+          `prev_activity` on the agent (runtime.json via a `daily_schedule` runtime key); regenerate on a
+          new sim-day / reset. Small `agent.py` touch + test.
+    - [ ] **10.4 Wire the sequencer into the tick as the spine** *(needs PIE)* — at wake/each tick call
+          `step(...)`, feed `intent` + `status` into the decision context, and on `travel` route through
+          the existing `walk_to` resolver; demote the current free-decide tick to the **reaction-gate**
+          interrupt path (§14). Live-verify in PIE that agents follow visibly distinct routines.
+
+(Items 1–6 landed 2026-06-26, 19/19 green; #7.0–7.2 + #8 landed 2026-06-28, 22/22; #10.1–10.2 + vision
+Gemini-media-type fix landed 2026-06-28, 24/24.)
 
 ---
 

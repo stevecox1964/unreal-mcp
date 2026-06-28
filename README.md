@@ -292,7 +292,7 @@ A `CameraCaptureActor` and MCP tool that lets AI assistants take and analyze in-
 - **Image analysis** â€” AI clients can read the saved image and describe or reason about the scene
 
 ### AI RPG Agent Simulation
-A first-pass agentic NPC simulation layer driven by an LLM-controlled Agent Manager running inside the Python MCP server. See [`AI_RPG_Agent_Simulation_MASTER_PLAN.md`](AI_RPG_Agent_Simulation_MASTER_PLAN.md) for the complete design.
+A first-pass agentic NPC simulation layer driven by an LLM-controlled Agent Manager running inside the Python MCP server. See [`MASTER_PLAN.md`](MASTER_PLAN.md) for the complete design.
 - **Agent Manager** â€” start/stop/pause an autonomous simulation loop from the CLI
 - **Live agent binding** â€” active agents bind to named Unreal actors or spawn from configured Blueprint classes
 - **Multi-tier agents** â€” Hero (full LLM), Simulated (event-driven LLM), and Lightweight (no LLM unless explicitly configured)
@@ -387,7 +387,7 @@ See [Docs/character_system.md](Docs/character_system.md) for the full command re
 
 ## ðŸ¤– AI RPG Agent Simulation
 
-> **Status: Prototype** â€” See [`AI_RPG_Agent_Simulation_MASTER_PLAN.md`](AI_RPG_Agent_Simulation_MASTER_PLAN.md) for the full design. The live task list is [`plan/backlog.md`](plan/backlog.md); `still_todo.md` is a superseded historical snapshot.
+> **Status: Prototype** â€” See [`MASTER_PLAN.md`](MASTER_PLAN.md) for the full design. The live task list is [`plan/backlog.md`](plan/backlog.md); `still_todo.md` is a superseded historical snapshot.
 
 The simulation layer lets an LLM (Claude, OpenAI, or a local model) autonomously drive NPCs inside a live Unreal session via the MCP server.
 
