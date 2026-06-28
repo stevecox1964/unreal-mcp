@@ -17,6 +17,16 @@ grooming: 2026-06-26.
 > **#3** factory ✓. The remaining MVP gap is **#3's standalone runner** (the "runs overnight
 > independent of Claude" long pole — nothing built but the factory).
 
+> **⚑ Status (2026-06-28):** session added **Haiku-for-vision** (#7.0 — vision now runs on Haiku 4.5,
+> Gemini optional), **provider-profiles CRUD** in the web UI (#7.1/7.2 done, #7.3 UI pending live
+> verify), and **retired the stale MCP→Unreal editor-authoring tools** (#8 — 8 modules removed, docs
+> fixed). Also introduced the **dev-mode vs sim-mode** framing (#9, memory `feedback-dev-sim-modes`).
+> `python scripts/run_tests.py` = **22/22 green**, 6 new commits on `auto-loop/backlog`, never pushed.
+> **Loop-safe backlog is now essentially exhausted** — remaining work is live/editor/design (browser
+> verify of `/providers`, the #8/#9 design calls, merge to main). *(Found: the legacy `npc_builder/`
+> app — frontend+backend — is superseded by `web_ui/` + the `/create-npc` skill; it's a **deletion
+> candidate** pending user confirmation, not removed unattended.)*
+
 > **⚑ Status (2026-06-26, eve):** the autonomous loop ran again and **cleared the entire
 > "Autonomous queue" (5/5 items)** on branch `auto-loop/backlog` — episodic consolidation,
 > state.json config/runtime split, the standalone-runner control surface, the web settings backend,
