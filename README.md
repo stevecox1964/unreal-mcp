@@ -349,7 +349,14 @@ The socket-based `scripts/{actors,node,blueprints}` scripts are integration demo
 
 ## ðŸŽ­ Character Interaction System
 
-The plugin includes a full NPC character command system added on top of the base MCP tools.
+The plugin includes a full NPC character command system. The C++ side — the `UAPCCharacterComponent`,
+its Blueprint events, and the `command_character_*` / `get_character_*` commands — is live and is how
+the sim drives NPCs (the runtime reaches it over the raw socket via `UnrealBridge`).
+
+> **Note (2026-06-28):** the Python examples below were the **retired** MCP wrapper tools
+> (`character_tools.py`, removed with the other editor-authoring tools — see the Overview note). They
+> are kept here to show the **command shapes**; the commands themselves still exist in C++ over the
+> socket on `:55557`, but they are no longer exposed as Python MCP tools.
 
 ### Quick setup per NPC
 1. Add `UAPCCharacterComponent` to your NPC Blueprint
