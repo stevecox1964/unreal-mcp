@@ -14,6 +14,7 @@ def build_control_app(manager) -> FastAPI:
       - ``GET  /health``        → ``{"ok": true}`` (liveness; no manager call)
       - ``GET  /status``        → ``manager.get_status()``
       - ``GET  /events?limit=N`` → ``{"events": manager.recent_events(N)}`` (decision log)
+      - ``POST /events/clear``  → ``{"cleared": N}`` (empty the decision feed)
       - ``POST /start``         → ``manager.start_simulation(**body)``
         (body: ``{tick_seconds?, active_agents?, mode?}``)
       - ``POST /stop``          → ``manager.stop_simulation()``
@@ -49,6 +50,10 @@ def build_control_app(manager) -> FastAPI:
     @app.get("/events")
     def events(limit: int = 20) -> dict:
         return {"events": manager.recent_events(limit)}
+
+    @app.post("/events/clear")
+    def events_clear() -> dict:
+        return {"cleared": manager.clear_events()}
 
     @app.post("/start")
     async def start(request: Request) -> dict:

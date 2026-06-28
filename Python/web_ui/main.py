@@ -238,6 +238,15 @@ def api_sim_events(limit: int = 30):
         return JSONResponse({"events": []})
 
 
+@app.post("/api/sim/events/clear")
+def api_sim_events_clear():
+    """Empty the decision feed (clears agent_decisions.log; memories untouched)."""
+    try:
+        return JSONResponse(get_runner().clear_events())
+    except Exception:
+        return JSONResponse({"cleared": 0})
+
+
 @app.post("/api/sim/start")
 async def api_sim_start(request: Request):
     body = await _maybe_json(request)

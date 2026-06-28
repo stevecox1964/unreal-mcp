@@ -39,7 +39,13 @@ class StubRunner:
     def events(self, limit=20):
         if not self.online:
             raise RuntimeError("offline")
-        return [{"agent_id": "dufus", "action_type": "walk_to", "thought": "to the square"}]
+        return [{"timestamp": "2026-06-28T18:51:43+00:00", "agent_id": "dufus",
+                 "action_type": "walk_to", "thought": "to the square"}]
+
+    def clear_events(self):
+        if not self.online:
+            raise RuntimeError("offline")
+        self.calls.append(("clear_events",)); return {"cleared": 5}
 
     def start(self, tick_seconds=1, active_agents=None, mode="live"):
         self.calls.append(("start", tick_seconds, mode)); self.running = True
@@ -66,6 +72,8 @@ def test_sim_page_renders_with_controls():
     def body(client):
         text = client.get("/sim").text
         check("sim page returns the cockpit", "Start" in text and "Stop" in text and "Step" in text)
+        check("sim page has a Clear feed button", "Clear feed" in text)
+        check("sim page renders a timestamp per event", "fmtTime(e.timestamp)" in text)
     _with_runner(StubRunner(), body)
 
 
@@ -86,10 +94,26 @@ def test_api_events_proxied():
     def body(client):
         evs = client.get("/api/sim/events").json()["events"]
         check("events proxied from runner", evs[0]["action_type"] == "walk_to")
+        check("event carries a timestamp for the feed", evs[0]["timestamp"].startswith("2026-06-28"))
     _with_runner(StubRunner(), body)
 
     def offline(client):
         check("events empty when runner offline", client.get("/api/sim/events").json()["events"] == [])
+    _with_runner(StubRunner(online=False), offline)
+
+
+def test_clear_feed_proxied():
+    stub = StubRunner()
+
+    def body(client):
+        r = client.post("/api/sim/events/clear").json()
+        check("clear proxied to runner", r["cleared"] == 5)
+        check("clear recorded as a call", stub.calls[-1] == ("clear_events",))
+    _with_runner(stub, body)
+
+    def offline(client):
+        check("clear degrades to 0 when runner offline",
+              client.post("/api/sim/events/clear").json()["cleared"] == 0)
     _with_runner(StubRunner(online=False), offline)
 
 
@@ -109,6 +133,7 @@ def main():
     test_sim_page_renders_with_controls()
     test_api_status_online_and_offline()
     test_api_events_proxied()
+    test_clear_feed_proxied()
     test_control_actions_proxy_to_runner()
     print("\nAll sim-controller checks passed.")
 

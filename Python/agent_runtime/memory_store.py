@@ -57,6 +57,19 @@ class MemoryStore:
                 pass
         return entries
 
+    def clear_recent_events(self) -> int:
+        """Empty the decision log (the Sim-page "feed"). Returns lines cleared.
+
+        Truncates ``agent_decisions.log`` rather than deleting it so the path
+        stays valid for the next tick. Agent memories (memory.json) are untouched
+        — this only clears the debug decision feed.
+        """
+        if not self.decisions_log or not self.decisions_log.exists():
+            return 0
+        cleared = len(self.decisions_log.read_text(encoding="utf-8").strip().splitlines())
+        self.decisions_log.write_text("", encoding="utf-8")
+        return cleared
+
     # ── Write ─────────────────────────────────────────────────────────────────
 
     _MAX_MEMORIES = 30

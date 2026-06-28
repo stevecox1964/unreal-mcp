@@ -41,6 +41,10 @@ class StubManager:
     def recent_events(self, limit: int = 20) -> list:
         return [{"agent_id": "dufus", "action_type": "walk_to"}][:limit]
 
+    def clear_events(self) -> int:
+        self.calls.append(("clear_events",))
+        return 4
+
     async def start_simulation(self, tick_seconds=1, active_agents=None, mode="live") -> dict:
         self.calls.append(("start", tick_seconds, tuple(active_agents or []), mode))
         self.running = True
@@ -76,6 +80,8 @@ def test_control_app_routes():
     check("events endpoint returns the decision log",
           client.get("/events").json()["events"][0]["action_type"] == "walk_to")
     check("events respects the limit", client.get("/events?limit=0").json()["events"] == [])
+    check("events/clear proxies the manager", client.post("/events/clear").json()["cleared"] == 4)
+    check("clear recorded as a manager call", mgr.calls[-1] == ("clear_events",))
 
     check("stop returns the manager result", client.post("/stop").json()["ticks"] == 5)
     check("status reflects stopped", client.get("/status").json()["running"] is False)

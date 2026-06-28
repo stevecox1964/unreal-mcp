@@ -38,6 +38,10 @@ class RunnerClient:
         """Recent decision-log entries for the cockpit's live log."""
         return self._client.get("/events", params={"limit": limit}).json().get("events", [])
 
+    def clear_events(self) -> dict:
+        """Empty the decision feed; returns ``{"cleared": N}``."""
+        return self._client.post("/events/clear").json()
+
     def start(self, tick_seconds: int = 1, active_agents: list[str] = None,
               mode: str = "live") -> dict:
         return self._client.post("/start", json={

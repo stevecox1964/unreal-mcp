@@ -24,7 +24,10 @@ debugging.</small></p>
   <button id="btn-stop" class="danger">■ Stop</button>
 </div>
 
-<h3>Recent decisions <small>(live)</small></h3>
+<h3 style="display:flex; align-items:center; gap:.75rem;">
+  Recent decisions <small>(live)</small>
+  <button id="btn-clear" class="secondary outline" style="margin:0; padding:.2rem .6rem; font-size:.8rem;">Clear feed</button>
+</h3>
 <pre id="events" style="max-height: 22rem; overflow:auto; font-size:.85rem;">…</pre>
 
 <script>
@@ -39,10 +42,15 @@ async function refreshStatus(){
   document.getElementById('agents').innerHTML = (s.agents||[]).map(a =>
     `<small><strong>${a.agent_id}</strong> — ${a.current_goal||''}</small>`).join('<br>');
 }
+function fmtTime(ts){
+  if(!ts) return '--:--:--';
+  const d = new Date(ts);
+  return isNaN(d) ? ts : d.toLocaleTimeString();
+}
 async function refreshEvents(){
   const {events} = await getJSON('/api/sim/events');
   document.getElementById('events').textContent =
-    (events||[]).map(e => `[${e.agent_id}] ${e.action_type||''} — ${e.thought||''}`).join('\n') || '(no events yet)';
+    (events||[]).map(e => `${fmtTime(e.timestamp)} [${e.agent_id}] ${e.action_type||''} — ${e.thought||''}`).join('\n') || '(no events yet)';
 }
 async function refresh(){ try{ await refreshStatus(); await refreshEvents(); }catch(e){} }
 
@@ -52,6 +60,11 @@ document.getElementById('btn-start').onclick = async () => {
 };
 document.getElementById('btn-stop').onclick = async () => { await postJSON('/api/sim/stop'); refresh(); };
 document.getElementById('btn-step').onclick = async () => { await postJSON('/api/sim/tick'); refresh(); };
+document.getElementById('btn-clear').onclick = async () => {
+  await postJSON('/api/sim/events/clear');
+  document.getElementById('events').textContent = '(cleared)';
+  refreshEvents();
+};
 
 refresh();
 setInterval(refresh, 2000);

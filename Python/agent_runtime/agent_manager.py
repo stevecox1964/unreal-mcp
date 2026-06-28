@@ -292,6 +292,10 @@ class AgentManager:
         """Recent agent decision-log entries (for the web cockpit's live log)."""
         return self.memory.get_recent_events(limit) if self.memory else []
 
+    def clear_events(self) -> int:
+        """Clear the decision feed (the cockpit's live log). Returns lines cleared."""
+        return self.memory.clear_recent_events() if self.memory else 0
+
     # Agent loading and binding
 
     def _load_agents(self, active_only: list[str] | None) -> None:
