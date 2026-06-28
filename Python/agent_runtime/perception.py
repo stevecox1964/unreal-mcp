@@ -17,6 +17,7 @@ _ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
 # same OpenAI-compatible API drops in by changing only the endpoint + model.
 _GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 _DEFAULT_MODEL = "gemini-2.5-flash-lite"  # fast, cheap, non-thinking; thinking models truncate short JSON
+_DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"  # Haiku 4.5 is multimodal — does vision too
 
 _PROMPT = """\
 You are the eyes of an NPC exploring a 3-D town. Look at the image and report
@@ -53,10 +54,11 @@ def _strip_fences(raw: str) -> str:
 class VisionPerceiver:
     """Structured landmark/character extraction from a screenshot via a VLM.
 
-    Provider is Gemini (OpenAI-compatible endpoint) for now. The single
-    judgement call here is perception — turning pixels into a labelled scene —
-    which is exactly what an LLM/VLM is for. Everything downstream (mapping,
-    routing) is deterministic code.
+    Providers: ``anthropic`` (Haiku 4.5, multimodal — shares the decision LLM's
+    key), ``gemini`` (OpenAI-compatible endpoint), or ``ollama`` (local VLM). The
+    single judgement call here is perception — turning pixels into a labelled
+    scene — which is exactly what an LLM/VLM is for. Everything downstream
+    (mapping, routing) is deterministic code.
     """
 
     def __init__(self, model: str | None = None, timeout: int = 30):
@@ -65,13 +67,21 @@ class VisionPerceiver:
 
     def _resolve(self) -> tuple[str, str, str]:
         """Return ``(provider, key, model)``. Provider is ``VISION_PROVIDER`` env
-        (``gemini`` default, or ``ollama`` for a local multimodal model)."""
+        (``gemini`` default; ``anthropic`` for Haiku; ``ollama`` for a local
+        multimodal model)."""
         load_dotenv(_ENV_PATH, override=True)
         provider = (os.environ.get("VISION_PROVIDER") or "gemini").strip().lower()
         if provider == "ollama":
             model = (self._model or os.environ.get("VISION_MODEL")
                      or os.environ.get("OLLAMA_MODEL") or "qwen3.5:4b")
             return provider, "", model
+        if provider == "anthropic":
+            # Provider-specific model var (like GEMINI_MODEL) — not the generic
+            # VISION_MODEL, which is reserved for the local/ollama model.
+            key = os.environ.get("ANTHROPIC_API_KEY", "")
+            model = (self._model or os.environ.get("ANTHROPIC_VISION_MODEL")
+                     or _DEFAULT_ANTHROPIC_MODEL)
+            return provider, key, model
         key = os.environ.get("GEMINI_API_KEY", "")
         model = self._model or os.environ.get("GEMINI_MODEL") or _DEFAULT_MODEL
         return provider, key, model
@@ -93,7 +103,8 @@ class VisionPerceiver:
 
         provider, key, model = self._resolve()
         if provider != "ollama" and not key:
-            return _empty("GEMINI_API_KEY not set")
+            env_key = "ANTHROPIC_API_KEY" if provider == "anthropic" else "GEMINI_API_KEY"
+            return _empty(f"{env_key} not set")
         if not image_path or not Path(image_path).exists():
             return _empty(f"image not found: {image_path}")
 
@@ -112,6 +123,8 @@ class VisionPerceiver:
                 from .ollama_adapter import chat
                 content = chat(model, "", prompt, image_path=image_path,
                                timeout=max(self._timeout, 180))
+            elif provider == "anthropic":
+                content = self._perceive_anthropic(model, key, prompt, image_path)
             else:
                 b64 = base64.standard_b64encode(Path(image_path).read_bytes()).decode()
                 response = requests.post(
@@ -145,6 +158,33 @@ class VisionPerceiver:
             "caption": str(data.get("caption", "")),
             "model": model,
         }
+
+    def _make_anthropic_client(self, key: str):
+        """Build the Anthropic SDK client. Isolated so tests can stub it."""
+        import anthropic
+        return anthropic.Anthropic(api_key=key)
+
+    def _perceive_anthropic(self, model: str, key: str, prompt: str, image_path: str) -> str:
+        """Perceive a screenshot via a multimodal Claude model (e.g. Haiku 4.5).
+
+        Returns the raw text content (expected to be the JSON object the prompt
+        asks for); ``perceive`` strips any fences and parses it.
+        """
+        b64 = base64.standard_b64encode(Path(image_path).read_bytes()).decode()
+        client = self._make_anthropic_client(key)
+        response = client.messages.create(
+            model=model,
+            max_tokens=800,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "base64",
+                                                 "media_type": "image/png", "data": b64}},
+                    {"type": "text", "text": prompt},
+                ],
+            }],
+        )
+        return response.content[0].text
 
 
 def _clean(items) -> list[dict]:

@@ -79,11 +79,26 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
    `recent_events` (and a `get_status` bugfix the stub had masked). `start_sim.bat` boots engine +
    cockpit with no Claude. Nav link added. Offline-tested with a stub runner (`test_sim_controller.py`).
    *Live verify: run `start_sim.bat` with Unreal in PIE and drive it in a browser.*
-7. **Provider CRUD** — evolve the settings page into a CRUD interface for providers/models
-   (list/add/edit/remove named provider configs; pick the active decision + vision providers;
-   Ollama⇄cloud). Backed by `config_store` (or a `config.json`). Route/data logic offline-tested.
+7. **Provider config — Haiku-for-vision, then profiles CRUD (web UI).** *(user, 2026-06-28: Haiku
+   4.5 is multimodal — it does decisions AND vision, so Gemini comes out of the active path. This is
+   the on-ramp to making providers fully configurable from the web UI. Direction: **option B —
+   named provider *profiles*** with create/edit/delete, assigned to roles.)*
+   - [x] **7.0 Haiku vision (loop-safe).** ✓ 2026-06-28 — `VisionPerceiver` (`perception.py`) gained an
+         `anthropic` branch: `VISION_PROVIDER=anthropic` perceives screenshots via Haiku 4.5
+         (`claude-haiku-4-5-20251001`, override `ANTHROPIC_VISION_MODEL`), returning the same
+         `{landmarks, characters, caption}` shape and degrading to an empty result on a missing key.
+         `.env` flipped to `VISION_PROVIDER=anthropic` (gitignored); the **Gemini + ollama branches stay
+         selectable** (user choice 2026-06-28). Offline test: `test_vision_perceiver.py` (stubbed
+         Anthropic client). Suite 20/20.
+   - [ ] **7.1 Provider profiles model** — a `config.json` (or `config_store` extension) holding
+         named profiles `{name, provider, model, base_url?, api_key_ref}` and role assignments
+         (`decision`, `vision`). Pure data layer, offline-tested.
+   - [ ] **7.2 CRUD routes** — `web_ui`: list / create / edit / delete profiles; assign a profile to
+         the decision and vision roles; Ollama⇄cloud falls out as just another profile. Route/data
+         logic offline-tested via `TestClient`.
+   - [ ] **7.3 UI** — grow `settings.html` into the profiles manager (live-verify in a browser).
 
-(Items 1–5 landed 2026-06-26, 18/18 green.)
+(Items 1–6 landed 2026-06-26, 19/19 green.)
 
 ---
 
@@ -440,6 +455,30 @@ Relates to: #1 (cell_center resolve), #6 (map/known_places), #5 (episodic), engi
 
 ---
 
+## 8. Talk to Unreal without MCP (Claude-driven + standalone)
+
+**Status:** Not started · **Source:** user, 2026-06-28 · **Independence:** relates to #3 + the
+MCP-deprecation idea
+
+Two ways to drive Unreal, and the user wants **both** to work without the custom MCP:
+- **Standalone (no Claude):** already largely solved — `UnrealBridge` talks to the engine over a
+  **raw TCP socket (:55557)** that is independent of MCP/Claude, and `sim_runner` + the web cockpit
+  drive the loop through it (#3/#6). This path doesn't touch MCP at all.
+- **Claude-driving (when Claude is running):** today Claude reaches Unreal *through* the `unrealSIM`
+  MCP tools. The question the user raised — *"how can you talk to Unreal but not use MCP?"* — is how
+  Claude keeps a hands-on path once MCP is retired. Candidate: Claude calls the **runner's HTTP
+  control API** (`sim_runner` on :8777) and/or a thin **bridge HTTP shim** over the existing TCP
+  socket, instead of MCP tools. The web UI already proves the runner API is enough to drive the sim.
+
+- [ ] Decide the Claude→Unreal path post-MCP: runner HTTP API (rec) vs a small bridge HTTP shim vs
+      Epic's official Unreal MCP. (User likes Claude driving when it's running, but not via *our* MCP.)
+- [ ] Document/expose whatever Claude needs on the runner's HTTP surface so a session with no
+      `unrealSIM` tools can still inspect + nudge the sim.
+
+Relates to: #3 (standalone runner), the MCP-deprecation idea below.
+
+---
+
 ## Later / ideas
 
 - **Deprecate the custom MCP server** (user direction, 2026-06-26). Move Claude to plain **API calls**
@@ -454,7 +493,9 @@ Relates to: #1 (cell_center resolve), #6 (map/known_places), #5 (episodic), engi
   others local — e.g. cloud Haiku for decisions, local qwen for vision, or vice
   versa. Already partly possible: `LLM_PROVIDER` and `VISION_PROVIDER` are
   independent in `.env`. The feature is making the mix easy to manage (per-role,
-  maybe per-agent) and surfacing it in the settings page (#2). Cloud is clearly
+  maybe per-agent) and surfacing it in the settings page (#2/#7). **Note (2026-06-28):** Haiku 4.5
+  is multimodal, so the simplest cloud setup is now **Haiku for *both* decisions and vision** (one
+  provider, one key) — Gemini is no longer required for vision (#7.0). Cloud is clearly
   faster today (~9s/tick vs ~215s cold local first tick); full-local stays the
   long-term goal once the other pieces are in. **Local/hybrid is the cost enabler
   for the autonomous loop (#4)** — unattended cloud runs burn credits. Not a
