@@ -111,8 +111,9 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
          `POST /providers/{save,delete,assign}`. Every mutation re-applies to `.env` (sim reloads each
          tick → no restart). Ollama⇄cloud is just another profile. Offline test: `test_providers_page.py`
          (`TestClient`). `config.json` gitignored (seeded on first read).
-   - [~] **7.3 UI** — `providers.html` (role selectors + profile table + add/edit form) and a
-         Providers nav link landed; **needs live-browser verification** (not loop-safe).
+   - [x] **7.3 UI** — `providers.html` (role selectors + profile table + add/edit form) and a
+         Providers nav link landed; user ran the web server and confirmed it "looks good enough"
+         (2026-06-28). *(Deeper end-to-end "assign in UI → sim uses it" still worth a spot-check.)*
 
 8. ~~**Strip stale MCP→Unreal *non-sim* (editor authoring) tools.**~~ ✓ 2026-06-28 — removed the 8
    authoring tool modules (`editor_tools`, `blueprint_tools`, `node_tools`, `umg_tools`,
@@ -125,7 +126,8 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
    `get_unreal_connection` intact); suite 22/22; no stale refs anywhere. First phase of the
    "deprecate the custom MCP" idea below; C++/Blueprints untouched.
 
-9. **Sim Run ID (`SR<n>`) — tag observations + logs per run.** *(user, 2026-06-28 — loop-safe.)* Give
+9. **Sim Run ID (`SR<n>`) — tag observations + logs per run.** *(user, 2026-06-28 — loop-safe.
+   **Parked:** user said "no rename for now" — keep backlogged, don't implement/schedule yet.)* Give
    every sim run a monotonic number so artifacts and logs are attributable to a single run for
    debugging. Pieces:
    - **Allocator** — a small `agent_runtime/sim_run.py`: read+increment a persisted counter at sim
