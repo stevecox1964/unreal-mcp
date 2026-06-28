@@ -16,6 +16,7 @@ class Agent:
     _RUNTIME_KEYS = frozenset({
         "last_tick_time", "last_spoke_time", "current_goal", "is_busy", "last_bound_time",
         "bound_unreal_actor_name", "bound_unreal_actor_label", "bound_unreal_actor_class",
+        "daily_schedule", "last_activity",
     })
 
     def __init__(
@@ -114,6 +115,29 @@ class Agent:
         return self.state.get("current_goal", "idle")
 
     @property
+    def daily_schedule(self) -> dict:
+        """Today's plan scratch: ``{"day": "Day 1", "blocks": [<schedule block>, ...]}``.
+
+        The sequencer spine (``planner.py``); empty until a plan is generated for
+        the current sim-day. Runtime scratch — regenerated each day / on reset.
+        """
+        return self.state.get("daily_schedule") or {}
+
+    @property
+    def daily_schedule_blocks(self) -> list:
+        return self.daily_schedule.get("blocks", [])
+
+    @property
+    def daily_schedule_day(self) -> str:
+        return self.daily_schedule.get("day", "")
+
+    @property
+    def last_activity(self) -> str:
+        """The scheduled activity from the previous tick, for block-transition
+        detection in ``planner.step`` (empty on a fresh run)."""
+        return self.state.get("last_activity", "")
+
+    @property
     def tick_interval(self) -> int:
         # 0 = no per-agent throttle; pacing comes from the adaptive sim loop.
         return int(self.state.get("tick_interval_seconds", 0))
@@ -164,6 +188,16 @@ class Agent:
         self.state["current_goal"] = goal
         self._save_state(agents_dir)
 
+    def set_daily_schedule(self, blocks: list, day: str, agents_dir: Path) -> None:
+        """Persist today's generated schedule to scratch (runtime.json)."""
+        self.state["daily_schedule"] = {"day": day, "blocks": blocks}
+        self._save_state(agents_dir)
+
+    def set_last_activity(self, activity: str, agents_dir: Path) -> None:
+        """Record the activity acted on this tick (for next tick's transition check)."""
+        self.state["last_activity"] = activity
+        self._save_state(agents_dir)
+
     def set_active(self, active: bool, agents_dir: Path) -> None:
         self.state["is_active"] = active
         self._save_state(agents_dir)
@@ -182,8 +216,10 @@ class Agent:
         return True
 
     def reset_runtime_state(self, agents_dir: Path) -> None:
-        """Clear per-run timers and goal so a fresh run behaves like the first one."""
-        for key in ("last_tick_time", "last_spoke_time", "current_goal"):
+        """Clear per-run timers, goal, and the day's plan so a fresh run behaves
+        like the first one (the schedule regenerates for the new run/day)."""
+        for key in ("last_tick_time", "last_spoke_time", "current_goal",
+                    "daily_schedule", "last_activity"):
             self.state.pop(key, None)
         self.state["is_busy"] = False
         self._save_state(agents_dir)

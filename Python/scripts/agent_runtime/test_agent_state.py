@@ -112,8 +112,39 @@ def test_reset_runtime_clears_runtime_file():
         check("runtime timers cleared on reset", "last_tick_time" not in runtime and "current_goal" not in runtime)
 
 
+def test_daily_schedule_persists_to_runtime():
+    """The planner's day plan + last_activity are scratch: they belong in
+    runtime.json, must not churn state.json, round-trip on reload, and clear on reset."""
+    with tempfile.TemporaryDirectory() as tmp:
+        agents_dir = Path(tmp)
+        _scaffold(agents_dir, "dufus", CONFIG)
+        agent = Agent.load(agents_dir, "dufus")
+        agent._save_state(agents_dir)                       # config-only state.json baseline
+        before = (agents_dir / "dufus" / "state.json").read_text()
+
+        blocks = [{"start": "08:00", "end": "12:00", "activity": "work", "place": "stall"}]
+        agent.set_daily_schedule(blocks, "Day 1", agents_dir)
+        agent.set_last_activity("work", agents_dir)
+
+        after = (agents_dir / "dufus" / "state.json").read_text()
+        runtime = json.loads((agents_dir / "dufus" / "runtime.json").read_text())
+        check("schedule does not churn state.json", before == after)
+        check("schedule lands in runtime.json", runtime["daily_schedule"]["day"] == "Day 1")
+        check("last_activity lands in runtime.json", runtime["last_activity"] == "work")
+
+        reloaded = Agent.load(agents_dir, "dufus")
+        check("blocks round-trip on reload", reloaded.daily_schedule_blocks[0]["activity"] == "work")
+        check("day round-trips on reload", reloaded.daily_schedule_day == "Day 1")
+        check("last_activity round-trips on reload", reloaded.last_activity == "work")
+
+        reloaded.reset_runtime_state(agents_dir)
+        check("reset clears the day's plan", reloaded.daily_schedule_day == "")
+        check("reset clears last_activity", reloaded.last_activity == "")
+
+
 def main():
     test_save_splits_config_from_runtime()
+    test_daily_schedule_persists_to_runtime()
     test_state_json_is_stable_across_a_tick()
     test_load_merges_runtime_over_config()
     test_load_without_runtime_is_backward_compatible()

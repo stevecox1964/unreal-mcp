@@ -164,9 +164,14 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
           containment matching ("vegetable truck" ⊆ a richer perceived label). Pure/testable; the LLM
           owns only the sub-action, grounded by `intent`. Tests in `test_planner.py` walk the wake →
           travel → arrived → noon-transition narrative.
-    - [ ] **10.3 Persist the day's schedule in scratch (loop-safe-ish)** — store today's blocks +
-          `prev_activity` on the agent (runtime.json via a `daily_schedule` runtime key); regenerate on a
-          new sim-day / reset. Small `agent.py` touch + test.
+    - [x] **10.3 Persist the day's schedule in scratch (loop-safe)** ✓ 2026-06-28 — `Agent` gained
+          `daily_schedule` (`{day, blocks}`) + `last_activity` runtime keys (in `_RUNTIME_KEYS` → land in
+          git-ignored `runtime.json`, never churn `state.json`), with `set_daily_schedule`/`set_last_activity`
+          and `reset_runtime_state` clearing both so a fresh run regenerates. `planner.ensure_daily_plan(agent,
+          day, ask=, agents_dir=)` generates+persists once per sim-day (idempotent within the day — only the
+          first tick asks the LLM) and `planner.day_of("Day 1, 08:23")="Day 1"`. Tests: `test_planner.py`
+          (idempotency/regeneration via a duck-typed agent) + `test_agent_state.py` (runtime round-trip,
+          no state.json churn, reset clears).
     - [ ] **10.4 Wire the sequencer into the tick as the spine** *(needs PIE)* — at wake/each tick call
           `step(...)`, feed `intent` + `status` into the decision context, and on `travel` route through
           the existing `walk_to` resolver; demote the current free-decide tick to the **reaction-gate**

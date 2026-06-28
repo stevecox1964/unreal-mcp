@@ -189,6 +189,27 @@ def generate_daily_plan(character_text: str, goals_text: str, *,
     return blocks or _fallback(goals_text)
 
 
+def day_of(clock_text: str) -> str:
+    """Day label from a `WorldClock.now_text()` string: ``"Day 1, 08:23"`` -> ``"Day 1"``."""
+    return str(clock_text).split(",")[0].strip() or "Day 1"
+
+
+def ensure_daily_plan(agent, day: str, *, ask=None, agents_dir=None) -> list[dict]:
+    """Return ``agent``'s schedule for ``day``, generating + persisting it when the
+    stored one is for a different day (or absent).
+
+    Idempotent within a sim-day, so the tick loop can call it every tick cheaply —
+    only the first call per day invokes ``ask`` (the LLM). ``agent`` is duck-typed
+    (an `Agent`): reads ``character_text``/``goals_text`` + ``daily_schedule_day``/
+    ``daily_schedule_blocks`` and writes via ``set_daily_schedule``.
+    """
+    if agent.daily_schedule_day == day and agent.daily_schedule_blocks:
+        return agent.daily_schedule_blocks
+    blocks = generate_daily_plan(agent.character_text, agent.goals_text, ask=ask, day=day)
+    agent.set_daily_schedule(blocks, day, agents_dir)
+    return blocks
+
+
 # Internals
 
 

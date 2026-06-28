@@ -177,6 +177,67 @@ def test_same_place_matching():
     check("different places don't match", not planner._same_place("home", "diner"))
 
 
+class _FakeAgent:
+    """Duck-typed stand-in for Agent (planner only needs these members)."""
+
+    def __init__(self, character_text="Maren, a grocer.", goals_text="Run the stall."):
+        self.character_text = character_text
+        self.goals_text = goals_text
+        self._sched = {}
+        self.saves = 0
+
+    @property
+    def daily_schedule_day(self):
+        return self._sched.get("day", "")
+
+    @property
+    def daily_schedule_blocks(self):
+        return self._sched.get("blocks", [])
+
+    def set_daily_schedule(self, blocks, day, agents_dir):
+        self._sched = {"day": day, "blocks": blocks}
+        self.saves += 1
+
+
+def _counting_ask(reply):
+    calls = {"n": 0}
+
+    def ask(prompt):
+        calls["n"] += 1
+        return reply
+
+    return ask, calls
+
+
+def test_day_of():
+    check("Day 1, 08:23 -> Day 1", planner.day_of("Day 1, 08:23") == "Day 1")
+    check("Day 12, 00:00 -> Day 12", planner.day_of("Day 12, 00:00") == "Day 12")
+
+
+def test_ensure_generates_and_persists_then_idempotent():
+    agent = _FakeAgent()
+    ask, calls = _counting_ask('[{"start":"08:00","end":"12:00","activity":"sell","place":"truck"}]')
+    blocks = planner.ensure_daily_plan(agent, "Day 1", ask=ask)
+    check("generated the schedule", blocks[0]["activity"] == "sell")
+    check("persisted for the day", agent.daily_schedule_day == "Day 1")
+    check("LLM asked once", calls["n"] == 1 and agent.saves == 1)
+    # Second call same day: served from scratch, no new generation.
+    planner.ensure_daily_plan(agent, "Day 1", ask=ask)
+    check("idempotent within the day (no second ask)", calls["n"] == 1)
+    check("no second save", agent.saves == 1)
+
+
+def test_ensure_regenerates_on_new_day():
+    agent = _FakeAgent()
+    ask1, _ = _counting_ask('[{"start":"08:00","end":"12:00","activity":"sell"}]')
+    planner.ensure_daily_plan(agent, "Day 1", ask=ask1)
+    ask2, calls2 = _counting_ask('[{"start":"09:00","end":"10:00","activity":"market run"}]')
+    blocks = planner.ensure_daily_plan(agent, "Day 2", ask=ask2)
+    check("new day regenerates", agent.daily_schedule_day == "Day 2")
+    check("new schedule reflects the new day", blocks[0]["activity"] == "market run")
+    check("LLM asked for the new day", calls2["n"] == 1 and agent.saves == 2)
+
+
 def main():
     test_to_minutes()
     test_minute_of_day()
@@ -193,6 +254,9 @@ def main():
     test_sequencer_noon_transition_to_lunch()
     test_sequencer_idle_when_nothing_scheduled()
     test_same_place_matching()
+    test_day_of()
+    test_ensure_generates_and_persists_then_idempotent()
+    test_ensure_regenerates_on_new_day()
     print("\nAll planner checks passed.")
 
 
