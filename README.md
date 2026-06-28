@@ -14,7 +14,7 @@
 
 > This is a fork of [chongdashu/unreal-mcp](https://github.com/chongdashu/unreal-mcp). Original work by [@chongdashu](https://www.x.com/chongdashu). This fork extends the base project with additional features â€” see [Changes from Upstream](#changes-from-upstream) below.
 
-This project enables AI assistant clients like Cursor, Windsurf and Claude Desktop to control Unreal Engine through natural language using the Model Context Protocol (MCP).
+This project is an **AI agent simulation** built in Unreal Engine: LLM-driven NPCs that perceive the world through their in-game cameras (a vision model), decide what to do (a decision LLM), remember what they have seen and who they have met, and navigate to named places — running live in PIE or as a standalone process. It began as a fork of an Unreal *MCP* (editor-authoring) project; that history still shows in parts of this README, but the focus is now the sim, not editor authoring (see the note under Overview).
 
 ## âš ï¸ Experimental Status
 
@@ -27,25 +27,25 @@ This project is currently in an **EXPERIMENTAL** state. The API, functionality, 
 
 ## ðŸŒŸ Overview
 
-The Unreal MCP integration provides comprehensive tools for controlling Unreal Engine through natural language:
+What the sim does each tick, per agent:
 
-| Category | Capabilities |
-|----------|-------------|
-| **Actor Management** | â€¢ Create and delete actors (cubes, spheres, lights, cameras, etc.)<br>â€¢ Set actor transforms (position, rotation, scale)<br>â€¢ Query actor properties and find actors by name<br>â€¢ List all actors in the current level |
-| **Blueprint Development** | â€¢ Create new Blueprint classes with custom components<br>â€¢ Add and configure components (mesh, camera, light, etc.)<br>â€¢ Set component properties and physics settings<br>â€¢ Compile Blueprints and spawn Blueprint actors<br>â€¢ Create input mappings for player controls |
-| **Blueprint Node Graph** | â€¢ Add event nodes (BeginPlay, Tick, etc.)<br>â€¢ Create function call nodes and connect them<br>â€¢ Add variables with custom types and default values<br>â€¢ Create component and self references<br>â€¢ Find and manage nodes in the graph |
-| **Editor Control** | â€¢ Focus viewport on specific actors or locations<br>â€¢ Control viewport camera orientation and distance |
-| **Character Interaction** | â€¢ Send and receive messages to/from NPC characters<br>â€¢ Query character status, health, inventory, location, and current action<br>â€¢ Command characters to move, follow, stop, look at targets<br>â€¢ Pick up and drop items (socket attachment)<br>â€¢ Set AI state, play animations, trigger dialogue<br>â€¢ Per-character key-value memory store<br>â€¢ Scan for nearby actors within a radius |
-| **Camera Capture** | â€¢ Trigger a `CameraCaptureActor` to take a scene snapshot during PIE<br>â€¢ Images saved as `<ActorName>_<YYYYMMDD>_<HHMMSS>.png` in the project folder<br>â€¢ Auto-discovers the first camera in the level if no name is specified<br>â€¢ AI assistants can read the image and analyze the scene |
+| Stage | What happens |
+|-------|--------------|
+| **Perceive** | Capture the agent's in-game camera frame; a vision model turns it into landmarks + characters + a caption. |
+| **Remember** | Sightings, places, and interactions are written to per-agent episodic + social memory and a shared spatial map. |
+| **Decide** | A decision LLM picks the next action from the agent's allowed action set, grounded in what it sees and remembers. |
+| **Act** | The action is schema-validated, then executed in Unreal (walk to a named place, speak to someone, observe, idle, ...). |
 
-All these capabilities are accessible through natural language commands via AI assistants, making it easy to automate and control Unreal Engine workflows.
+Decisions stream to `worlds/<level>/logs/agent_decisions.log` and to the web cockpit's live feed.
 
 > **Note (2026-06-28):** the **Python MCP editor-authoring tools were retired** (Actor Management,
-> Blueprint Development, Blueprint Node Graph, Editor Control, Character, Camera, Project). Epic now
-> ships an official Unreal MCP for editor authoring, and this project's sim is driven by the
-> standalone runner + web UI rather than these tools. The underlying C++ commands still exist in the
-> plugin (reachable over the raw socket), but the Python MCP server now exposes only the
-> **simulation control surface** (`simulation_tools.py` — start/stop/inspect the agent loop).
+> Blueprint Development, Blueprint Node Graph, Editor Control, Camera, Project). Epic now ships an
+> official Unreal MCP for editor authoring, so maintaining ours wasn't worth it. The sim is driven by
+> a **standalone runner + web cockpit** (no Claude/MCP required). The underlying C++ commands still
+> exist in the plugin (reachable over the raw socket on `:55557`), but the Python MCP server now
+> exposes only the **simulation control surface** (`simulation_tools.py` — start/stop/inspect the loop).
+> The bridge currently lives in an editor-only module, so **Unreal must be running in PIE** to host
+> the socket (making it a runtime module — for a packaged, editor-free build — is on the backlog).
 
 ## ðŸ§© Components
 
@@ -90,22 +90,40 @@ All these capabilities are accessible through natural language commands via AI a
       - `memory.json` / `social.json` / `episodes.jsonl` â€” accumulated runtime memory (git-ignored)
     - **`<LevelName>`/`world_places.db`** â€” shared spatial map (place cells + landmarks; git-ignored)
     - **`<LevelName>`/logs/** â€” per-world decision logs (runtime, git-ignored)
-  - **web_ui/** â€” Local NPC Builder web UI (FastAPI + Jinja2)
-  - `start_npc_builder.bat` â€” launcher for the web UI
+  - **web_ui/** â€” the web cockpit (FastAPI + Jinja2): the `/sim` controller (start/stop/step + live
+    decision feed), the `/providers` page (provider-profile CRUD), and the `/settings` page
+  - `sim_runner.py` â€” standalone sim engine (control API on `:8777`)
+  - `start_sim.bat` â€” launches the sim engine + web cockpit (NPC scaffolding now lives in the `/create-npc` skill, not a web builder)
 
 - **Docs/** â€” Comprehensive documentation
   - See [Docs/README.md](Docs/README.md) for documentation index
 
 ## ðŸš€ Quick Start Guide
 
-### Startup Sequence
+### Running the sim (standalone — no Claude/MCP)
 
-Every session, start things in this order:
+This is the primary path. Start things in this order:
 
-1. **Run the Unreal project** â€” open and play the project in the editor. This starts the C++ TCP server (port 55557) that the Python server connects to.
-2. **Run Claude Code** â€” launching Claude Code starts the Python MCP server (`unreal_sim_server.py`) via the `.mcp.json` config, which then connects to Unreal.
+1. **Run the Unreal project in PIE** — open the project and press **Play**. This starts the C++ TCP server (`:55557`) the sim talks to. **Run exactly one editor instance**: only one process can own `:55557`, so a second editor leaves the sim driving a window you aren't watching.
+2. **Start the sim engine + web cockpit** — run `Python/start_sim.bat`. It launches:
+   - the **sim engine** (`sim_runner.py`) on `http://127.0.0.1:8777` — owns the agent loop and the single Unreal socket, exposing a localhost JSON control API (`/status`, `/start`, `/stop`, `/tick`, `/events`).
+   - the **web cockpit** on `http://127.0.0.1:8765/sim` — start/stop/step the sim and watch the live decision feed (with a Clear-feed button + per-event timestamps).
 
-> If Claude Code is started before Unreal, the Python server will fail to connect. Always start Unreal first.
+Because the engine is a plain JSON HTTP API, you can also drive it directly with curl:
+
+```bash
+curl http://127.0.0.1:8777/status
+curl -X POST http://127.0.0.1:8777/start -d '{"tick_seconds":2}'
+curl http://127.0.0.1:8777/events?limit=20
+curl -X POST http://127.0.0.1:8777/stop
+```
+
+### Dev mode (Claude Code operating the sim)
+
+When Claude Code is running it can start/stop the sim and help read logs + debug. Historically Claude
+reached Unreal through the Python MCP server (`unreal_sim_server.py`, launched via `.mcp.json`); that
+path still works for the **simulation control surface**, but the standalone runner above is the
+direction of travel. Always start Unreal in PIE first — without it the bridge socket isn't hosted.
 
 ### Restarting the MCP server without rebooting
 
@@ -170,19 +188,23 @@ The agent runtime uses two models, configured independently in `Python/.env`
 model** (turns each screenshot into landmarks/characters). Each can be a cloud
 provider **or** a local [Ollama](https://ollama.com) model.
 
-#### Cloud (Anthropic or OpenAI for decisions, Gemini for vision)
+#### Cloud (Haiku for both decisions and vision)
+
+Haiku 4.5 is multimodal, so one provider and one key cover **both** roles — this is the simplest
+cloud setup and the current default:
 
 ```dotenv
 LLM_PROVIDER=anthropic            # decisions: anthropic | openai | ollama
 ANTHROPIC_API_KEY=sk-ant-...
 ANTHROPIC_MODEL=claude-haiku-4-5-20251001
 
-VISION_PROVIDER=gemini            # observations: gemini | ollama
-GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-2.5-flash-lite
+VISION_PROVIDER=anthropic         # observations: anthropic | gemini | ollama
+ANTHROPIC_VISION_MODEL=claude-haiku-4-5-20251001
 ```
 
-For OpenAI instead, set `LLM_PROVIDER=openai`, `OPENAI_API_KEY`, `OPENAI_MODEL`.
+Gemini stays selectable for vision (`VISION_PROVIDER=gemini`, `GEMINI_API_KEY`,
+`GEMINI_MODEL=gemini-2.5-flash-lite`) if you prefer it. For OpenAI decisions instead, set
+`LLM_PROVIDER=openai`, `OPENAI_API_KEY`, `OPENAI_MODEL`.
 The OpenAI path uses the Responses HTTP API directly through `requests` instead
 of the OpenAI Python SDK, avoiding a Python 3.14 compatibility issue in the
 SDK/Pydantic stack while keeping runtime behavior the same.
@@ -277,7 +299,7 @@ A first-pass agentic NPC simulation layer driven by an LLM-controlled Agent Mana
 - **World-state driven** â€” agents observe Unreal structured data; screenshots used selectively
 - **Validated action pipeline** â€” LLM decisions are schema-validated before any Unreal command executes
 - **Level-aware loading** â€” agents live under `Python/worlds/<LevelName>/agents/` and are loaded automatically based on the currently open Unreal level; no config field needed
-- **NPC Builder web UI** â€” local FastAPI app (`Python/web_ui/`) for creating and editing NPC agent files without touching the CLI; shows live actor list from the running editor; launch with `start_npc_builder.bat`
+- **Web cockpit** â€” local FastAPI app (`Python/web_ui/`): drive the sim (`/sim` — start/stop/step + live decision feed), manage provider profiles (`/providers`), and edit config (`/settings`). Launch with `start_sim.bat` (alongside the sim engine). NPC scaffolding moved to the `/create-npc` skill; the legacy `npc_builder` app was removed 2026-06-28.
 - **Explore mode** â€” a second simulation mode (`start_simulation(mode="explore")`) where the avatar autonomously maps an unknown world by walking it: a VLM (Gemini or a local Ollama model) turns each camera frame into semantic landmarks, a deterministic frontier explorer chooses where to walk next, and a per-agent engine-agnostic grid/place map is written to `spatial_map.json`. No LLM in the movement loop. See [Explore Mode](#-explore-mode-vlm-spatial-mapping) below.
 - **Local model support (Ollama)** â€” run both the decision LLM and vision perception fully locally on an Ollama model (e.g. the multimodal `qwen3.5:4b`) with no cloud API keys. Decision and vision providers are selected independently in `Python/.env`. See [LLM configuration for NPC simulation](#llm-configuration-for-npc-simulation).
 
@@ -291,7 +313,7 @@ A cognitive layer the agents build and share as they run (verified live in PIE, 
 - **Maintenance/monitor APC** â€” an optional system-worker role (`"role": "maintenance"` in `state.json`) with **no personality or LLM** that sweeps unexplored grid cells (walk to cell center â†’ 360 observe â†’ drop a *community breadcrumb*) so the personality NPCs skip the costly re-sweep. *Decision + navigation logic is complete and tested; the live 360 rotation+capture in Unreal is pending.*
 - **`.env` config store** â€” `agent_runtime/config_store.py` reads/writes provider/model settings with secrets shown set/unset only (backs a future settings UI; no hand-editing `.env`).
 
-### Standalone runner & web settings
+### Standalone runner & web cockpit
 
 - **Standalone sim runner** (`Python/sim_runner.py`) â€” runs the simulation in its **own process,
   independent of Claude/MCP** (the "runs overnight without Claude open" host). It owns the
@@ -299,6 +321,14 @@ A cognitive layer the agents build and share as they run (verified live in PIE, 
   (`/status`, `/start`, `/stop`, `/tick`); MCP tools and the web UI can *attach* via
   `agent_runtime.runner_client.RunnerClient` instead of hosting the manager themselves. Run it with
   `python sim_runner.py --port 8777` (Unreal in PIE). The control API + client are offline-tested.
+- **Sim cockpit** (`/sim` in the web app) â€” drive the running sim from the browser: status panel,
+  Start/Stop, single-tick **Step** (debugging), and a live decision-log feed (poll-based, with a
+  **Clear feed** button + per-event local timestamps). Proxies to the sim engine via `RunnerClient`.
+- **Provider profiles** (`/providers` in the web app) â€” create/edit/delete named `{provider, model}`
+  profiles and assign them to the **decision** and **vision** roles. Profiles live in a `config.json`
+  and are **compiled down to the plain `.env` keys** the runtime already reads (`agent_runtime/provider_profiles.py`),
+  so `llm_router`/`perception` are untouched and the sim picks up changes without a restart. No secrets
+  in profiles â€” keys stay in `.env`.
 - **Web settings page** (`/settings` in the web app) â€” manage provider/model config (the Ollama vs
   cloud switch, models) through the UI instead of hand-editing `.env`. Secret keys show only
   whether they are *set*; a blank secret field is left untouched. Backed by `agent_runtime/config_store.py`.

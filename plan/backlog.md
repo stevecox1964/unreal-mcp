@@ -552,6 +552,20 @@ before driving it (health endpoint vs port check)? guardrails for unsupervised U
 
 ## Later / ideas
 
+- **Bridge as a Runtime module → run the sim from a *packaged* build (no editor)** (user, 2026-06-28).
+  Today the sim **hard-requires the editor in PIE**: the `:55557` bridge lives in the
+  `UnrealMCP.uplugin` module declared `"Type": "Editor"` (`UnrealMCPBridge.cpp`, `MCP_SERVER_PORT 55557`)
+  and depends on **EditorScriptingUtilities**, so it is **not cooked into a packaged `.exe`** — a
+  standalone build would never open the socket and every tick would fail. To take the editor "out of
+  the equation" the bridge must be ported **`Editor` → `Runtime`**: flip the module type/loading phase,
+  drop the EditorScriptingUtilities dependency, and replace every editor-only call (editor-world actor
+  lookups via `GEditor`/editor subsystems, `EditorScriptingUtilities`, etc.) with runtime equivalents
+  that work in a cooked game world. Deliberate C++ work, **needs an editor rebuild** (not loop-safe).
+  Big payoff: one game window, no PIE-vs-editor-world ambiguity, no multi-instance confusion (see memory
+  `feedback-single-unreal-instance`), and it's the natural host for the "runs overnight" standalone sim
+  (#3) — Claude could launch/kill the packaged build directly (dev mode, #9). *Until this lands, the
+  editor in PIE is required and there must be exactly one instance — the user's.*
+
 - **Deprecate the custom MCP server** (user direction, 2026-06-26). Move Claude to plain **API calls**
   for coding help and back away from the bespoke `UnrealMCP` Python MCP server entirely — **Epic now
   ships an official Unreal MCP server**, so maintaining ours isn't worth it. Phased, and done *last*
