@@ -136,6 +136,6 @@ After files are written, print a summary:
 
 ## Don't
 
-- Don't spin up the npc_builder web app (`npc_builder/` is deprecated for this workflow â€” file edits via this skill are the canonical path).
+- Don't try to use the old `npc_builder` web app — it was removed (2026-06-28). File edits via this skill are the canonical path; the `web_ui/` app ("Unreal World Sim") is the current web surface.
 - Don't start the simulation automatically. Creating the NPC and starting the sim are separate user decisions.
 - Don't add the NPC to any "active list" â€” `start_simulation`'s `active_agents` argument is how the user opts in per-run.

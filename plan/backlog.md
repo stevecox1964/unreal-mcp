@@ -23,9 +23,9 @@ grooming: 2026-06-26.
 > fixed). Also introduced the **dev-mode vs sim-mode** framing (#9, memory `feedback-dev-sim-modes`).
 > `python scripts/run_tests.py` = **22/22 green**, 6 new commits on `auto-loop/backlog`, never pushed.
 > **Loop-safe backlog is now essentially exhausted** — remaining work is live/editor/design (browser
-> verify of `/providers`, the #8/#9 design calls, merge to main). *(Found: the legacy `npc_builder/`
-> app — frontend+backend — is superseded by `web_ui/` + the `/create-npc` skill; it's a **deletion
-> candidate** pending user confirmation, not removed unattended.)*
+> verify of `/providers`, the #8/#9 design calls, merge to main). *(The legacy `npc_builder/` app —
+> frontend+backend, superseded by `web_ui/` + the `/create-npc` skill — was **deleted 2026-06-28** at
+> the user's request; nothing active imported it.)*
 
 > **⚑ Status (2026-06-26, eve):** the autonomous loop ran again and **cleared the entire
 > "Autonomous queue" (5/5 items)** on branch `auto-loop/backlog` — episodic consolidation,
