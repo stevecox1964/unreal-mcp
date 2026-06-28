@@ -119,6 +119,7 @@ var/
 venv/
 ENV/
 .env
+Python/config.json
 .venv
 env/
 env.bak/

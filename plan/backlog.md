@@ -90,13 +90,19 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
          `.env` flipped to `VISION_PROVIDER=anthropic` (gitignored); the **Gemini + ollama branches stay
          selectable** (user choice 2026-06-28). Offline test: `test_vision_perceiver.py` (stubbed
          Anthropic client). Suite 20/20.
-   - [ ] **7.1 Provider profiles model** — a `config.json` (or `config_store` extension) holding
-         named profiles `{name, provider, model, base_url?, api_key_ref}` and role assignments
-         (`decision`, `vision`). Pure data layer, offline-tested.
-   - [ ] **7.2 CRUD routes** — `web_ui`: list / create / edit / delete profiles; assign a profile to
-         the decision and vision roles; Ollama⇄cloud falls out as just another profile. Route/data
-         logic offline-tested via `TestClient`.
-   - [ ] **7.3 UI** — grow `settings.html` into the profiles manager (live-verify in a browser).
+   - [x] **7.1 Provider profiles model** ✓ 2026-06-28 — `agent_runtime/provider_profiles.py`:
+         `config.json` of named `{provider, model}` profiles + `roles{decision,vision}`. CRUD
+         (`upsert_profile`/`delete_profile`/`assign_role`, missing-file seeds defaults) and
+         `apply_to_env` which **compiles** the active roles to the plain `.env` keys the runtime
+         already reads (`LLM_PROVIDER`/`LLM_MODEL`, `VISION_PROVIDER` + the provider's model var) — so
+         resolution logic in `llm_router`/`perception` is untouched. No secrets in profiles (keys stay
+         in `.env`). Offline test: `test_provider_profiles.py`.
+   - [x] **7.2 CRUD routes** ✓ 2026-06-28 — `web_ui`: `GET /api/providers`, `GET /providers`,
+         `POST /providers/{save,delete,assign}`. Every mutation re-applies to `.env` (sim reloads each
+         tick → no restart). Ollama⇄cloud is just another profile. Offline test: `test_providers_page.py`
+         (`TestClient`). `config.json` gitignored (seeded on first read).
+   - [~] **7.3 UI** — `providers.html` (role selectors + profile table + add/edit form) and a
+         Providers nav link landed; **needs live-browser verification** (not loop-safe).
 
 (Items 1–6 landed 2026-06-26, 19/19 green.)
 

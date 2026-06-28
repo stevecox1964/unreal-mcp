@@ -11,12 +11,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from agent_runtime.config_store import read_config, write_config, is_secret
+from agent_runtime import provider_profiles
 from agent_runtime.runner_client import RunnerClient, DEFAULT_BASE_URL
 from web_ui import unreal_client
 
 BASE_DIR = Path(__file__).parent
 WORLDS_DIR = BASE_DIR.parent / "worlds"
 ENV_PATH = BASE_DIR.parent / ".env"   # provider/model config the settings page manages
+CONFIG_PATH = BASE_DIR.parent / "config.json"   # named provider profiles + role assignments
 
 app = FastAPI(title="Unreal World Sim")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -293,6 +295,68 @@ async def settings_save(request: Request):
     write_config(ENV_PATH, updates)
     # The sim process reloads .env before each LLM decision, so writing is enough.
     return RedirectResponse("/settings", status_code=303)
+
+
+# ── Provider profiles (CRUD) ────────────────────────────────────────────────────
+# Named {provider, model} profiles assigned to the decision/vision roles. Any
+# mutation re-compiles the active roles into .env (apply_to_env), so the running
+# sim — which reloads .env each tick — picks up the change with no restart.
+
+@app.get("/providers", response_class=HTMLResponse)
+async def providers_page(request: Request):
+    return templates.TemplateResponse("providers.html", {
+        "request": request,
+        "data": provider_profiles.read_profiles(CONFIG_PATH),
+        "roles": provider_profiles.ROLES,
+    })
+
+
+@app.get("/api/providers")
+async def api_providers():
+    """Current profiles + role assignments. Holds no secrets (keys live in .env)."""
+    return JSONResponse(provider_profiles.read_profiles(CONFIG_PATH))
+
+
+@app.post("/providers/save")
+async def providers_save(request: Request):
+    """Create or update a profile (form: name, provider, model)."""
+    form = await request.form()
+    data = provider_profiles.read_profiles(CONFIG_PATH)
+    try:
+        provider_profiles.upsert_profile(
+            data, str(form.get("name", "")),
+            str(form.get("provider", "")), str(form.get("model", "")),
+        )
+    except ValueError:
+        return RedirectResponse("/providers", status_code=303)
+    provider_profiles.write_profiles(CONFIG_PATH, data)
+    provider_profiles.apply_to_env(data, ENV_PATH)
+    return RedirectResponse("/providers", status_code=303)
+
+
+@app.post("/providers/delete")
+async def providers_delete(request: Request):
+    """Delete a profile (form: name) and unassign any role using it."""
+    form = await request.form()
+    data = provider_profiles.read_profiles(CONFIG_PATH)
+    provider_profiles.delete_profile(data, str(form.get("name", "")))
+    provider_profiles.write_profiles(CONFIG_PATH, data)
+    provider_profiles.apply_to_env(data, ENV_PATH)
+    return RedirectResponse("/providers", status_code=303)
+
+
+@app.post("/providers/assign")
+async def providers_assign(request: Request):
+    """Point a role at a profile (form: role, profile) and apply it to .env."""
+    form = await request.form()
+    data = provider_profiles.read_profiles(CONFIG_PATH)
+    try:
+        provider_profiles.assign_role(data, str(form.get("role", "")), str(form.get("profile", "")))
+    except ValueError:
+        return RedirectResponse("/providers", status_code=303)
+    provider_profiles.write_profiles(CONFIG_PATH, data)
+    provider_profiles.apply_to_env(data, ENV_PATH)
+    return RedirectResponse("/providers", status_code=303)
 
 
 LOG_PATH = BASE_DIR.parent / "unreal_mcp.log"

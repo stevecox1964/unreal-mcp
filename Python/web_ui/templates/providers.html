@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Providers · Unreal World Sim{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="/">Home</a> / Providers</div>
+<h2>Provider profiles</h2>
+<p><small>A <strong>profile</strong> is a named provider + model. Assign one to each
+<strong>role</strong> below. Changes compile to <code>Python/.env</code> and the sim picks them up
+on its next tick — no restart. API keys live on the <a href="/settings">Settings</a> page, one per
+provider (Anthropic / Gemini / OpenAI).</small></p>
+
+<h3>Active roles</h3>
+{% for role in roles %}
+<form method="post" action="/providers/assign" style="display:flex; gap:.5rem; align-items:end;">
+  <input type="hidden" name="role" value="{{ role }}">
+  <label style="flex:0 0 8rem;">{{ role }}
+    <select name="profile">
+      {% for name, p in data.profiles.items() %}
+      <option value="{{ name }}" {{ "selected" if data.roles[role] == name else "" }}>
+        {{ name }} — {{ p.provider }}/{{ p.model }}
+      </option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit">Use for {{ role }}</button>
+</form>
+{% endfor %}
+
+<h3>Profiles</h3>
+<table>
+  <thead><tr><th>Name</th><th>Provider</th><th>Model</th><th></th></tr></thead>
+  <tbody>
+  {% for name, p in data.profiles.items() %}
+    <tr>
+      <td>{{ name }}</td>
+      <td>{{ p.provider }}</td>
+      <td>{{ p.model }}</td>
+      <td>
+        <form method="post" action="/providers/delete" onsubmit="return confirm('Delete {{ name }}?')">
+          <input type="hidden" name="name" value="{{ name }}">
+          <button type="submit" class="danger">Delete</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h3>Add / edit a profile</h3>
+<p><small>Re-using an existing name overwrites it. Providers: <code>anthropic</code>,
+<code>gemini</code>, <code>openai</code>, <code>ollama</code>.</small></p>
+<form method="post" action="/providers/save">
+  <label>Name <input type="text" name="name" placeholder="e.g. haiku" required></label>
+  <label>Provider <input type="text" name="provider" placeholder="anthropic" required></label>
+  <label>Model <input type="text" name="model" placeholder="claude-haiku-4-5-20251001"></label>
+  <button type="submit">Save profile</button>
+</form>
+{% endblock %}
