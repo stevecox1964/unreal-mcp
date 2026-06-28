@@ -125,7 +125,24 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
    `get_unreal_connection` intact); suite 22/22; no stale refs anywhere. First phase of the
    "deprecate the custom MCP" idea below; C++/Blueprints untouched.
 
-(Items 1–6 landed 2026-06-26, 19/19 green.)
+9. **Sim Run ID (`SR<n>`) — tag observations + logs per run.** *(user, 2026-06-28 — loop-safe.)* Give
+   every sim run a monotonic number so artifacts and logs are attributable to a single run for
+   debugging. Pieces:
+   - **Allocator** — a small `agent_runtime/sim_run.py`: read+increment a persisted counter at sim
+     start (first run = `SR1`), expose the **current run id**. Persist in a git-ignored file (e.g.
+     `Python/worlds/<level>/sim_run.json` or alongside `runtime.json`). *Decision: global vs per-world
+     counter (rec: per-world).*
+   - **Observation files** — prefix `SR<n>_`: `SR42_observation_<ts>.png` at the three capture sites
+     in `unreal_bridge.py` (`capture`/`capture_view`/`capture_observation`, lines ~141/172/297). The
+     run id has to reach the bridge (set on the manager at run start → passed to capture calls).
+   - **Decision log** — add a `sim_run` field to each entry in `memory_store.record()`
+     (`agent_decisions.log`), and/or prefix — so you can filter the JSONL by run.
+   - **General logs** — a `logging.Filter` that injects `SR<n>` into `AgentRuntime` log lines, wired
+     into `sim_runner.py`'s format (`%(sim_run)s …`), so console/file lines carry the run.
+   - **Offline-testable:** counter increment/persistence, filename prefixing, the log-record field, the
+     filter injection — all without Unreal. Live verify: filenames + log prefixes appear in a real run.
+
+(Items 1–6 landed 2026-06-26, 19/19 green; #7.0–7.2 + #8 landed 2026-06-28, 22/22.)
 
 ---
 
