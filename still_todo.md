@@ -1,5 +1,11 @@
 # Still TODO — updated 2026-05-01
 
+> **⚠️ Superseded — historical snapshot (do not use as the live task list).** The single source of
+> truth for outstanding work is now **[`plan/backlog.md`](plan/backlog.md)**. Much of the content below
+> is stale: it references agents that no longer exist (Bartleby, Gondolf), the old `Python/agents/`
+> layout (now `Python/worlds/<level>/agents/`), and the retired Python MCP editor-authoring tools (see
+> `Docs/Tools/README.md`); the level-awareness workstream has since shipped. Kept only for history.
+
 Snapshot of verified state and open work. Regenerated after the Dufus session.
 
 ---
