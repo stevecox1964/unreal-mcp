@@ -104,18 +104,16 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
    - [~] **7.3 UI** — `providers.html` (role selectors + profile table + add/edit form) and a
          Providers nav link landed; **needs live-browser verification** (not loop-safe).
 
-8. **Strip stale MCP→Unreal *non-sim* (editor authoring) tools.** *(user, 2026-06-28 — loop-safe,
-   "do this while I'm gone.")* Claude no longer needs to build actors/blueprints/UMG programmatically
-   from inside Claude Code — **Epic ships an official Unreal MCP** for editor authoring, and the sim is
-   driven by the runner/web UI, not these tools. So retire the authoring tool surface and keep only the
-   **sim** path. Candidates to remove (Python MCP tool modules + their `register_*` calls in
-   `unreal_sim_server.py`): `editor_tools`, `blueprint_tools`, `node_tools`, `umg_tools`,
-   `character_tools`, `camera_tools`, `attachment_tools`, `project_tools` (~2300 lines). **Keep:**
-   `simulation_tools.py` (the sim control surface). **Guardrail (must verify first):** the standalone
-   sim runs on `UnrealBridge` (TCP :55557) + `agent_manager`, *not* these tool modules — grep that
-   nothing under `agent_runtime/`, `sim_runner.py`, `runner_app`, or `web_ui/` imports the modules being
-   removed before deleting; keep `run_tests.py` green; never touch C++/Blueprints. This is the concrete
-   first phase of the "deprecate the custom MCP" idea below.
+8. ~~**Strip stale MCP→Unreal *non-sim* (editor authoring) tools.**~~ ✓ 2026-06-28 — removed the 8
+   authoring tool modules (`editor_tools`, `blueprint_tools`, `node_tools`, `umg_tools`,
+   `character_tools`, `camera_tools`, `attachment_tools`, `project_tools`, ~2300 lines) + their
+   `register_*` imports/calls in `unreal_sim_server.py`; rewrote the stale `info()` prompt to describe
+   the remaining sim tools. **Kept** `simulation_tools.py`. Verified safe first: only `unreal_sim_server`
+   imported them, nothing under `agent_runtime/`/`sim_runner`/`runner_app`/`web_ui` did; the standalone
+   sim reaches Unreal via `UnrealBridge` raw socket commands (e.g. `capture_camera_image` as a C++
+   command, not the `camera_tools` wrapper). `import unreal_sim_server` still OK (bridge's
+   `get_unreal_connection` intact); suite 22/22; no stale refs anywhere. First phase of the
+   "deprecate the custom MCP" idea below; C++/Blueprints untouched.
 
 (Items 1–6 landed 2026-06-26, 19/19 green.)
 

@@ -284,118 +284,52 @@ mcp = FastMCP(
     lifespan=server_lifespan
 )
 
-# Import and register tools
-from tools.editor_tools import register_editor_tools
-from tools.blueprint_tools import register_blueprint_tools
-from tools.node_tools import register_blueprint_node_tools
-from tools.project_tools import register_project_tools
-from tools.umg_tools import register_umg_tools
-from tools.character_tools import register_character_tools
-from tools.camera_tools import register_camera_tools
-from tools.attachment_tools import register_attachment_tools
+# Import and register tools.
+# The editor-authoring tools (build actors/blueprints/UMG/etc. programmatically)
+# were retired 2026-06-28 — Epic ships an official Unreal MCP for authoring, and
+# the sim is driven by the runner/web UI, not these tools. Only the simulation
+# control surface remains. (The standalone sim talks to Unreal via UnrealBridge's
+# raw socket commands, not through these wrappers.)
 from tools.simulation_tools import register_simulation_tools
 
-# Register tools
-register_editor_tools(mcp)
-register_blueprint_tools(mcp)
-register_blueprint_node_tools(mcp)
-register_project_tools(mcp)
-register_umg_tools(mcp)
-register_character_tools(mcp)
-register_camera_tools(mcp)
-register_attachment_tools(mcp)
 register_simulation_tools(mcp)
 
 @mcp.prompt()
 def info():
-    """Information about available Unreal MCP tools and best practices."""
+    """Information about available Unreal MCP simulation tools and best practices."""
     return """
-    # Unreal MCP Server Tools and Best Practices
-    
-    ## UMG (Widget Blueprint) Tools
-    - `create_umg_widget_blueprint(widget_name, parent_class="UserWidget", path="/Game/UI")` 
-      Create a new UMG Widget Blueprint
-    - `add_text_block_to_widget(widget_name, text_block_name, text="", position=[0,0], size=[200,50], font_size=12, color=[1,1,1,1])`
-      Add a Text Block widget with customizable properties
-    - `add_button_to_widget(widget_name, button_name, text="", position=[0,0], size=[200,50], font_size=12, color=[1,1,1,1], background_color=[0.1,0.1,0.1,1])`
-      Add a Button widget with text and styling
-    - `bind_widget_event(widget_name, widget_component_name, event_name, function_name="")`
-      Bind events like OnClicked to functions
-    - `add_widget_to_viewport(widget_name, z_order=0)`
-      Add widget instance to game viewport
-    - `set_text_block_binding(widget_name, text_block_name, binding_property, binding_type="Text")`
-      Set up dynamic property binding for text blocks
+    # Unreal World Sim — MCP Tools
 
-    ## Editor Tools
-    ### Viewport and Screenshots
-    - `focus_viewport(target, location, distance, orientation)` - Focus viewport
-    - `take_screenshot(filename, show_ui, resolution)` - Capture screenshots
+    This server exposes the **simulation control surface** only. Editor-authoring
+    tools (spawn actors, build Blueprints/UMG, etc.) were retired — use Epic's
+    official Unreal MCP for authoring. The sim itself runs standalone via the
+    runner + web UI; these tools are for driving/inspecting it from Claude.
 
-    ### Actor Management
-    - `get_actors_in_level()` - List all actors in current level
-    - `find_actors_by_name(pattern)` - Find actors by name pattern
-    - `spawn_actor(name, type, location=[0,0,0], rotation=[0,0,0], scale=[1,1,1])` - Create actors
-    - `delete_actor(name)` - Remove actors
-    - `set_actor_transform(name, location, rotation, scale)` - Modify actor transform
-    - `get_actor_properties(name)` - Get actor properties
-    
-    ## Blueprint Management
-    - `create_blueprint(name, parent_class)` - Create new Blueprint classes
-    - `add_component_to_blueprint(blueprint_name, component_type, component_name)` - Add components
-    - `set_static_mesh_properties(blueprint_name, component_name, static_mesh)` - Configure meshes
-    - `set_physics_properties(blueprint_name, component_name)` - Configure physics
-    - `compile_blueprint(blueprint_name)` - Compile Blueprint changes
-    - `set_blueprint_property(blueprint_name, property_name, property_value)` - Set properties
-    - `set_pawn_properties(blueprint_name)` - Configure Pawn settings
-    - `spawn_blueprint_actor(blueprint_name, actor_name)` - Spawn Blueprint actors
-    
-    ## Blueprint Node Management
-    - `add_blueprint_event_node(blueprint_name, event_type)` - Add event nodes
-    - `add_blueprint_input_action_node(blueprint_name, action_name)` - Add input nodes
-    - `add_blueprint_function_node(blueprint_name, target, function_name)` - Add function nodes
-    - `connect_blueprint_nodes(blueprint_name, source_node_id, source_pin, target_node_id, target_pin)` - Connect nodes
-    - `add_blueprint_variable(blueprint_name, variable_name, variable_type)` - Add variables
-    - `add_blueprint_get_self_component_reference(blueprint_name, component_name)` - Add component refs
-    - `add_blueprint_self_reference(blueprint_name)` - Add self references
-    - `find_blueprint_nodes(blueprint_name, node_type, event_type)` - Find nodes
-    
-    ## Project Tools
-    - `create_input_mapping(action_name, key, input_type)` - Create input mappings
-    
-    ## Best Practices
-    
-    ### UMG Widget Development
-    - Create widgets with descriptive names that reflect their purpose
-    - Use consistent naming conventions for widget components
-    - Organize widget hierarchy logically
-    - Set appropriate anchors and alignment for responsive layouts
-    - Use property bindings for dynamic updates instead of direct setting
-    - Handle widget events appropriately with meaningful function names
-    - Clean up widgets when no longer needed
-    - Test widget layouts at different resolutions
-    
-    ### Editor and Actor Management
-    - Use unique names for actors to avoid conflicts
-    - Clean up temporary actors
-    - Validate transforms before applying
-    - Check actor existence before modifications
-    - Take regular viewport screenshots during development
-    - Keep the viewport focused on relevant actors during operations
-    
-    ### Blueprint Development
-    - Compile Blueprints after changes
-    - Use meaningful names for variables and functions
-    - Organize nodes logically
-    - Test functionality in isolation
-    - Consider performance implications
-    - Document complex setups
-    
-    ### Error Handling
-    - Check command responses for success
-    - Handle errors gracefully
-    - Log important operations
-    - Validate parameters
-    - Clean up resources on errors
+    ## Simulation control
+    - `start_simulation(tick_seconds=1, ...)` - Start the agent loop
+    - `stop_simulation()` - Stop the loop
+    - `pause_simulation()` / `resume_simulation()` - Pause/resume without stopping
+    - `get_simulation_status()` - State, tick rate, agent summaries
+    - `resync_simulation()` - Re-query the level and rebind agents without stopping
+
+    ## Agents
+    - `list_agents()` - Loaded agents: binding, tier, goal, active state
+    - `inspect_agent(agent_id)` - Full config + state for one agent
+    - `set_agent_goal(agent_id, goal)` - Override a running agent's goal
+    - `force_agent_tick(agent_id)` - Pulse one agent now, ignoring its cooldown
+    - `get_recent_events(limit=20)` - Recent agent decision-log entries
+
+    ## World / reset
+    - `reset_agents()` - Reset agents to run-start state (reproducible re-runs)
+    - `reset_world_places()` - Wipe the shared place-cell DB (blank map)
+    - `generate_world_grid(cell_size=400.0, padding=800.0)` - Compute the world grid
+    - `reload_llm_environment()` - Reload Python/.env; report LLM settings (secrets masked)
+
+    ## Best practices
+    - Check `get_simulation_status()` before driving; confirm agents are bound.
+    - Prefer the web cockpit (/sim) for live driving; use these tools to inspect
+      and nudge from Claude in dev mode.
+    - Check command responses for success; handle and log failures.
     """
 
 # Run the server
