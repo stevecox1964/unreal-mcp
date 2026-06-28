@@ -104,6 +104,19 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
    - [~] **7.3 UI** — `providers.html` (role selectors + profile table + add/edit form) and a
          Providers nav link landed; **needs live-browser verification** (not loop-safe).
 
+8. **Strip stale MCP→Unreal *non-sim* (editor authoring) tools.** *(user, 2026-06-28 — loop-safe,
+   "do this while I'm gone.")* Claude no longer needs to build actors/blueprints/UMG programmatically
+   from inside Claude Code — **Epic ships an official Unreal MCP** for editor authoring, and the sim is
+   driven by the runner/web UI, not these tools. So retire the authoring tool surface and keep only the
+   **sim** path. Candidates to remove (Python MCP tool modules + their `register_*` calls in
+   `unreal_sim_server.py`): `editor_tools`, `blueprint_tools`, `node_tools`, `umg_tools`,
+   `character_tools`, `camera_tools`, `attachment_tools`, `project_tools` (~2300 lines). **Keep:**
+   `simulation_tools.py` (the sim control surface). **Guardrail (must verify first):** the standalone
+   sim runs on `UnrealBridge` (TCP :55557) + `agent_manager`, *not* these tool modules — grep that
+   nothing under `agent_runtime/`, `sim_runner.py`, `runner_app`, or `web_ui/` imports the modules being
+   removed before deleting; keep `run_tests.py` green; never touch C++/Blueprints. This is the concrete
+   first phase of the "deprecate the custom MCP" idea below.
+
 (Items 1–6 landed 2026-06-26, 19/19 green.)
 
 ---
@@ -482,6 +495,31 @@ Two ways to drive Unreal, and the user wants **both** to work without the custom
       `unrealSIM` tools can still inspect + nudge the sim.
 
 Relates to: #3 (standalone runner), the MCP-deprecation idea below.
+
+---
+
+## 9. Dev mode vs sim mode — Claude as operator
+
+**Status:** Not started · **Source:** user, 2026-06-28 · **Independence:** uses computer/browser use,
+needs supervision first · See memory [[feedback-dev-sim-modes]].
+
+Two operating modes the user wants framed explicitly:
+- **Sim mode** — the sim runs **standalone**, web-driven, no Claude/MCP (the #3/#6 work).
+- **Dev mode** — Claude Code is running and acts as the **operator**: start/stop the sim on request,
+  and **help read logs + debug when things break** (a core dev-mode job).
+
+The goal is to grow Claude into a hands-on operator of the dev loop:
+- [ ] **Start/stop the World Builder web UI** (and the sim) from Claude — today `start_sim.bat` /
+      `start_npc_builder.bat` boot them; wire Claude to launch/kill them (background process control).
+- [ ] **Iterate on code changes via the web UI** — make a change, (re)start the UI, drive it with
+      **browser use**, observe, fix. Claude has **computer + browser use**.
+- [ ] **Log triage** — fluent at pulling the sim/runner logs and pinpointing failures (dev-mode's
+      bread and butter).
+- [ ] **Autonomy progression** — *supervised first*; once it runs smoothly, Claude does the
+      start/stop/test/iterate loop **itself until credits run out** (ties into #4 / [[project_autonomous_loop]]).
+
+Decisions (human): which logs are canonical for triage? how does Claude detect "UI is up / healthy"
+before driving it (health endpoint vs port check)? guardrails for unsupervised UI-driving runs?
 
 ---
 
