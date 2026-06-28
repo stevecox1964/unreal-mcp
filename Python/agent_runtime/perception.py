@@ -170,7 +170,8 @@ class VisionPerceiver:
         Returns the raw text content (expected to be the JSON object the prompt
         asks for); ``perceive`` strips any fences and parses it.
         """
-        b64 = base64.standard_b64encode(Path(image_path).read_bytes()).decode()
+        raw = Path(image_path).read_bytes()
+        b64 = base64.standard_b64encode(raw).decode()
         client = self._make_anthropic_client(key)
         response = client.messages.create(
             model=model,
@@ -179,12 +180,31 @@ class VisionPerceiver:
                 "role": "user",
                 "content": [
                     {"type": "image", "source": {"type": "base64",
-                                                 "media_type": "image/png", "data": b64}},
+                                                 "media_type": _media_type(raw), "data": b64}},
                     {"type": "text", "text": prompt},
                 ],
             }],
         )
         return response.content[0].text
+
+
+def _media_type(raw: bytes) -> str:
+    """Sniff an image's media type from its magic bytes.
+
+    Anthropic validates the declared ``media_type`` against the actual content
+    and 400s on a mismatch (Gemini was lenient). The sim's captures are JPEG even
+    though they carry a ``.png`` name, so we must report the real type. Defaults
+    to ``image/png`` when unrecognized.
+    """
+    if raw[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if raw[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if raw[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/png"
 
 
 def _clean(items) -> list[dict]:

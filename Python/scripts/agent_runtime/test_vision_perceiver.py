@@ -17,7 +17,11 @@ ROOT = Path(__file__).resolve().parents[2]      # Python/
 sys.path.insert(0, str(ROOT))
 
 import agent_runtime.perception as perception   # noqa: E402
-from agent_runtime.perception import VisionPerceiver  # noqa: E402
+from agent_runtime.perception import VisionPerceiver, _media_type  # noqa: E402
+
+# Real JPEG/PNG magic-byte prefixes (the sim captures JPEG under a .png name).
+_JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01"
+_PNG = b"\x89PNG\r\n\x1a\n\x00\x00"
 
 
 def check(label, cond):
@@ -124,6 +128,30 @@ def test_missing_anthropic_key_degrades():
         check("error names the right key", "ANTHROPIC_API_KEY" in seen.get("error", ""))
 
 
+def test_media_type_sniffs_real_bytes():
+    # The regression: captures are JPEG bytes with a .png name. Anthropic 400s if
+    # we declare image/png for JPEG content, so we must sniff the real type.
+    check("JPEG magic -> image/jpeg", _media_type(_JPEG) == "image/jpeg")
+    check("PNG magic -> image/png", _media_type(_PNG) == "image/png")
+    check("GIF magic -> image/gif", _media_type(b"GIF89a....") == "image/gif")
+    check("WEBP magic -> image/webp", _media_type(b"RIFF\x00\x00\x00\x00WEBPVP8 ") == "image/webp")
+    check("unknown defaults to png", _media_type(b"garbage") == "image/png")
+
+
+def test_perceive_sends_sniffed_media_type_for_jpeg():
+    # A .png-named file that is actually JPEG must go out as image/jpeg.
+    @_with_env("VISION_PROVIDER=anthropic\nANTHROPIC_API_KEY=sk-test-123\n")
+    def body(img):
+        img.write_bytes(_JPEG + b" rest of a jpeg")
+        p = VisionPerceiver()
+        fake = _FakeAnthropic(REPLY)
+        p._make_anthropic_client = lambda key: fake
+        p.perceive(str(img))
+        block = next(b for b in fake.last_kwargs["messages"][0]["content"]
+                     if b.get("type") == "image")
+        check("jpeg-bytes .png sent as image/jpeg", block["source"]["media_type"] == "image/jpeg")
+
+
 def test_gemini_still_default():
     @_with_env("GEMINI_API_KEY=g-key\n")
     def body(img):
@@ -141,6 +169,8 @@ def test_gemini_still_default():
 def main():
     test_resolves_anthropic_haiku_default()
     test_perceive_via_anthropic_parses_and_passes_image()
+    test_media_type_sniffs_real_bytes()
+    test_perceive_sends_sniffed_media_type_for_jpeg()
     test_missing_anthropic_key_degrades()
     test_gemini_still_default()
     print("\nAll vision-perceiver checks passed.")
