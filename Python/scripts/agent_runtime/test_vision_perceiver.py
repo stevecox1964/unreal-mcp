@@ -54,6 +54,28 @@ class _FakeAnthropic:
         return _FakeResponse(self._reply)
 
 
+class _FakeHTTPResponse:
+    def __init__(self, payload):
+        self.status_code = 200
+        self.text = ""
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+class _FakeRequestsModule:
+    """Stands in for the lazily-imported ``requests`` module (Gemini branch)."""
+
+    def __init__(self, payload):
+        self._payload = payload
+        self.last = None
+
+    def post(self, url, headers=None, json=None, timeout=None):
+        self.last = {"url": url, "headers": headers, "json": json, "timeout": timeout}
+        return _FakeHTTPResponse(self._payload)
+
+
 def _with_env(text):
     """Run a body with perception._ENV_PATH pointed at a temp .env."""
     def deco(fn):
@@ -152,6 +174,32 @@ def test_perceive_sends_sniffed_media_type_for_jpeg():
         check("jpeg-bytes .png sent as image/jpeg", block["source"]["media_type"] == "image/jpeg")
 
 
+def test_gemini_sends_sniffed_media_type_for_jpeg():
+    # Same JPEG-under-.png bug on the Gemini branch: the data URL must declare the
+    # real media type, not a hardcoded image/png (Gemini is lenient, but lying is
+    # still wrong and a stricter endpoint would reject it).
+    @_with_env("GEMINI_API_KEY=g-key\n")
+    def body(img):
+        img.write_bytes(_JPEG + b" rest of a jpeg")
+        saved_env = os.environ.pop("VISION_PROVIDER", None)   # default branch -> gemini
+        fake = _FakeRequestsModule({"choices": [{"message": {"content": REPLY}}]})
+        saved_mod = sys.modules.get("requests")
+        sys.modules["requests"] = fake                        # the lazy `import requests` picks this up
+        try:
+            seen = VisionPerceiver().perceive(str(img))
+        finally:
+            if saved_mod is not None:
+                sys.modules["requests"] = saved_mod
+            else:
+                sys.modules.pop("requests", None)
+            if saved_env is not None:
+                os.environ["VISION_PROVIDER"] = saved_env
+        check("gemini perceive parsed ok", seen["landmarks"][0]["label"] == "Don's Donuts")
+        url = fake.last["json"]["messages"][0]["content"][1]["image_url"]["url"]
+        check("jpeg-bytes .png sent to gemini as image/jpeg",
+              url.startswith("data:image/jpeg;base64,"))
+
+
 def test_gemini_still_default():
     @_with_env("GEMINI_API_KEY=g-key\n")
     def body(img):
@@ -172,6 +220,7 @@ def main():
     test_media_type_sniffs_real_bytes()
     test_perceive_sends_sniffed_media_type_for_jpeg()
     test_missing_anthropic_key_degrades()
+    test_gemini_sends_sniffed_media_type_for_jpeg()
     test_gemini_still_default()
     print("\nAll vision-perceiver checks passed.")
 

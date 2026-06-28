@@ -126,7 +126,8 @@ class VisionPerceiver:
             elif provider == "anthropic":
                 content = self._perceive_anthropic(model, key, prompt, image_path)
             else:
-                b64 = base64.standard_b64encode(Path(image_path).read_bytes()).decode()
+                raw = Path(image_path).read_bytes()
+                b64 = base64.standard_b64encode(raw).decode()
                 response = requests.post(
                     _GEMINI_ENDPOINT,
                     headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
@@ -136,7 +137,7 @@ class VisionPerceiver:
                             "role": "user",
                             "content": [
                                 {"type": "text", "text": prompt},
-                                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                                {"type": "image_url", "image_url": {"url": f"data:{_media_type(raw)};base64,{b64}"}},
                             ],
                         }],
                         "max_tokens": 800,
