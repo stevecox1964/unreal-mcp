@@ -172,10 +172,22 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
           first tick asks the LLM) and `planner.day_of("Day 1, 08:23")="Day 1"`. Tests: `test_planner.py`
           (idempotency/regeneration via a duck-typed agent) + `test_agent_state.py` (runtime round-trip,
           no state.json churn, reset clears).
-    - [ ] **10.4 Wire the sequencer into the tick as the spine** *(needs PIE)* — at wake/each tick call
-          `step(...)`, feed `intent` + `status` into the decision context, and on `travel` route through
-          the existing `walk_to` resolver; demote the current free-decide tick to the **reaction-gate**
-          interrupt path (§14). Live-verify in PIE that agents follow visibly distinct routines.
+    - [x] **10.4 Wire the sequencer into the live tick** ✓ 2026-06-28 (verified live, Dufus/MCP_World) —
+          `llm_router.ask()` (generic completion the planner uses to generate the day's schedule via the
+          agent's model); **added `walk_to {target_location:"<place>"}` to the action schema** so the LLM
+          can navigate to a named place (the resolver existed in `_execute_world_action` but the model was
+          never told it could — this was why agents could only step "forward"); `{schedule_note}` in the
+          decision prompt fed by the sequencer directive. `agent_manager._attach_schedule` runs
+          `ensure_daily_plan` (idempotent/day) + `planner.step` in the decide phase, injects the directive,
+          and persists `last_activity`. **Live result:** full in-character daily schedule generated +
+          persisted to `runtime.json`; wake resolved `'village square' -> cell center` and issued a real
+          `move_to` (goal-directed navigation, previously impossible). Suite 24/24.
+    - [ ] **10.5 Reaction-gate weighting (tuning)** — decide-phase reactivity still tends to override the
+          scheduled destination (agent greets every passer-by instead of pressing on). Bias the prompt so
+          the routine destination wins unless a genuinely salient event interrupts (Master Plan §14 reaction
+          gate). How strict vs. persona distractibility is a director's call. Also: navmesh wedging
+          (`stuck on an obstacle`) persists as a separate live robustness issue — agent recovers but it
+          stalls progress.
 
 (Items 1–6 landed 2026-06-26, 19/19 green; #7.0–7.2 + #8 landed 2026-06-28, 22/22; #10.1–10.2 + vision
 Gemini-media-type fix landed 2026-06-28, 24/24.)
