@@ -17,6 +17,20 @@ grooming: 2026-06-26.
 > **#3** factory ✓. The remaining MVP gap is **#3's standalone runner** (the "runs overnight
 > independent of Claude" long pole — nothing built but the factory).
 
+> **⚑ Status (2026-06-28, late — Claude-driven, PUSHED):** built **MASTER_PLAN Milestone 1 — the
+> daily-schedule planner + sequencer** (`planner.py`, #10.1–10.4) and **wired it into the live tick**,
+> verified live in PIE: agents now generate an in-character daily schedule (persisted to `runtime.json`),
+> and `walk_to "<place>"` resolves + routes — Dufus headed to the **village square** from his schedule on
+> wake, the first **goal-directed navigation** the sim has done (previously the LLM was never told it
+> could navigate to a place by name — only "forward"). Also: a **vision bug fix** (Gemini branch media-type
+> sniff), a big **README/docs accuracy pass** (sim-first reframe, dead-link fixes, retired-tool notes),
+> and `still_todo.md` marked superseded. **Diagnosis confirmed live:** grid/place-cell reuse + the
+> communal-sweep design (#7) are real and working (Dufus woke at a place he'd named over 9 prior runs);
+> the old "lock-up" was aimless reactivity, now addressed. `scripts/run_tests.py` = **24/24**, **8 commits
+> pushed to `origin/auto-loop/backlog`** (this session pushes directly per `feedback-push-no-prs`).
+> **Next:** #10.5 reaction-gate weighting (routine vs. distractibility — a director's call) + the navmesh
+> `stuck` wedge robustness item. Both need PIE.
+
 > **⚑ Status (2026-06-28):** session added **Haiku-for-vision** (#7.0 — vision now runs on Haiku 4.5,
 > Gemini optional), **provider-profiles CRUD** in the web UI (#7.1/7.2 done, #7.3 UI pending live
 > verify), and **retired the stale MCP→Unreal editor-authoring tools** (#8 — 8 modules removed, docs
