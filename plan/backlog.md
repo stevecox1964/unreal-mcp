@@ -646,6 +646,19 @@ before driving it (health endpoint vs port check)? guardrails for unsupervised U
   for the autonomous loop (#4)** — unattended cloud runs burn credits. Not a
   priority now, but it's the unlock for overnight autonomy.
 
+- **Build-documentary for YouTube (LOW PRIORITY).** *(user, 2026-06-28)* Turn the project's progress into
+  a documentary series — **one video per stage/milestone** — that Claude can largely assemble. The raw
+  material is already accreting: **git history** (commits = stages), **`plan/handoffs/*`** (session diary),
+  the dated **backlog status banners**, the **`MASTER_PLAN` milestones** (natural episode boundaries), and
+  the sim's own visuals — **PIE screen-recordings**, per-agent **`observations/*.png`**, and the web
+  cockpit feed. The "money shots" are live moments (e.g. *Dufus routing to the village square* on the day
+  named-place nav first worked). Plan: (a) a per-stage **narration/script** generated from the milestone +
+  its commits/handoff; (b) **capture** the matching live demo (screen-record a PIE run); (c) **assemble**
+  via the existing **`fal-video-pipeline`** skill. Each episode = *what we set out to do → the problem →
+  the fix → the live demo*. Decisions for later: capture tooling (OBS vs. in-engine), how much is
+  AI-narrated vs. the user's voice, episode cadence (per milestone vs. per session). Not loop-safe (needs
+  capture + the user's channel/voice) — park until the sim is more visually compelling.
+
 ## Notes
 
 - **The offline-testable Python core is done.** What remains is the editor/live
