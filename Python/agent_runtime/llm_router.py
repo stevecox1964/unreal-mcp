@@ -18,7 +18,7 @@ _ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
 _ACTION_SCHEMAS: dict[str, str] = {
     "idle":             '{"type": "idle"}',
     "wander":           '{"type": "wander"}  -- keep moving: take one step (~15m) in the direction you are facing',
-    "walk_to":          '{"type": "walk_to", "target_actor": "<actor_label>"} to walk to a known character, OR {"type": "walk_to", "direction": "forward|forward-left|forward-right|left|right|back"} to walk ~15m toward what you see in that direction',
+    "walk_to":          '{"type": "walk_to", "target_location": "<place name>"} to travel to a named place you know (e.g. "village square", "home"), OR {"type": "walk_to", "target_actor": "<actor_label>"} to walk to a known character, OR {"type": "walk_to", "direction": "forward|forward-left|forward-right|left|right|back"} to walk ~15m toward what you see in that direction',
     "speak_to":         '{"type": "speak_to", "target": "<actor_label>", "message": "<text>"}',
     "inspect_object":   '{"type": "inspect_object", "target": "<actor_name>"}',
     "follow_character": '{"type": "follow_character", "target": "<actor_name>"}',
@@ -73,6 +73,9 @@ Time: {world_time}
 
 ## Current Goal
 {current_goal}
+
+## Your Routine Right Now
+{schedule_note}
 
 Anything listed under "You See" is really there. A CHARACTER sighting matching
 one of the known characters above is that person — consider greeting or
@@ -423,6 +426,7 @@ class LLMRouter:
                 current_action=action_state,
                 current_goal=agent.current_goal,
                 stuck_note=stuck_note,
+                schedule_note=_schedule_note(observation.get("schedule")),
             )
         else:
             obs_for_text = {k: v for k, v in observation.items() if k != "image_path"}
@@ -461,6 +465,32 @@ class LLMRouter:
             return None
         except Exception as e:
             logger.error(f"[{agent.agent_id}] LLM call failed: {e}")
+            return None
+
+    def ask(self, agent: "Agent", prompt: str) -> Optional[str]:
+        """Generic text completion through the agent's resolved provider/model.
+
+        Used by the planner to generate a daily schedule (the prompt is
+        self-contained, so the system message is minimal). Returns the raw text,
+        or None if there is no model/key or the call fails — callers degrade
+        gracefully (the planner falls back to a default schedule).
+        """
+        provider = self._resolve_provider(agent)
+        model = self._resolve_model(agent, provider)
+        if not model:
+            return None
+        if not self._resolve_api_key(provider):
+            logger.error("%s API key not set - cannot ask()", provider)
+            return None
+        system = "You are a careful planning assistant. Follow the instructions exactly and return only what is requested."
+        try:
+            if provider == "ollama":
+                return self._decide_ollama(model, system, prompt)
+            if provider == "openai":
+                return self._decide_openai(model, system, prompt)
+            return self._decide_anthropic(model, system, prompt)
+        except Exception as e:
+            logger.error("[%s] ask() failed: %s", agent.agent_id, e)
             return None
 
     def _decide_ollama(
@@ -581,6 +611,22 @@ def _direction_lines(directions: dict | None) -> str:
         else:  # legacy list-of-labels form
             lines.append(f"- {d}: {', '.join(info) if info else 'unmapped'}")
     return "\n".join(lines)
+
+
+def _schedule_note(directive: dict | None) -> str:
+    """Render the sequencer directive (planner.step) for the decision prompt.
+
+    Turns "what your routine says right now" into a line the LLM can act on:
+    travel to the scheduled place, do the activity here, or (idle) explore.
+    """
+    if not directive or directive.get("status") == "idle":
+        return ("Your schedule has nothing fixed right now — follow your goals or keep "
+                "exploring unmapped cells.")
+    intent = directive.get("intent", "")
+    if directive.get("status") == "travel" and directive.get("place"):
+        return (f"{intent}\nTo get there, use walk_to with "
+                f"target_location \"{directive['place']}\".")
+    return f"{intent}\nYou are where you should be — do this where you are."
 
 
 def _place_text(observation: dict) -> str:

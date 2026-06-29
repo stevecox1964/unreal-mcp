@@ -13,6 +13,7 @@ from .action_validator import validate
 from . import explorer
 from .perception import VisionPerceiver
 from . import cell_sweep
+from . import planner
 from .episodic_memory import EpisodicLog
 from .place_db import PlaceDB, yaw_to_compass
 from .social_memory import SocialMemory, is_anonymous
@@ -909,8 +910,40 @@ class AgentManager:
             known_names=[a["name"] for a in acquaintances],
         )
 
+        # Sequencer: give the agent a routine to follow instead of pure reaction.
+        # ensure_daily_plan generates the day's schedule once (idempotent within a
+        # sim-day), then step() answers "what should I be doing now?" — travel to
+        # the scheduled place, act here, or idle. The directive grounds the
+        # decision prompt; the LLM still chooses the action.
+        self._attach_schedule(agent, observation)
+
         memories = self.memory.get_relevant_memories(agent_id)
         return self.llm.decide(agent, observation, memories)
+
+    def _attach_schedule(self, agent: Agent, observation: dict) -> None:
+        """Compute the sequencer directive for this tick and attach it to the
+        observation as ``observation["schedule"]`` (consumed by the decision
+        prompt). Pure per-agent file writes (the day's plan), safe in the
+        parallel decide phase. Degrades silently — a planning hiccup must never
+        break a tick."""
+        try:
+            world_time = observation.get("world_time", "")
+            ask = getattr(self.llm, "ask", None)
+            schedule = planner.ensure_daily_plan(
+                agent, planner.day_of(world_time),
+                ask=(lambda p: ask(agent, p)) if ask else None,
+                agents_dir=self._agents_dir,
+            )
+            pc = observation.get("place_context") or {}
+            place_list = observation.get("place") or []
+            current_place = pc.get("name") or (place_list[0] if place_list else None)
+            observation["schedule"] = planner.step(
+                schedule, planner.minute_of_day(world_time),
+                current_place=current_place, prev_activity=agent.last_activity,
+            )
+        except Exception as e:
+            logger.warning(f"[{agent.agent_id}] schedule step failed: {e}")
+            observation["schedule"] = None
 
     def _act_agent(self, agent: Agent, decision, observation: dict | None) -> dict:
         """Phase 3: validate decision, execute in Unreal, persist memory."""
@@ -956,6 +989,11 @@ class AgentManager:
             importance=float(decision.get("importance", 0.5)),
         )
         self._record_episode(agent_id, observation, action, result)
+        # Remember the scheduled activity this tick so next tick's sequencer can
+        # detect a block boundary (e.g. noon: "sell veg" -> "have lunch").
+        sched = observation.get("schedule")
+        if sched is not None:
+            agent.set_last_activity(sched.get("activity", ""), self._agents_dir)
         agent.mark_ticked(self._agents_dir)
 
         return {
