@@ -148,6 +148,7 @@ MCP/logs/
 MCP/temp/
 Python/logs/
 *.mcp.json
+.mcp.json.disabled
 
 # Unreal Engine 5 specific
 .uproject.DotSettings.user
