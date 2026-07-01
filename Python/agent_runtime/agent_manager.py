@@ -1329,6 +1329,12 @@ class AgentManager:
         if t == "observe":
             return {"status": "success", "image_path": observation.get("image_path"), "action": "observe"}
 
+        # Sweep observation (#7/#11.1 live half): no bridge-side handler needed —
+        # composed from existing primitives (set_facing + capture + perceive +
+        # ingest_compass), the same path the wake look-around uses.
+        if t == "observe_heading":
+            return self._execute_sweep_observe(agent, action, observation)
+
         if t == "wander" or (t == "walk_to" and action.get("direction")):
             direction = action.get("direction") or "forward"
             target = self._direction_target(observation, direction)
@@ -1359,6 +1365,45 @@ class AgentManager:
                 action = {**action, "location": target}
 
         return self.bridge.execute_action(agent.bound_unreal_actor_name, action)
+
+    def _execute_sweep_observe(self, agent: Agent, action: dict, observation: dict) -> dict:
+        """Execute one sweep observation: turn in place to the absolute yaw,
+        capture, perceive, and ingest the landmarks into the shared PlaceDB
+        under that compass direction.
+
+        Reuses the wake look-around's primitives (``set_facing`` +
+        ``capture_view`` + the vision perceiver) — no engine-side handler
+        exists or is needed. Degrades per-heading: a failed turn/capture/
+        perception returns an error result and records nothing, but the sweep
+        state machine has already advanced, so one bad heading never wedges
+        the sweep. Runs only in the sequential phases (single-socket bridge;
+        one heading = one tick).
+        """
+        agent_id = agent.agent_id
+        yaw = float(action.get("yaw", 0.0))
+        direction = yaw_to_compass(yaw)
+        turn = self.bridge.set_facing(agent.bound_unreal_actor_name,
+                                      observation.get("location"), yaw)
+        if turn.get("error"):
+            return {"status": "error", "action": "observe_heading", "direction": direction,
+                    "error": f"turn failed: {turn['error']}"}
+        time.sleep(0.25)  # let the rotated frame render before capturing
+        image_path = self.bridge.capture_view(
+            agent.bound_unreal_actor_name, agent_id, self._agents_dir, f"sweep_{direction}"
+        )
+        if not image_path:
+            return {"status": "error", "action": "observe_heading", "direction": direction,
+                    "error": "capture failed"}
+        seen = self.perceiver.perceive(image_path, observation.get("known_characters") or [])
+        if seen.get("error"):
+            return {"status": "error", "action": "observe_heading", "direction": direction,
+                    "error": f"perception failed: {seen['error']}"}
+        landmarks = seen.get("landmarks") or []
+        col, row = self._cell_col_row(observation.get("grid"))
+        if self.place_db and col is not None and landmarks:
+            self.place_db.ingest_compass(agent_id, col, row, direction, landmarks)
+        return {"status": "success", "action": "observe_heading", "direction": direction,
+                "yaw": yaw, "landmarks": len(landmarks), "image_path": image_path}
 
     def _pulse_sweep(self, agent: Agent) -> dict:
         """One tick for an agent mid-sweep — deterministic, no perception LLM.

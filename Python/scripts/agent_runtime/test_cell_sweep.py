@@ -217,9 +217,11 @@ def test_explored_cells_set():
 # ── Sweep interrupt wiring: act phase start + LLM-free continuation ────────────
 
 class _StubBridge:
-    def __init__(self, loc):
+    def __init__(self, loc, fail_turn=False):
         self._loc = loc
         self.actions = []
+        self.turns = []
+        self.fail_turn = fail_turn
 
     def get_observation(self, actor_name, agent_id, agents_dir):
         return {"actor_name": actor_name, "image_path": None, "location": dict(self._loc),
@@ -229,11 +231,27 @@ class _StubBridge:
         self.actions.append(action)
         return {"status": "accepted", "action": action.get("type")}
 
+    def set_facing(self, actor_name, location, yaw):
+        if self.fail_turn:
+            return {"error": "no actor"}
+        self.turns.append(yaw)
+        return {"status": "success"}
+
+    def capture_view(self, actor_name, agent_id, agents_dir, tag):
+        return f"{tag}.png"
+
     def set_ai_state(self, actor_name, state):
         pass
 
     def print_to_screen(self, message, key=None, duration=None):
         pass
+
+
+class _StubPerceiver:
+    """One landmark per view — enough to prove ingest wiring."""
+    def perceive(self, image_path, known_characters):
+        return {"landmarks": [{"label": "fountain", "confidence": 0.9}],
+                "characters": [], "caption": "a fountain"}
 
 
 class _StubAgent:
@@ -303,12 +321,14 @@ def test_act_agent_travel_does_not_sweep():
 
 def test_pulse_routes_active_sweep_without_llm():
     """Once a sweep is active, pulse_agent continues it LLM-free until the
-    breadcrumb drops, then the normal path resumes."""
+    breadcrumb drops — and each observe turns, captures, perceives, and ingests
+    its landmarks into the shared map (the #7 live half, no engine handler)."""
     import asyncio
     with tempfile.TemporaryDirectory() as tmp:
         bridge = _StubBridge({"x": 200.0, "y": 200.0, "z": 90.0})   # at cell center
         mgr = _manager(tmp)
         mgr.bridge = bridge
+        mgr.perceiver = _StubPerceiver()
         mgr.llm = None   # would explode if a sweeping agent hit the LLM path
         agent = _StubAgent("dufus")
         mgr.agents = {"dufus": agent}
@@ -316,6 +336,7 @@ def test_pulse_routes_active_sweep_without_llm():
         # Start the sweep (already at center -> first step is an observe).
         first = mgr._sweep_step("dufus", _obs(200.0, 200.0))
         check("sweep starts observing at center", first["type"] == "observe_heading")
+        mgr._execute_world_action(agent, first, _obs(200.0, 200.0))
 
         results = []
         for _ in range(12):
@@ -323,10 +344,42 @@ def test_pulse_routes_active_sweep_without_llm():
             if "dufus" not in mgr._cell_sweeps:
                 break
         check("sweep finished LLM-free", "dufus" not in mgr._cell_sweeps)
-        check("continuation steps were observes",
-              any(a.get("type") == "observe_heading" for a in bridge.actions))
         check("last pulse reports sweep_done", results[-1].get("action") == "sweep_done")
         check("breadcrumb dropped", mgr.place_db.is_explored(5, 5))
+        check("turned through all 8 headings", len(bridge.turns) == 8)
+        cells = mgr.place_db.map_cells()
+        check("every heading ingested its landmark", cells and cells[0]["landmarks"] == 8)
+
+
+def test_observe_heading_direction_and_ingest():
+    with tempfile.TemporaryDirectory() as tmp:
+        bridge = _StubBridge({"x": 200.0, "y": 200.0, "z": 90.0})
+        mgr = _manager(tmp)
+        mgr.bridge = bridge
+        mgr.perceiver = _StubPerceiver()
+        agent = _StubAgent("dufus")
+
+        result = mgr._execute_world_action(
+            agent, {"type": "observe_heading", "yaw": 90.0}, _obs(200.0, 200.0))
+        check("observe succeeded", result.get("status") == "success")
+        check("yaw 90 maps to compass S (UE convention)", result.get("direction") == "S")
+        check("one landmark recorded", result.get("landmarks") == 1)
+        mgr.place_db.mark_swept("dufus", 5, 5, "T0")   # make the cell visible to map_cells
+        check("landmark is in the shared map", mgr.place_db.map_cells()[0]["landmarks"] == 1)
+
+
+def test_observe_heading_degrades_on_turn_failure():
+    with tempfile.TemporaryDirectory() as tmp:
+        bridge = _StubBridge({"x": 200.0, "y": 200.0, "z": 90.0}, fail_turn=True)
+        mgr = _manager(tmp)
+        mgr.bridge = bridge
+        mgr.perceiver = _StubPerceiver()
+        agent = _StubAgent("dufus")
+
+        result = mgr._execute_world_action(
+            agent, {"type": "observe_heading", "yaw": 0.0}, _obs(200.0, 200.0))
+        check("turn failure -> error result, no crash", result.get("status") == "error")
+        check("nothing ingested on failure", mgr.place_db.map_cells() == [])
 
 
 def test_tick_routes_sweeping_agent():
@@ -367,6 +420,8 @@ def main():
     test_act_agent_starts_sweep_interrupt()
     test_act_agent_travel_does_not_sweep()
     test_pulse_routes_active_sweep_without_llm()
+    test_observe_heading_direction_and_ingest()
+    test_observe_heading_degrades_on_turn_failure()
     test_tick_routes_sweeping_agent()
     print("\nAll cell-sweep checks passed.")
 

@@ -167,8 +167,10 @@ Ordered for a joint session:
 3. **B3 · #10.5 balanced-gate live tune** — the PIE prompt-weighting change + verify Dufus reaches the
    village square instead of diverting to every passer-by.
 4. **B4 · Restart-from-morning live verify** — drive the A3 reset button against PIE.
-5. **B5 · `observe_heading` bridge handler** (#7 live half) — rotate-to-yaw + capture + `ingest_compass`
-   so sweeps produce real landmarks. *C++/editor rebuild.*
+5. **B5 · `observe_heading`** — **built offline 2026-07-01, NO C++/rebuild needed** (composed from
+   `set_facing` + `capture_view` + perceive + `ingest_compass` — the wake look-around's own primitives).
+   What's left of B5 is just the **PIE verify**: watch a sweep turn through 8 headings and landmarks
+   appear on `/map` — folds into B2.
 6. **B6 · Merge `auto-loop/backlog` → `main`** + push decision.
 7. **Carryover:** settings-page UX polish, providers end-to-end spot check, navmesh `stuck` robustness.
 
@@ -404,8 +406,8 @@ Gemini-media-type fix landed 2026-06-28, 24/24.)
 ## Outstanding — human / editor / live (not loop-safe)
 
 - **Merge** `auto-loop/backlog` → `main` (21 commits) and decide on `git push`.
-- **#7 maintenance APC — live half:** implement `observe_heading` in the Unreal bridge/C++
-  (rotate to yaw + capture + `ingest_compass`); spawn a `role:"maintenance"` actor. *Editor/PIE.*
+- **#7 sweep — live half:** ~~implement `observe_heading` in C++~~ **done in Python 2026-07-01 (no
+  rebuild)**; role spawn obsolete (#11.1). Remaining: *PIE verify only* (folds into B2).
 - **#3 standalone runner:** `sim_runner.py` + localhost control API + thin MCP clients (factory done). *Live Unreal.*
 - **#2 settings page + rename:** UI (`config_store` backend done); "NPC Builder" → "Unreal World Sim". *Live app to verify.*
 - **#6 map:** manual-capture mode (user snapshots) + lizard-brain routing (path-as-facts). *Editor/design.*
@@ -779,10 +781,15 @@ paid once. This engine is built and offline-tested (below) and stays.
       `pulse_agent` and the multi-agent `tick()` (peeled out of the perceive/decide phases, run in
       the sequential bridge phase). Offline-tested. Safe: only `role:"maintenance"` agents take this
       path, and none exist yet.
-- [ ] **Live 360 rotation+capture in Unreal** — execute `observe_heading` (rotate to yaw + capture +
-      `ingest_compass`) so the sweep's landmarks become the breadcrumb's content. *Needs PIE.*
-- [ ] **Spawn/config a maintenance APC** — a `role: "maintenance"` agent (likely a simple/no-mesh
-      actor). Editor/config + `/create-npc`-style scaffolding. *Needs you.*
+- [x] **Live 360 rotation+capture (`observe_heading`)** ✓ 2026-07-01 — **no C++ needed** (the assumed
+      "bridge/C++ handler" was stale): composed in Python from the wake look-around's existing primitives
+      — `AgentManager._execute_sweep_observe` does `set_facing` (rotate in place) → settle → `capture_view`
+      → perceive → `PlaceDB.ingest_compass` under `yaw_to_compass(yaw)`; routed from
+      `_execute_world_action` on `observe_heading`. Degrades per-heading (bad turn/capture/vision records
+      nothing, never wedges the sweep). Offline-tested end-to-end with stubs (full 8-heading sweep
+      populates 8 compass observations): `test_cell_sweep.py`. *Live PIE verify remains (B-side).*
+- [~] ~~**Spawn/config a maintenance APC**~~ — **obsolete**: the dedicated role was retired (#11.1/WP3);
+      any APC sweeps. Nothing to spawn.
 
 Relates to: #1 (cell_center resolve), #6 (map/known_places), #5 (episodic), engine-agnostic nav.
 
