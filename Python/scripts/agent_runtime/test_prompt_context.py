@@ -118,6 +118,8 @@ def test_schedule_note_weighting():
     check("travel names the walk_to target", 'target_location "village square"' in travel)
     check("travel names the only valid interrupts",
           "a person you know or someone speaking to you" in travel)
+    check("activity is deferred to the destination",
+          "Do NOT start the scheduled activity on the way" in travel)
 
     act = _schedule_note({"status": "act", "place": "stall",
                           "intent": "You're at stall where you should be — sell."})

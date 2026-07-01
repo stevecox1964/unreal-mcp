@@ -703,8 +703,9 @@ def _schedule_note(directive: dict | None) -> str:
     if directive.get("status") == "travel" and directive.get("place"):
         return (f"{intent}\nThis is your priority right now: use walk_to with "
                 f"target_location \"{directive['place']}\" and keep going until you "
-                f"arrive. Only a person you know or someone speaking to you is worth "
-                f"a brief pause.")
+                f"arrive. Do NOT start the scheduled activity on the way — even if "
+                f"it involves people, it happens at the destination. Only a person "
+                f"you know or someone speaking to you is worth a brief pause.")
     return f"{intent}\nYou are where you should be — do this where you are."
 
 

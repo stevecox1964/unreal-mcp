@@ -140,6 +140,10 @@ def test_sequencer_wake_then_travel_to_post():
     check("travel target is the post", d["place"] == "vegetable truck")
     check("wake is not a transition", d["transition"] is False)
     check("intent names the place", "vegetable truck" in d["intent"])
+    # Destination-first: leading with the activity ("It's time to greet...")
+    # makes the LLM start it en route (live finding, 2026-07-01).
+    check("intent leads with the destination", d["intent"].startswith("Head to"))
+    check("intent defers the activity to arrival", "starts when you arrive" in d["intent"])
 
 
 def test_sequencer_already_there_acts():

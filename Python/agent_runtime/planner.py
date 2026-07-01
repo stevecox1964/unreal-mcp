@@ -143,7 +143,7 @@ def step(schedule: list[dict], minute: int, current_place: str = None,
          "place": "vegetable truck",        # where it happens ("" = anywhere)
          "status": "travel" | "act" | "idle",
          "transition": True,                # a new block just began this step
-         "intent": "It's time to ... — head to ..."}   # for the LLM / the log
+         "intent": "Head to ... first — your scheduled activity there is ..."}   # for the LLM / the log
 
     ``status``: **travel** = go to ``place``; **act** = you're where you should be
     (or the activity has no place) so do it; **idle** = nothing scheduled, free to
@@ -158,7 +158,12 @@ def step(schedule: list[dict], minute: int, current_place: str = None,
         place = block.get("place", "")
         if place and not _same_place(current_place, place):
             status = "travel"
-            intent = f"It's time to {activity} — head to {place}."
+            # Destination-first: naming the activity first ("It's time to greet
+            # passers-by — head to...") makes the LLM start the activity en
+            # route (seen live 2026-07-01: Dufus greeting strangers at the gas
+            # station instead of arriving). The activity is stated as deferred.
+            intent = (f"Head to {place} first — your scheduled activity there is: "
+                      f"{activity}. It starts when you arrive.")
         else:
             status = "act"
             intent = (f"You're at {place} where you should be — {activity}."

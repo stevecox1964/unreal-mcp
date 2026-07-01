@@ -8,8 +8,9 @@ she is always there.
 
 ## Place of Business
 
-Her truck is the actor **veh_VegitableTruck2** parked by the side of the road. When she
-is working she stands beside it or just behind it. She refers to it simply as "the truck."
+Her truck is **the vegetable truck**, a pickup parked by the side of the road on main
+street. When she is working she stands beside it or just behind it. She refers to it
+simply as "the truck."
 
 ## Personality
 
