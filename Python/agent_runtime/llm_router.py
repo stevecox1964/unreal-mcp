@@ -52,6 +52,15 @@ _USER_TEMPLATE_VISION = """\
 ## Your Memories
 {memories}
 
+## People You Know (met before)
+{acquaintance_lines}
+
+## Places You Know (your map, nearest first)
+{known_place_lines}
+
+## Relevant Past Moments
+{episode_lines}
+
 ## Characters You May Encounter
 {known_characters}
 
@@ -78,7 +87,8 @@ Time: {world_time}
 {schedule_note}
 
 Anything listed under "You See" is really there. A CHARACTER sighting matching
-one of the known characters above is that person — consider greeting or
+a name under "People You Know" is someone you have met before; one matching
+"Characters You May Encounter" is that person — consider greeting or
 approaching them.
 
 To move toward anything you see, use walk_to with a direction relative to your
@@ -427,6 +437,9 @@ class LLMRouter:
                 current_goal=agent.current_goal,
                 stuck_note=stuck_note,
                 schedule_note=_schedule_note(observation.get("schedule")),
+                acquaintance_lines=_acquaintance_lines(observation.get("acquaintances")),
+                known_place_lines=_known_place_lines(observation.get("known_places")),
+                episode_lines=_episode_lines(observation.get("recent_episodes")),
             )
         else:
             obs_for_text = {k: v for k, v in observation.items() if k != "image_path"}
@@ -576,6 +589,59 @@ def _facing_text(rotation) -> str:
     if isinstance(rotation, (list, tuple)) and len(rotation) >= 2:
         return f"yaw {float(rotation[1]):.0f} degrees"
     return "unknown"
+
+
+def _acquaintance_lines(acquaintances: list | None) -> str:
+    """People this agent has actually met, most familiar first (cap 8).
+
+    Items come from SocialMemory.acquaintances():
+    {name, meet_count, interaction_count, last_seen, ...}.
+    """
+    lines = []
+    for a in (acquaintances or [])[:8]:
+        name = str(a.get("name") or "").strip()
+        if not name:
+            continue
+        parts = []
+        if a.get("meet_count"):
+            parts.append(f"met {a['meet_count']} times")
+        if a.get("interaction_count"):
+            parts.append(f"spoken with {a['interaction_count']} times")
+        if a.get("last_seen"):
+            parts.append(f"last seen {a['last_seen']}")
+        lines.append(f"- {name} — {', '.join(parts)}" if parts else f"- {name}")
+    return "\n".join(lines) or "Nobody yet — you have not met anyone."
+
+
+def _known_place_lines(places: list | None) -> str:
+    """The agent's named-place map, nearest first (from AgentManager.known_places)."""
+    lines = []
+    for p in places or []:
+        name = str(p.get("name") or "").strip()
+        if not name:
+            continue
+        lines.append(f"- {name} — {p.get('bearing', '?')}, {round(p.get('distance_m') or 0)} m")
+    return "\n".join(lines) or "No named places yet — name places as you discover them."
+
+
+def _episode_lines(episodes: list | None) -> str:
+    """Relevant past episodes (from EpisodicLog.relevant): what happened where."""
+    lines = []
+    for e in episodes or []:
+        if e.get("kind") == "summary":
+            span = f"{e.get('first_time', '?')}–{e.get('last_time', '?')}"
+            place = e.get("place") or "somewhere"
+            lines.append(f"- [{span}] around {place}: {e.get('count', 0)} events")
+            continue
+        bits = []
+        if e.get("action"):
+            bits.append(str(e["action"]))
+        saw = [s for s in (e.get("saw") or []) if s]
+        if saw:
+            bits.append("saw " + ", ".join(saw))
+        where = e.get("place") or e.get("grid_cell") or "somewhere"
+        lines.append(f"- [{e.get('world_time', '?')}] at {where}: {', '.join(bits) or 'nothing notable'}")
+    return "\n".join(lines) or "Nothing memorable yet."
 
 
 def _seen_text(seen: dict | None) -> str:
