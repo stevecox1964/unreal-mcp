@@ -105,7 +105,7 @@ def save_agent(level: str, agent_id: str, form: dict) -> None:
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     worlds = list_worlds()
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request, "index.html", {
         "request": request,
         "worlds": worlds,
         "world_agents": {w: list_agents(w) for w in worlds},
@@ -116,7 +116,7 @@ async def index(request: Request):
 
 @app.get("/worlds/{level}/agents/new", response_class=HTMLResponse)
 async def new_agent_form(request: Request, level: str):
-    return templates.TemplateResponse("agent.html", {
+    return templates.TemplateResponse(request, "agent.html", {
         "request": request,
         "level": level,
         "agent_id": "",
@@ -148,7 +148,7 @@ async def create_agent(request: Request, level: str):
         error = f"Agent '{agent_id}' already exists in {level}"
 
     if error:
-        return templates.TemplateResponse("agent.html", {
+        return templates.TemplateResponse(request, "agent.html", {
             "request": request,
             "level": level,
             "agent_id": agent_id,
@@ -172,7 +172,7 @@ async def edit_agent_form(request: Request, level: str, agent_id: str, saved: bo
         data = load_agent(level, agent_id)
     except FileNotFoundError:
         return HTMLResponse("Agent not found", status_code=404)
-    return templates.TemplateResponse("agent.html", {
+    return templates.TemplateResponse(request, "agent.html", {
         "request": request,
         "level": level,
         "agent_id": agent_id,
@@ -218,7 +218,7 @@ def get_runner() -> RunnerClient:
 
 @app.get("/sim", response_class=HTMLResponse)
 async def sim_page(request: Request):
-    return templates.TemplateResponse("sim.html", {"request": request, "runner_url": RUNNER_URL})
+    return templates.TemplateResponse(request, "sim.html", {"request": request, "runner_url": RUNNER_URL})
 
 
 @app.get("/api/sim/status")
@@ -280,7 +280,7 @@ async def _maybe_json(request: Request) -> dict:
 
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
-    return templates.TemplateResponse("settings.html", {
+    return templates.TemplateResponse(request, "settings.html", {
         "request": request,
         "config": read_config(ENV_PATH),
     })
@@ -313,7 +313,7 @@ async def settings_save(request: Request):
 
 @app.get("/providers", response_class=HTMLResponse)
 async def providers_page(request: Request):
-    return templates.TemplateResponse("providers.html", {
+    return templates.TemplateResponse(request, "providers.html", {
         "request": request,
         "data": provider_profiles.read_profiles(CONFIG_PATH),
         "roles": provider_profiles.ROLES,
