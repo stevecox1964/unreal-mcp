@@ -34,9 +34,11 @@ grooming: 2026-06-26.
 > `updated_at`, real-wall-clock basis, stale cells flagged on the map), **A3** restart-from-morning
 > (`restart_day()` + `☀ Restart day` cockpit button, keeps memories/places). Suite **26/26**.
 > **Stopped there:** A4 (collapse the maintenance-role routing) + A5 (owned-cells schema) are live-path
-> refactors with open design calls — held for a joint session. **Two decisions needed from you:** (i) #11.3
-> re-observe **eager on entry vs. lazy** when a cell is stale; (ii) #11.2 what defines an **APC-owned place
-> cell** (rec: a named spot with a world position inside the cell; central = the unnamed 360 breadcrumb).
+> refactors held for a joint session. **Both prior decisions now answered (user, 2026-07-01):** #11.3
+> staleness re-observation is **SHELVED** ("maybe we don't need this now" — signal stays, don't build the
+> re-observe path); #11.2 **APC-owned place cell = a named ~3m bounding box positioned by XY offset from
+> the grid's community cell**, and **navigation is grid-first** (route grid→grid, then fine-approach the
+> place cell in the target grid). See #11.2 / #6b.
 >
 > **⚑ Status (2026-06-28, late — Claude-driven, PUSHED):** built **MASTER_PLAN Milestone 1 — the
 > daily-schedule planner + sequencer** (`planner.py`, #10.1–10.4) and **wired it into the live tick**,
@@ -313,19 +315,28 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
           personality APC actually detours + sweeps a fresh cell it wants to use.*
     - [ ] **11.2 Multiple APC-owned place cells per grid cell (schema gap).** The schema allows only **one**
           place cell per `(col,row)` (it's the PK). The model wants a **central community cell** *plus*
-          several **APC-owned** sub-cells in the same grid cell (owned by an APC, readable/reusable by
-          others). Needs a data-model change: either a separate `owned_place_cells` table keyed
-          `(col,row,owner,slot)` with an `owner`/reusable flag, or promote place cells to their own id.
-          Keep the central cell distinct from owned cells. *Decision: what distinguishes a "place cell"
-          within a grid cell — a sub-position, a landmark cluster, a named spot? (rec: a named spot with a
-          world position inside the cell; central cell = the unnamed 360 breadcrumb at center.)*
-    - [~] **11.3 Staleness / TTL re-observation.** *Signal built (A2, 2026-07-01):* `PlaceDB.is_stale` +
-          `updated_at` (real UTC) + a `stale` flag on the map. **Basis decided = real wall-clock** (WorldClock
-          resets each run → sim-time can't express cross-run age). *Still open (live/#11.1):* the
-          **re-observation path** — when an APC enters a stale cell it needs, re-run the 360 and **refresh
-          `updated_at`** (today `mark_swept` is first-wins and never updates it; needs a `refresh_sweep`).
-          *Decision remaining: re-observe eagerly on entry when stale, or lazily only when the APC is about
-          to rely on the cell? (rec: lazy.)*
+          several **APC-owned** place cells in the same grid cell (owned by an APC, readable/reusable by
+          others). **Definition (user, 2026-07-01):**
+          - An **APC-owned place cell** is a **named ~3-meter bounding box** — e.g. Maren's "The vegetable
+            truck", and soon her "My Home".
+          - Its position is stored as an **XY offset relative to the grid cell's community place cell** (not
+            an absolute world coord). The community cell is the per-grid anchor; owned cells hang off it.
+          - **Navigation is two-phase, grid-first:** the APC asks lizard brain **which grid cell** a named
+            place ("my home") is in, then **navigates grid→grid** (coarse) until it enters the target grid;
+            once inside, it asks that grid for the named place cell and does the **fine approach** to the
+            3m box (its XY offset from the community cell). *"I'd rather APCs navigate by grid, then place
+            cells" — coarse grid routing first, place cells only for the last leg.*
+          - Schema implication: a separate owned-cells store keyed by `(col,row,owner,name)` holding the
+            **XY offset + 3m extent + owner + reusable flag**, distinct from the central community cell.
+          *(User flagged this may be more than we need yet — capture the model, sequence after A1–A3 /
+          the #6b APC map. Grid-first nav is the load-bearing idea.)*
+    - [~] **11.3 Staleness / TTL re-observation. — SHELVED (user, 2026-07-01: "maybe we don't need this
+          now"). Keep in backlog, don't build the re-observation path yet.** *Signal already built (A2,
+          2026-07-01):* `PlaceDB.is_stale` + `updated_at` (real UTC) + a `stale` flag on the map; basis =
+          real wall-clock (WorldClock resets each run → sim-time can't express cross-run age). *Parked
+          (revisit later):* the re-observation path — when an APC enters a stale cell it needs, re-run the
+          360 and **refresh `updated_at`** (today `mark_swept` is first-wins; would need a `refresh_sweep`),
+          and the eager-on-entry vs. lazy decision. Not needed for now.
     - **Loop-safe (offline-testable):** the PlaceDB schema/ownership change (11.2), `is_stale` + the
       freshness query (11.3), and the decision logic for "enter cell → central missing/stale → sweep" as a
       pure planner step (11.1's logic). Live verify (PIE): a personality APC actually detours to center and
