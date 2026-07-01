@@ -40,6 +40,17 @@ grooming: 2026-06-26.
 > the grid's community cell**, and **navigation is grid-first** (route grid→grid, then fine-approach the
 > place cell in the target grid). See #11.2 / #6b.
 >
+> **⚑ Autonomous-loop run (2026-07-01, later):** ran the loop against this queue — **loop-safe work is
+> drained.** Only housekeeping landed: gitignored the intentional `.mcp.json.disabled` so preflight reads a
+> clean tree (it was the sole thing blocking the loop). **Nothing else was loop-safe to grind:** A4
+> (collapse maintenance-role routing) + #11.1 are live-path behavior changes needing PIE; A5/#11.2 is
+> user-flagged uncertain ("maybe too complicated") + soft-deferred behind #6b; #11.3 shelved; #6b parked
+> ("do not implement yet"); #10.5 is a live PIE tune; everything under *Outstanding/Later* is editor /
+> live-sim / an LLM signal / a design call. Baseline **26/26**, preflight green. Per the loop contract
+> (don't invent busywork), the loop **stops here** — remaining progress needs you (PIE / editor / a design
+> decision). Best next joint move: the **B-queue** (B1 child BPs, B2 live grid/place debug on the new
+> `/map`, B3 #10.5 tune, B4 restart-day verify).
+>
 > **⚑ Status (2026-06-28, late — Claude-driven, PUSHED):** built **MASTER_PLAN Milestone 1 — the
 > daily-schedule planner + sequencer** (`planner.py`, #10.1–10.4) and **wired it into the live tick**,
 > verified live in PIE: agents now generate an in-character daily schedule (persisted to `runtime.json`),
