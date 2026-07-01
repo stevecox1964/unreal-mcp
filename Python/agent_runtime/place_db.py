@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS place_cells (
     named_by TEXT,          -- agent_id that first named this cell
     swept_at TEXT,          -- when this cell was 360-swept (community breadcrumb)
     swept_by TEXT,          -- agent_id that first swept this cell
+    updated_at TEXT,        -- real UTC of last name/sweep/refresh (staleness basis)
     PRIMARY KEY (col, row)
 );
 
@@ -103,7 +104,11 @@ class PlaceDB:
     def _migrate(conn: sqlite3.Connection) -> None:
         """Add columns introduced after a DB was first created (idempotent)."""
         have = {r[1] for r in conn.execute("PRAGMA table_info(place_cells)")}
-        for col in ("swept_at", "swept_by"):
+        # updated_at: real (wall-clock) UTC of the last name/sweep/refresh — the
+        # basis for staleness. Real time, not world time: the WorldClock resets
+        # every run, so sim-time can't express cross-run "how long since we last
+        # looked at this cell". See is_stale.
+        for col in ("swept_at", "swept_by", "updated_at"):
             if col not in have:
                 conn.execute(f"ALTER TABLE place_cells ADD COLUMN {col} TEXT")
 
@@ -217,22 +222,51 @@ class PlaceDB:
             ).fetchall()
         return [{"name": r["name"], "col": r["col"], "row": r["row"]} for r in rows]
 
-    def map_cells(self) -> list[dict]:
+    def is_stale(self, col: int, row: int, max_age_seconds: float, now: datetime = None) -> bool:
+        """True if a cell needs re-observing: never initialized, or last touched
+        (named/swept/refreshed) more than ``max_age_seconds`` ago.
+
+        Staleness is measured in **real** wall-clock time against ``updated_at``
+        (UTC), not world time — the WorldClock resets every run, so sim-time can't
+        express "how long since we last looked here" across runs. ``now`` is
+        injectable (a tz-aware ``datetime``) for testing; it defaults to the
+        current UTC time. A cell with no place row, or no ``updated_at``, is stale.
+        """
+        now = now or datetime.now(timezone.utc)
+        with self._connect() as conn:
+            r = conn.execute(
+                "SELECT updated_at FROM place_cells WHERE col=? AND row=?",
+                (col, row),
+            ).fetchone()
+        if not r or not r["updated_at"]:
+            return True
+        try:
+            age = (now - datetime.fromisoformat(r["updated_at"])).total_seconds()
+        except ValueError:
+            return True
+        return age > max_age_seconds
+
+    def map_cells(self, max_age_seconds: float = None, now: datetime = None) -> list[dict]:
         """Every place cell (named and/or swept) with its landmark count — the map view.
 
         One dict per row in place_cells that has a name or a sweep::
 
-            {col, row, name, named_by, named_at, swept_at, swept_by, landmarks, state}
+            {col, row, name, named_by, named_at, swept_at, swept_by,
+             updated_at, landmarks, state}
 
         ``state`` is ``"named"`` if the cell has a name, else ``"swept"``.
         ``landmarks`` counts distinct compass observations at/above the confidence
         floor. Cells with only agent visits (no name, no sweep) are excluded — a
         bare visit doesn't make a place cell. Ordered by (col, row). This is what
         the web map view renders so you can watch the world get built out.
+
+        When ``max_age_seconds`` is given, each cell also carries ``stale`` (bool),
+        computed against its ``updated_at`` at ``now`` (defaults to current UTC) —
+        so the map can flag cells due for re-observation. Omitted otherwise.
         """
         with self._connect() as conn:
             cells = conn.execute(
-                "SELECT col, row, name, named_by, named_at, swept_at, swept_by "
+                "SELECT col, row, name, named_by, named_at, swept_at, swept_by, updated_at "
                 "FROM place_cells "
                 "WHERE name IS NOT NULL OR swept_at IS NOT NULL "
                 "ORDER BY col, row"
@@ -243,16 +277,31 @@ class PlaceDB:
                 (_CONFIDENCE_FLOOR,),
             ).fetchall()
         landmark_count = {(c["col"], c["row"]): c["n"] for c in counts}
-        return [
-            {
+        now = now or datetime.now(timezone.utc)
+        out = []
+        for r in cells:
+            cell = {
                 "col": r["col"], "row": r["row"],
                 "name": r["name"], "named_by": r["named_by"], "named_at": r["named_at"],
                 "swept_at": r["swept_at"], "swept_by": r["swept_by"],
+                "updated_at": r["updated_at"],
                 "landmarks": landmark_count.get((r["col"], r["row"]), 0),
                 "state": "named" if r["name"] else "swept",
             }
-            for r in cells
-        ]
+            if max_age_seconds is not None:
+                cell["stale"] = self._age_exceeds(r["updated_at"], max_age_seconds, now)
+            out.append(cell)
+        return out
+
+    @staticmethod
+    def _age_exceeds(updated_at: str, max_age_seconds: float, now: datetime) -> bool:
+        """True if ``updated_at`` (UTC ISO) is missing or older than the max age at ``now``."""
+        if not updated_at:
+            return True
+        try:
+            return (now - datetime.fromisoformat(updated_at)).total_seconds() > max_age_seconds
+        except ValueError:
+            return True
 
     def is_explored(self, col: int, row: int) -> bool:
         """True if this grid cell already has a place cell (named or swept).
@@ -310,11 +359,12 @@ class PlaceDB:
             if existing and existing["swept_at"]:
                 return False
             conn.execute(
-                "INSERT INTO place_cells (col, row, swept_at, swept_by) "
-                "VALUES (?, ?, ?, ?) "
+                "INSERT INTO place_cells (col, row, swept_at, swept_by, updated_at) "
+                "VALUES (?, ?, ?, ?, ?) "
                 "ON CONFLICT(col, row) DO UPDATE SET "
-                "  swept_at = excluded.swept_at, swept_by = excluded.swept_by",
-                (col, row, world_time, agent_id),
+                "  swept_at = excluded.swept_at, swept_by = excluded.swept_by, "
+                "  updated_at = excluded.updated_at",
+                (col, row, world_time, agent_id, _iso_now()),
             )
         return True
 
@@ -347,11 +397,12 @@ class PlaceDB:
             if existing and existing["name"]:
                 return False
             conn.execute(
-                "INSERT INTO place_cells (col, row, name, named_at, named_by) "
-                "VALUES (?, ?, ?, ?, ?) "
+                "INSERT INTO place_cells (col, row, name, named_at, named_by, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(col, row) DO UPDATE SET "
-                "  name = excluded.name, named_at = excluded.named_at, named_by = excluded.named_by",
-                (col, row, name, world_time, agent_id),
+                "  name = excluded.name, named_at = excluded.named_at, named_by = excluded.named_by, "
+                "  updated_at = excluded.updated_at",
+                (col, row, name, world_time, agent_id, _iso_now()),
             )
         return True
 

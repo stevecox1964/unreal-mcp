@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]      # Python/
@@ -50,6 +51,35 @@ def test_map_cells_reports_named_swept_and_landmarks():
         check("swept-only cell has no landmarks", by[(7, 2)]["landmarks"] == 0)
         check("swept-only cell records who swept it", by[(7, 2)]["swept_by"] == "dufus")
         check("empty world -> empty map", PlaceDB(Path(tmp) / "empty.db").map_cells() == [])
+
+
+# ── staleness (A2 / #11.3): real wall-clock basis ──────────────────────────────
+
+def test_is_stale_by_wall_clock():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = PlaceDB(Path(tmp) / "world_places.db")
+        db.set_name("maren", 1, 1, "Old Well", "T0")     # updated_at stamped now (real time)
+
+        now = datetime.now(timezone.utc)
+        day_later = now + timedelta(hours=25)
+        check("fresh cell is not stale within max_age", db.is_stale(1, 1, 24 * 3600, now=now) is False)
+        check("cell older than max_age is stale", db.is_stale(1, 1, 24 * 3600, now=day_later) is True)
+        check("never-initialized cell is stale", db.is_stale(5, 5, 24 * 3600, now=now) is True)
+
+
+def test_map_cells_surfaces_stale_flag_when_asked():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = PlaceDB(Path(tmp) / "world_places.db")
+        db.set_name("maren", 1, 1, "Old Well", "T0")
+        future = datetime.now(timezone.utc) + timedelta(hours=25)
+
+        # No max_age -> no staleness computed (back-compat with A1).
+        plain = db.map_cells()[0]
+        check("map_cells omits stale by default", "stale" not in plain)
+        check("map_cells always carries updated_at", plain["updated_at"] is not None)
+
+        flagged = db.map_cells(max_age_seconds=24 * 3600, now=future)[0]
+        check("map_cells marks the cell stale when asked", flagged["stale"] is True)
 
 
 # ── web layer: build_map + routes ──────────────────────────────────────────────
@@ -122,6 +152,8 @@ def test_map_page_renders_with_legend_and_polls_api():
 
 def main():
     test_map_cells_reports_named_swept_and_landmarks()
+    test_is_stale_by_wall_clock()
+    test_map_cells_surfaces_stale_flag_when_asked()
     test_api_map_returns_grid_and_cells()
     test_api_map_missing_db_is_empty_not_error()
     test_map_page_renders_with_legend_and_polls_api()

@@ -31,8 +31,10 @@
     <span><span class="swatch" style="background:#2d6a4f"></span> named <b id="n-named">0</b></span>
     <span><span class="swatch" style="background:#e9c46a"></span> swept <b id="n-swept">0</b></span>
     <span><span class="swatch" style="background:#e9ecef; border:1px solid #ccc"></span> unexplored</span>
+    <span><span class="swatch" style="background:#fff; box-shadow:inset 0 0 0 2px #c0392b"></span> stale <b id="n-stale">0</b></span>
     <span id="pct" style="color:#666"></span>
   </div>
+  <p class="breadcrumb" style="margin-top:-.25rem;">stale = not re-observed in over {{ map.stale_after_hours }}h (real time)</p>
 
   <div id="grid" data-level="{{ level }}" data-cols="{{ map.cols }}" data-rows="{{ map.rows }}"
        style="display:grid; gap:1px; background:#ddd; padding:1px; width:max-content; max-width:100%; overflow:auto;">
@@ -44,6 +46,7 @@
     #grid .cell { width:100%; height:100%; background:#e9ecef; }
     #grid .cell.named { background:#2d6a4f; }
     #grid .cell.swept { background:#e9c46a; }
+    #grid .cell.stale { box-shadow:inset 0 0 0 2px #c0392b; }
   </style>
 
   <script>
@@ -73,16 +76,18 @@
         data = await (await fetch(`/api/map?level=${encodeURIComponent(level)}`)).json();
       } catch (e) { return; }
       // Reset styling, then paint stateful cells.
-      gridEl.querySelectorAll(".cell.named, .cell.swept").forEach(el => el.className = "cell");
+      gridEl.querySelectorAll(".cell.named, .cell.swept, .cell.stale").forEach(el => el.className = "cell");
       for (const cell of data.cells) {
         const el = document.getElementById(`c-${cell.col}-${cell.row}`);
         if (!el) continue;
-        el.className = "cell " + cell.state;
+        el.className = "cell " + cell.state + (cell.stale ? " stale" : "");
         const who = cell.state === "named" ? `named "${cell.name}" by ${cell.named_by}` : `swept by ${cell.swept_by}`;
-        el.dataset.tip = `(${cell.col}, ${cell.row}) — ${who} · ${cell.landmarks} landmark(s)`;
+        const age = cell.stale ? " · STALE (needs re-observation)" : "";
+        el.dataset.tip = `(${cell.col}, ${cell.row}) — ${who} · ${cell.landmarks} landmark(s)${age}`;
       }
       document.getElementById("n-named").textContent = data.counts.named;
       document.getElementById("n-swept").textContent = data.counts.swept;
+      document.getElementById("n-stale").textContent = data.counts.stale;
       const built = data.counts.named + data.counts.swept;
       const total = data.counts.total_cells || (cols * rows);
       document.getElementById("pct").textContent =

@@ -85,8 +85,12 @@ together when you're back. Detail for each lives in the thematic sections below 
       3s so you watch cells fill in live, with a built-out % + per-cell hover (name / who / landmarks).
       Missing DB → empty map (a GET never spawns a blank world). Map nav link added. Offline test:
       `test_map_view.py` (temp world via `TestClient`). Suite 25/25. *(Live verify = B2.)*
-- [ ] **A2 · Grid/place staleness (#11.3).** `PlaceDB.is_stale(col,row,max_age)` + freshness query + a
-      `stale` flag surfaced to A1's map. Winds down the grid/place design. Loop-safe + tested.
+- [x] **A2 · Grid/place staleness (#11.3).** ✓ 2026-07-01 — `PlaceDB.is_stale(col,row,max_age,now=)` +
+      an `updated_at` (real UTC) column stamped on name/sweep; `map_cells(max_age_seconds=,now=)` surfaces a
+      `stale` flag; the A1 map shows stale cells (red ring + count, "not re-observed in >24h"). **Basis =
+      real wall-clock, not sim-time** (the `WorldClock` resets every run, so sim-time can't express cross-run
+      staleness). The re-sweep that *refreshes* `updated_at` is live (#11.1/B2). Test: `test_map_view.py`.
+      Suite 25/25.
 - [ ] **A3 · Restart the sim from morning.** A reset that clears runtime state (`daily_schedule`,
       `last_activity` via the existing `reset_runtime_state`) **and** resets `WorldClock` to morning,
       exposed on the runner control API (`POST /reset_day`) + a web-cockpit button. Offline-testable via
@@ -305,12 +309,13 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
           Keep the central cell distinct from owned cells. *Decision: what distinguishes a "place cell"
           within a grid cell — a sub-position, a landmark cluster, a named spot? (rec: a named spot with a
           world position inside the cell; central cell = the unnamed 360 breadcrumb at center.)*
-    - [ ] **11.3 Staleness / TTL re-observation (missing).** No expiry today — `is_explored` is True
-          forever once swept. Add a freshness check: given `swept_at` (and a configurable max-age in
-          sim-time), `is_stale(col,row)` and a re-observation path that re-runs the 360 and refreshes the
-          landmarks/timestamp. *Decision: TTL in sim-days? re-observe on entry when stale, or lazily when an
-          APC needs current info? (rec: lazy — re-observe on entry only if stale AND the APC is about to
-          rely on it.)*
+    - [~] **11.3 Staleness / TTL re-observation.** *Signal built (A2, 2026-07-01):* `PlaceDB.is_stale` +
+          `updated_at` (real UTC) + a `stale` flag on the map. **Basis decided = real wall-clock** (WorldClock
+          resets each run → sim-time can't express cross-run age). *Still open (live/#11.1):* the
+          **re-observation path** — when an APC enters a stale cell it needs, re-run the 360 and **refresh
+          `updated_at`** (today `mark_swept` is first-wins and never updates it; needs a `refresh_sweep`).
+          *Decision remaining: re-observe eagerly on entry when stale, or lazily only when the APC is about
+          to rely on the cell? (rec: lazy.)*
     - **Loop-safe (offline-testable):** the PlaceDB schema/ownership change (11.2), `is_stale` + the
       freshness query (11.3), and the decision logic for "enter cell → central missing/stale → sweep" as a
       pure planner step (11.1's logic). Live verify (PIE): a personality APC actually detours to center and

@@ -21,6 +21,7 @@ BASE_DIR = Path(__file__).parent
 WORLDS_DIR = BASE_DIR.parent / "worlds"
 ENV_PATH = BASE_DIR.parent / ".env"   # provider/model config the settings page manages
 CONFIG_PATH = BASE_DIR.parent / "config.json"   # named provider profiles + role assignments
+MAP_STALE_SECONDS = 24 * 3600   # a place cell older than this is flagged for re-observation
 
 app = FastAPI(title="Unreal World Sim")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -127,17 +128,19 @@ def build_map(level: str) -> dict:
         cols, rows = probe["cols"], probe["rows"]
 
     db_path = WORLDS_DIR / level / "world_places.db"
-    cells = PlaceDB(db_path).map_cells() if db_path.exists() else []
+    cells = PlaceDB(db_path).map_cells(max_age_seconds=MAP_STALE_SECONDS) if db_path.exists() else []
     named = sum(1 for c in cells if c["state"] == "named")
     swept = sum(1 for c in cells if c["state"] == "swept")
+    stale = sum(1 for c in cells if c.get("stale"))
     return {
         "level": level,
         "cell_size": grid.cell_size,
         "has_bounds": grid.has_bounds,
         "cols": cols,
         "rows": rows,
+        "stale_after_hours": MAP_STALE_SECONDS // 3600,
         "cells": cells,
-        "counts": {"named": named, "swept": swept,
+        "counts": {"named": named, "swept": swept, "stale": stale,
                    "total_cells": (cols or 0) * (rows or 0)},
     }
 
