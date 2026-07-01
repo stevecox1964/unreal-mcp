@@ -52,6 +52,22 @@ CREATE TABLE IF NOT EXISTS agent_visits (
     last_seen   TEXT,
     PRIMARY KEY (agent_id, col, row)
 );
+
+-- APC-owned place cells: a named ~3m box inside a grid cell, positioned as an
+-- XY offset (cm) from the cell's community anchor (the cell center). Owned by
+-- one APC but readable/reusable by all (#11.2).
+CREATE TABLE IF NOT EXISTS owned_place_cells (
+    col        INTEGER NOT NULL,
+    row        INTEGER NOT NULL,
+    owner      TEXT    NOT NULL,   -- agent_id
+    name       TEXT    NOT NULL,
+    dx         REAL    NOT NULL DEFAULT 0,   -- cm east of the community anchor
+    dy         REAL    NOT NULL DEFAULT 0,   -- cm south of the community anchor
+    extent_cm  REAL    NOT NULL DEFAULT 300,
+    created_at TEXT,
+    updated_at TEXT,
+    PRIMARY KEY (col, row, owner, name)
+);
 """
 
 _MAX_LABELS_PER_DIRECTION = 5
@@ -405,6 +421,77 @@ class PlaceDB:
                 (col, row, name, world_time, agent_id, _iso_now()),
             )
         return True
+
+    def add_owned_place(self, agent_id: str, col: int, row: int, name: str,
+                        dx: float, dy: float, extent_cm: float = 300.0) -> bool:
+        """Store an APC-owned place cell: a named ~3m box inside a grid cell.
+
+        Position is an XY offset (cm) from the cell's community anchor (the
+        cell center), so world position stays derivable. An owner may re-place
+        their own entry (upsert bumps ``updated_at``); different owners never
+        collide. Rejects blank/placeholder names like ``set_name``. Returns
+        True when written. Example: ``add_owned_place("maren", 5, 5, "My Home",
+        dx=120.0, dy=-80.0)``.
+        """
+        name = name.strip()
+        if not name or name.lower() in ("null", "none", "unknown"):
+            return False
+        now = _iso_now()
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                "INSERT INTO owned_place_cells "
+                "  (col, row, owner, name, dx, dy, extent_cm, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(col, row, owner, name) DO UPDATE SET "
+                "  dx = excluded.dx, dy = excluded.dy, "
+                "  extent_cm = excluded.extent_cm, updated_at = excluded.updated_at",
+                (col, row, agent_id, name, float(dx), float(dy), float(extent_cm), now, now),
+            )
+        return True
+
+    def find_owned_place(self, name: str, preferred_owner: str = None) -> dict | None:
+        """Resolve a name to an APC-owned place cell, or None if unknown.
+
+        Same normalization + matching rules as ``find_named_cell`` (exact beats
+        substring; deterministic tie-break by (col, row, owner, name)), with one
+        extra rule: among equal-quality matches, ``preferred_owner``'s entry
+        wins — my "My Home" resolves before someone else's. Returns
+        ``{"col","row","owner","name","dx","dy","extent_cm"}``.
+        """
+        needle = " ".join(name.split()).lower()
+        if not needle:
+            return None
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT col, row, owner, name, dx, dy, extent_cm "
+                "FROM owned_place_cells ORDER BY col, row, owner, name"
+            ).fetchall()
+        best: tuple[tuple[int, int], dict] | None = None
+        for r in rows:
+            owned_name = " ".join(r["name"].split()).lower()
+            if owned_name == needle:
+                quality = 0
+            elif needle in owned_name or owned_name in needle:
+                quality = 1
+            else:
+                continue
+            owner_rank = 0 if (preferred_owner and r["owner"] == preferred_owner) else 1
+            key = (quality, owner_rank)
+            if best is None or key < best[0]:   # strict: first (ordered) match wins ties
+                best = (key, dict(r))
+                if key == (0, 0):
+                    break
+        return best[1] if best else None
+
+    def owned_places_in_cell(self, col: int, row: int) -> list[dict]:
+        """All APC-owned place cells inside one grid cell, ordered by (owner, name)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT owner, name, dx, dy, extent_cm FROM owned_place_cells "
+                "WHERE col=? AND row=? ORDER BY owner, name",
+                (col, row),
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def agent_familiarity(self, agent_id: str, col: int, row: int) -> dict:
         """Return this agent's personal relationship with a grid cell.

@@ -1005,27 +1005,39 @@ class AgentManager:
             "place":    observation.get("place"),
         }
 
-    def _resolve_place_target(self, name: str, observation: dict) -> list[float] | None:
+    def _resolve_place_target(self, agent_id: str, name: str, observation: dict) -> list[float] | None:
         """Resolve a place name to a walk target ``[x, y, z]``, or None.
 
-        Looks the name up in the shared PlaceDB, maps the matched cell to its
-        world center via the bounded world grid, and keeps the agent's current
-        z so it stays on the ground plane. Returns None when there is no PlaceDB,
-        the grid is unbounded, or the name is unknown — callers fall back to the
+        Resolution order (#11.2, grid-first): a community-named cell wins and
+        resolves to its cell center; otherwise an APC-owned place cell (the
+        resolving agent's own entries preferred) resolves to the community
+        anchor plus its stored XY offset. Keeps the agent's current z so it
+        stays on the ground plane. Returns None when there is no PlaceDB, the
+        grid is unbounded, or the name is unknown — callers fall back to the
         bridge's graceful idle.
         """
         if self.place_db is None:
             return None
-        cell = self.place_db.find_named_cell(name)
-        if cell is None:
-            return None
-        center = self.world_grid.cell_center(*cell)
-        if center is None:
-            return None
         xyz = _loc_xyz(observation.get("location"))
         z = xyz[2] if xyz else 0.0
-        logger.info(f"Resolved place '{name}' -> cell {cell} center {center}")
-        return [center[0], center[1], z]
+
+        cell = self.place_db.find_named_cell(name)
+        if cell is not None:
+            center = self.world_grid.cell_center(*cell)
+            if center is not None:
+                logger.info(f"Resolved place '{name}' -> cell {cell} center {center}")
+                return [center[0], center[1], z]
+
+        owned = self.place_db.find_owned_place(name, preferred_owner=agent_id)
+        if owned is not None:
+            center = self.world_grid.cell_center(owned["col"], owned["row"])
+            if center is not None:
+                logger.info(
+                    f"Resolved owned place '{name}' ({owned['owner']}) -> cell "
+                    f"({owned['col']},{owned['row']}) offset ({owned['dx']:.0f},{owned['dy']:.0f})"
+                )
+                return [center[0] + owned["dx"], center[1] + owned["dy"], z]
+        return None
 
     def known_places(self, location) -> list[dict]:
         """The named-place map relative to ``location`` — nearest first.
@@ -1294,6 +1306,19 @@ class AgentManager:
                 stored = self.place_db.set_name(agent_id, col, row, name, self.world_clock.now_text())
                 if stored:
                     logger.info(f"[{agent_id}] place named: '{name}' at {grid.get('key')}")
+                else:
+                    # Cell already community-named (first name wins). A *different*
+                    # name becomes an APC-owned place cell — a named ~3m box at an
+                    # XY offset from the community anchor (#11.2) — instead of
+                    # being silently dropped ("My Home" inside "village square").
+                    existing = self.place_db.get_place(col, row)
+                    existing_name = ((existing or {}).get("name") or "").strip().lower()
+                    if existing_name and existing_name != name.lower():
+                        center = self.world_grid.cell_center(col, row)
+                        if center is not None and self.place_db.add_owned_place(
+                                agent_id, col, row, name,
+                                dx=xyz[0] - center[0], dy=xyz[1] - center[1]):
+                            logger.info(f"[{agent_id}] owned place: '{name}' at {grid.get('key')}")
         # Also write to the legacy spatial map (keeps direction previews working).
         smap = self._spatial_map(agent_id)
         smap.ingest(xyz[0], xyz[1], [{"label": name, "confidence": 0.8, "distance": "near"}])
@@ -1345,7 +1370,7 @@ class AgentManager:
         # short-circuit string targets to idle.
         if (t == "walk_to" and isinstance(action.get("target_location"), str)
                 and not action.get("location") and not action.get("target_actor")):
-            target = self._resolve_place_target(action["target_location"], observation)
+            target = self._resolve_place_target(agent.agent_id, action["target_location"], observation)
             if target is not None:
                 action = {**action, "location": target}
 

@@ -133,11 +133,14 @@ together when you're back. Detail for each lives in the thematic sections below 
       enter-cell → central-missing → sweep decision as a pure step. (Live verify is B-side.)
       **Spec: `plan/specs/WP3-sweep-capability.md`** (2026-07-01 — trigger = schedule status act/idle in
       an unexplored cell, never mid-travel; start in `_act_agent`, continue pre-LLM; role plumbing deleted).
-- [ ] **A5 · APC-owned place cells schema (#11.2).** PlaceDB schema/ownership change for multiple
-      APC-owned cells per grid cell + tests. Larger; after A1–A4.
-      **Spec: `plan/specs/WP4-owned-places.md` — GATED, needs your approval** (minimal slice: owned table
-      + resolver fallback + organic write path; note: today a second name in an already-named cell is
-      silently dropped, so "My Home" is being lost).
+- [x] **A5 · APC-owned place cells schema (#11.2) — minimal slice.** ✓ 2026-07-01 (**user approved WP4**,
+      built same session) — `owned_place_cells` table (named ~3m box, XY offset from the community anchor,
+      PK `(col,row,owner,name)`); `PlaceDB.add_owned_place`/`find_owned_place` (exact>substring,
+      preferred-owner tie-break)/`owned_places_in_cell`; `_resolve_place_target` falls back community →
+      owned (anchor + offset); `_record_place` turns a *different* name in an already-named cell into an
+      owned place instead of dropping it ("My Home" inside "village square" is no longer lost). Test:
+      `test_owned_places.py`. Suite 27/27. Spec: `plan/specs/WP4-owned-places.md`. *Deferred per spec D5:
+      prompt/known_places surfacing, /map display, extent geometry, multi-leg grid→grid routing (#6b).*
 - [ ] **A6 · Render recall context into the decision prompt (architect finding, 2026-07-01).**
       `acquaintances` / `known_places` / `recent_episodes` are attached to the observation each tick but
       never rendered in `_USER_TEMPLATE_VISION` — social recall (#5) and the map query (#6) are invisible
@@ -366,8 +369,10 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
             **XY offset + 3m extent + owner + reusable flag**, distinct from the central community cell.
           *(User flagged this may be more than we need yet — capture the model, sequence after A1–A3 /
           the #6b APC map. Grid-first nav is the load-bearing idea.)*
-          **Spec: `plan/specs/WP4-owned-places.md` — GATED on your approval** (minimal slice defined:
-          schema + resolver fallback + write path; multi-leg routing deferred to #6b).
+          **APPROVED + minimal slice LANDED ✓ 2026-07-01** (see A5 above; spec
+          `plan/specs/WP4-owned-places.md`). *Still open from the full model:* surfacing owned places to
+          the LLM/known_places + the web map, using the 3m extent, and multi-leg grid→grid coarse routing
+          (deferred to #6b).
     - [~] **11.3 Staleness / TTL re-observation. — SHELVED (user, 2026-07-01: "maybe we don't need this
           now"). Keep in backlog, don't build the re-observation path yet.** *Signal already built (A2,
           2026-07-01):* `PlaceDB.is_stale` + `updated_at` (real UTC) + a `stale` flag on the map; basis =

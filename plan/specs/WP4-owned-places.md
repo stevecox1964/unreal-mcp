@@ -150,10 +150,14 @@ dir DB like `test_cell_sweep.py`/`test_place_resolver.py`):
 
 ## Acceptance
 
-- [ ] User approval recorded in `plan/backlog.md` #11.2 **before any code**.
-- [ ] `python scripts/run_tests.py` green.
-- [ ] Changes confined to `place_db.py`, `agent_manager.py`, tests, backlog.
+- [x] User approval recorded in `plan/backlog.md` #11.2 **before any code**. (User: "WP4 approved,
+      build the minimal slice", 2026-07-01.)
+- [x] `python scripts/run_tests.py` green. (27/27.)
+- [x] Changes confined to `place_db.py`, `agent_manager.py`, tests, backlog.
 
 ## Executor notes
 
-*(append findings/deviations here)*
+- **Built 2026-07-01 by the architect session directly** (user approved and asked for it in-session,
+  so no executor handout). Implemented exactly as specced (D1–D5); no deviations. New test:
+  `test_owned_places.py` (28 checks). `test_place_resolver.py` needed no edits — it exercises
+  `_execute_world_action`, not `_resolve_place_target` directly.
