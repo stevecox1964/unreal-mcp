@@ -72,6 +72,11 @@ def build_control_app(manager) -> FastAPI:
     async def tick() -> dict:
         return await manager.tick()
 
+    @app.post("/reset_day")
+    async def reset_day() -> dict:
+        """Restart the sim from morning (fresh day; memories + place cells kept)."""
+        return await manager.restart_day()
+
     return app
 
 

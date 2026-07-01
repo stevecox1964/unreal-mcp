@@ -337,6 +337,12 @@ def api_sim_tick():
     return JSONResponse(get_runner().tick())
 
 
+@app.post("/api/sim/reset_day")
+def api_sim_reset_day():
+    """Restart the sim from morning — fresh day, memories + place cells preserved."""
+    return JSONResponse(get_runner().reset_day())
+
+
 async def _maybe_json(request: Request) -> dict:
     try:
         data = await request.json()

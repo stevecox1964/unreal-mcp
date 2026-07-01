@@ -58,6 +58,10 @@ class StubRunner:
     def tick(self):
         self.calls.append(("tick",)); return {"ticked": 2}
 
+    def reset_day(self):
+        self.calls.append(("reset_day",)); self.running = False
+        return {"status": "day_reset", "world_time": "Day 1, 08:00"}
+
 
 def _with_runner(stub, fn):
     old = wm.get_runner
@@ -73,6 +77,7 @@ def test_sim_page_renders_with_controls():
         text = client.get("/sim").text
         check("sim page returns the cockpit", "Start" in text and "Stop" in text and "Step" in text)
         check("sim page has a Clear feed button", "Clear feed" in text)
+        check("sim page has a Restart day button", "Restart day" in text)
         check("sim page renders a timestamp per event", "fmtTime(e.timestamp)" in text)
     _with_runner(StubRunner(), body)
 
@@ -124,8 +129,9 @@ def test_control_actions_proxy_to_runner():
         check("start proxied", client.post("/api/sim/start", json={"tick_seconds": 2, "mode": "explore"}).json()["status"] == "started")
         check("start forwarded args", stub.calls[-1] == ("start", 2, "explore"))
         check("step (single tick) proxied", client.post("/api/sim/tick").json()["ticked"] == 2)
+        check("restart-day proxied", client.post("/api/sim/reset_day").json()["status"] == "day_reset")
         check("stop proxied", client.post("/api/sim/stop").json()["status"] == "stopped")
-        check("calls recorded in order", [c[0] for c in stub.calls] == ["start", "tick", "stop"])
+        check("calls recorded in order", [c[0] for c in stub.calls] == ["start", "tick", "reset_day", "stop"])
     _with_runner(stub, body)
 
 

@@ -21,8 +21,10 @@ debugging.</small></p>
 <div role="group">
   <button id="btn-start">▶ Start</button>
   <button id="btn-step" class="secondary">⏭ Step (1 tick)</button>
+  <button id="btn-restart-day" class="secondary outline">☀ Restart day</button>
   <button id="btn-stop" class="danger">■ Stop</button>
 </div>
+<small style="color:#666;">Restart day = fresh morning (new schedules); memories + place cells kept.</small>
 
 <h3 style="display:flex; align-items:center; gap:.75rem;">
   Recent decisions <small>(live)</small>
@@ -60,6 +62,10 @@ document.getElementById('btn-start').onclick = async () => {
 };
 document.getElementById('btn-stop').onclick = async () => { await postJSON('/api/sim/stop'); refresh(); };
 document.getElementById('btn-step').onclick = async () => { await postJSON('/api/sim/tick'); refresh(); };
+document.getElementById('btn-restart-day').onclick = async () => {
+  if(!confirm('Restart the sim from morning? Schedules regenerate; memories + place cells are kept.')) return;
+  await postJSON('/api/sim/reset_day'); refresh();
+};
 document.getElementById('btn-clear').onclick = async () => {
   await postJSON('/api/sim/events/clear');
   document.getElementById('events').textContent = '(cleared)';

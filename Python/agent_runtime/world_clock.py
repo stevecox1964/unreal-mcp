@@ -46,6 +46,11 @@ class WorldClock:
         """Anchor the clock to now; world time advances from here."""
         self._anchor = time.monotonic()
 
+    def reset(self) -> None:
+        """Un-anchor the clock so ``now_text()`` reads the configured morning start
+        again — used when restarting the sim's day without immediately running it."""
+        self._anchor = None
+
     def now_text(self) -> str:
         """Current world time, e.g. ``"Day 1, 08:23"``.
 

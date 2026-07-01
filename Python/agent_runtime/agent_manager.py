@@ -1494,6 +1494,43 @@ class AgentManager:
             "map_stats": stats,
         }
 
+    async def restart_day(self) -> dict:
+        """Restart the sim from morning — a fresh day that keeps the world.
+
+        Stops the sim if running, re-anchors the world clock to its configured
+        morning start, and clears each agent's per-run runtime state (daily
+        schedule, last activity, timers) so a new morning plan regenerates on the
+        next start. Memories and place cells are intentionally **preserved** — the
+        world keeps everything it has learned; only the day resets. (Contrast
+        reset_agents, which also wipes memories + spatial maps.)
+        """
+        was_running = self.running
+        if was_running:
+            await self.stop_simulation()
+
+        if not self.agents:
+            self._load_agents(None)
+            self._bind_agents()
+
+        self.world_clock.reset()   # now_text() -> configured morning start
+
+        agent_ids = []
+        for agent in self.agents.values():
+            agent.reset_runtime_state(self._agents_dir)
+            agent_ids.append(agent.agent_id)
+
+        logger.info(
+            f"=== DAY RESTART === {len(agent_ids)} agent(s) reset to morning "
+            f"({self.world_clock.now_text()}); memories + place cells preserved"
+            f"{', sim stopped first' if was_running else ''}"
+        )
+        return {
+            "status": "day_reset",
+            "world_time": self.world_clock.now_text(),
+            "stopped_simulation": was_running,
+            "agents": agent_ids,
+        }
+
     async def reset_agents(self) -> dict:
         """Reset agents to their run-start state for reproducible re-runs.
 

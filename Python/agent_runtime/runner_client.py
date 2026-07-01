@@ -54,6 +54,10 @@ class RunnerClient:
     def tick(self) -> dict:
         return self._client.post("/tick").json()
 
+    def reset_day(self) -> dict:
+        """Restart the sim from morning — fresh day, keep memories + place cells."""
+        return self._client.post("/reset_day").json()
+
     # ── Convenience ─────────────────────────────────────────────────────────────
 
     def is_running(self) -> bool:

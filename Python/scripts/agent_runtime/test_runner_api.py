@@ -60,6 +60,11 @@ class StubManager:
         self.calls.append(("tick",))
         return {"ticked": 2}
 
+    async def restart_day(self) -> dict:
+        self.calls.append(("restart_day",))
+        self.running = False
+        return {"status": "day_reset", "world_time": "Day 1, 08:00", "stopped_simulation": True}
+
 
 def test_control_app_routes():
     mgr = StubManager()
@@ -82,6 +87,11 @@ def test_control_app_routes():
     check("events respects the limit", client.get("/events?limit=0").json()["events"] == [])
     check("events/clear proxies the manager", client.post("/events/clear").json()["cleared"] == 4)
     check("clear recorded as a manager call", mgr.calls[-1] == ("clear_events",))
+
+    r = client.post("/reset_day")
+    check("reset_day proxies the manager", r.json()["status"] == "day_reset")
+    check("reset_day reports the morning time", r.json()["world_time"] == "Day 1, 08:00")
+    check("reset_day recorded as a manager call", mgr.calls[-1] == ("restart_day",))
 
     check("stop returns the manager result", client.post("/stop").json()["ticks"] == 5)
     check("status reflects stopped", client.get("/status").json()["running"] is False)
@@ -108,6 +118,8 @@ def test_runner_client_round_trip():
 
     check("client.tick", rc.tick()["ticked"] == 2)
     check("client.events returns the log list", rc.events()[0]["action_type"] == "walk_to")
+    check("client.reset_day restarts from morning", rc.reset_day()["status"] == "day_reset")
+    check("client.reset_day forwarded", mgr.calls[-1] == ("restart_day",))
     check("client.stop", rc.stop()["status"] == "stopped")
 
 

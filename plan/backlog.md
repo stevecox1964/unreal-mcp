@@ -91,10 +91,13 @@ together when you're back. Detail for each lives in the thematic sections below 
       real wall-clock, not sim-time** (the `WorldClock` resets every run, so sim-time can't express cross-run
       staleness). The re-sweep that *refreshes* `updated_at` is live (#11.1/B2). Test: `test_map_view.py`.
       Suite 25/25.
-- [ ] **A3 · Restart the sim from morning.** A reset that clears runtime state (`daily_schedule`,
-      `last_activity` via the existing `reset_runtime_state`) **and** resets `WorldClock` to morning,
-      exposed on the runner control API (`POST /reset_day`) + a web-cockpit button. Offline-testable via
-      `TestClient`/stub runner. → serves #3/#9 + #10 (fresh day regenerates the plan).
+- [x] **A3 · Restart the sim from morning.** ✓ 2026-07-01 — `AgentManager.restart_day()` stops if running,
+      re-anchors the clock to its configured morning start (`WorldClock.reset()`), and clears each agent's
+      runtime state (fresh schedules regenerate) while **preserving memories + place cells** (unlike
+      `reset_agents`). Exposed end-to-end: runner `POST /reset_day` → `RunnerClient.reset_day()` →
+      web `POST /api/sim/reset_day` → a **☀ Restart day** cockpit button (with a confirm). Transport tested
+      offline (`test_runner_api.py`, `test_sim_controller.py`) + `WorldClock.reset()` unit test
+      (`test_world_clock.py`). Suite 26/26. *(Live drive = B4.)*
 - [ ] **A4 · Collapse the maintenance-role gating (#11.1 logic).** Refactor so the sweep is a capability
       any APC invokes; remove the `role:"maintenance"` branch/`_pulse_maintenance`. Offline-test the
       enter-cell → central-missing → sweep decision as a pure step. (Live verify is B-side.)
