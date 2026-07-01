@@ -17,6 +17,20 @@ grooming: 2026-06-26.
 > **#3** factory ✓. The remaining MVP gap is **#3's standalone runner** (the "runs overnight
 > independent of Claude" long pole — nothing built but the factory).
 
+> **⚑ Status (2026-07-01 — grooming + direction reset, Claude-driven):** Two director calls locked:
+> **(1) #10.5 = BALANCED reaction gate** (routine destination wins; only a known friend / being-spoken-to
+> interrupts, then resume — persona distractibility is a low-weight nudge, never an override). **(2) The
+> "maintenance APC" concept is RETIRED** — there is no dedicated no-personality worker; **any APC builds a
+> community place cell when it needs one** (folded into **#11**; #7's sweep *mechanics* survive as the
+> engine, the *dedicated role* does not). New direction from the user: **start winding down the
+> grid/place-cell design** — get it debugged and finished — then move to the **next set**: **Child BPs**,
+> **restart the sim from morning**, and **web-app observability** — *view sim progress* and *watch the
+> grid + place cells get built out* live from the web app. **Staging below** splits work into a **loop-safe
+> autonomous queue** (I grind these hands-off, commit-per-green, no push) and a **"work together" queue**
+> (blocked on you — editor/PIE/design), ordered so we can knock them out together when you're back.
+> Baseline restored to **24/24** (fixed a Starlette-1.0 `TemplateResponse` breakage from the Python-3.14
+> env upgrade).
+>
 > **⚑ Status (2026-06-28, late — Claude-driven, PUSHED):** built **MASTER_PLAN Milestone 1 — the
 > daily-schedule planner + sequencer** (`planner.py`, #10.1–10.4) and **wired it into the live tick**,
 > verified live in PIE: agents now generate an in-character daily schedule (persisted to `runtime.json`),
@@ -57,10 +71,57 @@ grooming: 2026-06-26.
 > recording *by name* (the two NPCs never came within range), and the #7 maintenance APC (no
 > `role:"maintenance"` agent configured). System is healthy for multi-day running.
 
+## ▶▶ Staged plan (2026-07-01) — direction reset: wind down grid/place, then observability
+
+Two ordered queues. **A** is what I grind hands-off while you're gone (loop-safe, commit-per-green, no
+push). **B** is blocked on you (editor / PIE / live / a design call) — ordered so we can knock it out
+together when you're back. Detail for each lives in the thematic sections below (`## N`).
+
+### A — Loop-safe autonomous queue (grind now)
+
+- [ ] **A1 · Web map view — watch the grid + place cells build out.** New `GET /map` page + `GET /api/map`
+      in `web_ui` reading `PlaceDB`: render the world grid, each cell colored **named / swept-only /
+      unexplored**, with landmark counts + who named/swept + last-seen. This is the user's "see grid and
+      place cells get built out from the web app." Offline-testable against a temp DB (`TestClient`).
+      → serves #1/#6 observability + #11.
+- [ ] **A2 · Grid/place staleness (#11.3).** `PlaceDB.is_stale(col,row,max_age)` + freshness query + a
+      `stale` flag surfaced to A1's map. Winds down the grid/place design. Loop-safe + tested.
+- [ ] **A3 · Restart the sim from morning.** A reset that clears runtime state (`daily_schedule`,
+      `last_activity` via the existing `reset_runtime_state`) **and** resets `WorldClock` to morning,
+      exposed on the runner control API (`POST /reset_day`) + a web-cockpit button. Offline-testable via
+      `TestClient`/stub runner. → serves #3/#9 + #10 (fresh day regenerates the plan).
+- [ ] **A4 · Collapse the maintenance-role gating (#11.1 logic).** Refactor so the sweep is a capability
+      any APC invokes; remove the `role:"maintenance"` branch/`_pulse_maintenance`. Offline-test the
+      enter-cell → central-missing → sweep decision as a pure step. (Live verify is B-side.)
+- [ ] **A5 · APC-owned place cells schema (#11.2).** PlaceDB schema/ownership change for multiple
+      APC-owned cells per grid cell + tests. Larger; after A1–A4.
+
+### B — Work together (blocked on you: editor / PIE / live / design)
+
+Ordered for a joint session:
+
+1. **B1 · Child Blueprints** `BP_Dufus` / `BP_Maren` (child of `BP_CameraNPC`, mesh override + rebind).
+   *Editor + mesh choice.* — you named this as a next thing; detail in **"▶ Next up"** below.
+2. **B2 · Live grid/place debug in PIE** — run the sim and watch cells build out on the **A1 map view**;
+   confirm reuse + A2 staleness behave. Pairs with A1/A2 to *finish* the grid/place design.
+3. **B3 · #10.5 balanced-gate live tune** — the PIE prompt-weighting change + verify Dufus reaches the
+   village square instead of diverting to every passer-by.
+4. **B4 · Restart-from-morning live verify** — drive the A3 reset button against PIE.
+5. **B5 · `observe_heading` bridge handler** (#7 live half) — rotate-to-yaw + capture + `ingest_compass`
+   so sweeps produce real landmarks. *C++/editor rebuild.*
+6. **B6 · Merge `auto-loop/backlog` → `main`** + push decision.
+7. **Carryover:** settings-page UX polish, providers end-to-end spot check, navmesh `stuck` robustness.
+
+---
+
 ## Autonomous queue — loop-safe (offline-testable), grind hands-off
 
 Build these in order on an `auto-loop/*` branch; each is Python whose **logic** is offline-testable
 even though final live execution may need PIE. Commit each green step, never push.
+
+> **Active queue is the "▶▶ Staged plan → A" above** (2026-07-01). The numbered 1–10 below are the
+> *prior* loop cycle (all landed except #9 parked / #10.5 which is now a B-side live tune) — kept for
+> history.
 
 1. ~~**Episodic consolidation**~~ ✓ 2026-06-26 — `EpisodicLog.consolidate()` rolls events older than
    `keep_recent` into compact per-place summary rows `{kind:"summary", place, count, first/last_time,
@@ -199,9 +260,63 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
     - [ ] **10.5 Reaction-gate weighting (tuning)** — decide-phase reactivity still tends to override the
           scheduled destination (agent greets every passer-by instead of pressing on). Bias the prompt so
           the routine destination wins unless a genuinely salient event interrupts (Master Plan §14 reaction
-          gate). How strict vs. persona distractibility is a director's call. Also: navmesh wedging
-          (`stuck on an obstacle`) persists as a separate live robustness issue — agent recovers but it
-          stalls progress.
+          gate). **Decision (user, 2026-07-01): BALANCED GATE** — the routine destination wins by default;
+          only a genuinely salient event (a *known friend*, or *being spoken to*) may interrupt, and after
+          the interrupt the agent **resumes** the scheduled destination. Persona distractibility (Dufus's
+          "chase something shiny") stays in-character but must **not** win over the routine on its own — it's
+          a low-weight nudge, not an override. Implementation (live/PIE): in `llm_router._USER_TEMPLATE_VISION`
+          + `_schedule_note`, raise the scheduled destination's weight above the "greet whoever you see"
+          reaction, then verify Dufus reaches the village square instead of diverting to every passer-by.
+          Also: navmesh wedging (`stuck on an obstacle`) persists as a separate live robustness issue —
+          agent recovers but it stalls progress.
+
+11. **Grid-cell place-cell model — central community cell + APC-owned cells + staleness.**
+    *(user, 2026-07-01 — a design-reconciliation pass. "I think we have all of this in the design but make
+    a backlog item to make sure.")* User's intended model of how the world gets built out:
+    - Each **grid cell** houses **one central place cell** at the cell **center** with a **360° observation
+      scan** — the *community* record for all APCs.
+    - When an APC **navigates into a new grid cell**, it **checks for an initialized central place cell**; if
+      none exists, it **moves to the cell center, runs the 360 scan to initialize it, then resumes its
+      task**.
+    - An APC may own **several place cells within one grid cell** — **owned by that APC but reusable by
+      others** — so knowledge accumulates and the world fills in.
+    - If a grid cell's place cell is **out of date / stale** (enough sim-time has passed since its last
+      initialization), an **update observation** must re-run.
+
+    **Reconciliation against what's built (verify, then fill the gaps — don't rebuild the done parts):**
+    - [x] *Central cell + 360 scan exist.* `place_cells` is keyed `(col,row)` = one cell per grid cell;
+          `cell_sweep.py` does GOTO_CENTER → observe 8 compass headings → `PlaceDB.mark_swept` (the
+          `swept_at` community breadcrumb); landmarks land in `place_observations`. Reuse via
+          `is_explored`/`get_swept`/`explored_cells` (#1, #7). **This is the central-cell design already.**
+    - [ ] **11.1 Any-APC self-initialization (behavior gap + role retirement).** **Decided (2026-07-01):
+          no dedicated maintenance role** — collapse the `role:"maintenance"` gating (`_pulse_maintenance`
+          + the role branches in `pulse_agent`/`tick`) so the sweep is a **capability any APC invokes**, not
+          a role. Behavior: an APC that enters a grid cell with no central place cell **it needs now**
+          detours to center, runs the 360, `mark_swept`, then resumes its scheduled task (a #10 sequencer
+          interrupt — reuses the balanced reaction gate from #10.5: initialize-if-needed wins, then resume).
+          The `cell_sweep.py` state machine + `mark_swept` mechanics are reused as-is. *Live/PIE verify: a
+          personality APC actually detours + sweeps a fresh cell it wants to use.*
+    - [ ] **11.2 Multiple APC-owned place cells per grid cell (schema gap).** The schema allows only **one**
+          place cell per `(col,row)` (it's the PK). The model wants a **central community cell** *plus*
+          several **APC-owned** sub-cells in the same grid cell (owned by an APC, readable/reusable by
+          others). Needs a data-model change: either a separate `owned_place_cells` table keyed
+          `(col,row,owner,slot)` with an `owner`/reusable flag, or promote place cells to their own id.
+          Keep the central cell distinct from owned cells. *Decision: what distinguishes a "place cell"
+          within a grid cell — a sub-position, a landmark cluster, a named spot? (rec: a named spot with a
+          world position inside the cell; central cell = the unnamed 360 breadcrumb at center.)*
+    - [ ] **11.3 Staleness / TTL re-observation (missing).** No expiry today — `is_explored` is True
+          forever once swept. Add a freshness check: given `swept_at` (and a configurable max-age in
+          sim-time), `is_stale(col,row)` and a re-observation path that re-runs the 360 and refreshes the
+          landmarks/timestamp. *Decision: TTL in sim-days? re-observe on entry when stale, or lazily when an
+          APC needs current info? (rec: lazy — re-observe on entry only if stale AND the APC is about to
+          rely on it.)*
+    - **Loop-safe (offline-testable):** the PlaceDB schema/ownership change (11.2), `is_stale` + the
+      freshness query (11.3), and the decision logic for "enter cell → central missing/stale → sweep" as a
+      pure planner step (11.1's logic). Live verify (PIE): a personality APC actually detours to center and
+      sweeps a fresh cell, and re-sweeps a stale one.
+
+    Relates to: #1 (grid/place cells — "Finalize grid cells and place cells" + "how observations attach"),
+    #7 (maintenance APC sweep), #6 (map/known_places), engine-agnostic navigation.
 
 (Items 1–6 landed 2026-06-26, 19/19 green; #7.0–7.2 + #8 landed 2026-06-28, 22/22; #10.1–10.2 + vision
 Gemini-media-type fix landed 2026-06-28, 24/24.)
@@ -284,8 +399,9 @@ memory is a long loop of "still searching for village square.")
       navigates instead of idling. ✓ 2026-06-26 — `PlaceDB.find_named_cell` +
       `WorldGrid.cell_center` + `AgentManager._resolve_place_target`, wired into
       `_execute_world_action`. Offline test: `scripts/agent_runtime/test_place_resolver.py`.
-- [ ] Finalize grid cells and place cells.
-- [ ] Design how observations attach to / save against grid/place cells.
+- [ ] Finalize grid cells and place cells. *(Design reconciled in **#11** — central community cell +
+      APC-owned cells + staleness.)*
+- [ ] Design how observations attach to / save against grid/place cells. *(See **#11**.)*
 - [x] Reset the place-cell DB to start from scratch (`reset_world_places()`). ✓ 2026-06-24
 
 > Note: the walk_to *error* is already dead (no failures since 2026-05-14). This
@@ -518,20 +634,24 @@ Relates to: #1 (resolver — lookup half done), #5 (social/episodic — "places 
 
 ---
 
-## 7. Maintenance/monitor APC — unexplored-cell sweep + community breadcrumbs
+## 7. Community place-cell sweep — unexplored-cell 360 + breadcrumbs  *(mechanics; role RETIRED)*
 
-**Status:** In progress · **Independence:** Builds on #1/#6 + PlaceDB · **Source:** user, 2026-06-26
+**Status:** Mechanics built; **dedicated-role concept retired 2026-07-01** — behavior folded into **#11**
+· **Independence:** Builds on #1/#6 + PlaceDB · **Source:** user, 2026-06-26
 
-A **maintenance/monitor APC** is a *system worker* — a "streetsweeper for the
-system" with **no personality and no LLM**. Its job: keep the world map current.
-In a grid cell that has **no place cell** it walks to the cell **center**, does a
-**360 observation**, then drops a **community place-cell breadcrumb** there. The
-breadcrumb marks the cell explored so the personality APCs reuse it and **skip
-the costly 360** (vision calls) — shared knowledge, paid once.
+The **sweep mechanic**: in a grid cell that has **no place cell**, an APC walks to the cell **center**,
+does a **360 observation**, then drops a **community place-cell breadcrumb** there. The breadcrumb marks
+the cell explored so other APCs reuse it and **skip the costly 360** (vision calls) — shared knowledge,
+paid once. This engine is built and offline-tested (below) and stays.
 
-> **Design note (user, 2026-06-26):** this is a *dedicated maintenance APC*, **not** a
-> personality NPC "disregarding personality" — that earlier framing was dropped. The
-> sweep is the maintenance APC's *normal* behavior; it has no visual/personality role.
+> **DIRECTION CHANGE (user, 2026-07-01):** the earlier "**dedicated maintenance/monitor APC** — a
+> personality-free, LLM-free system worker" concept is **RETIRED**. There is **no** special maintenance
+> role. **Any APC builds a community place cell when it needs one** (it enters an uninitialized cell it
+> wants to use → detours to center → 360 → breadcrumb → resumes its task). The `role:"maintenance"`
+> gating (`_pulse_maintenance` and the role branch in `pulse_agent`/`tick`) should be **collapsed** so the
+> sweep is a capability any APC invokes, not a role. Tracked as **#11.1**. *(Superseded design note, kept
+> for history: this was previously framed as a dedicated worker "not a personality NPC" — that framing is
+> now dropped entirely.)*
 
 - [x] **PlaceDB sweep state** ✓ 2026-06-26 — `is_explored(col,row)` (named OR swept),
       `mark_swept(agent,col,row,t)` drops an unnamed community breadcrumb (first sweep wins,
