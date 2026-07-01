@@ -79,11 +79,12 @@ together when you're back. Detail for each lives in the thematic sections below 
 
 ### A — Loop-safe autonomous queue (grind now)
 
-- [ ] **A1 · Web map view — watch the grid + place cells build out.** New `GET /map` page + `GET /api/map`
-      in `web_ui` reading `PlaceDB`: render the world grid, each cell colored **named / swept-only /
-      unexplored**, with landmark counts + who named/swept + last-seen. This is the user's "see grid and
-      place cells get built out from the web app." Offline-testable against a temp DB (`TestClient`).
-      → serves #1/#6 observability + #11.
+- [x] **A1 · Web map view — watch the grid + place cells build out.** ✓ 2026-07-01 — `PlaceDB.map_cells()`
+      (named/swept cells + landmark counts) + `web_ui` `GET /map` page and `GET /api/map` JSON; `map.html`
+      renders the bounded grid as a CSS grid colored **named / swept / unexplored**, polls `/api/map` every
+      3s so you watch cells fill in live, with a built-out % + per-cell hover (name / who / landmarks).
+      Missing DB → empty map (a GET never spawns a blank world). Map nav link added. Offline test:
+      `test_map_view.py` (temp world via `TestClient`). Suite 25/25. *(Live verify = B2.)*
 - [ ] **A2 · Grid/place staleness (#11.3).** `PlaceDB.is_stale(col,row,max_age)` + freshness query + a
       `stale` flag surfaced to A1's map. Winds down the grid/place design. Loop-safe + tested.
 - [ ] **A3 · Restart the sim from morning.** A reset that clears runtime state (`daily_schedule`,

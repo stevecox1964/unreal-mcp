@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Map — Unreal World Sim{% endblock %}
+
+{% block content %}
+<h2>World Map</h2>
+
+{% if worlds %}
+<form method="get" action="/map" style="margin-bottom:1rem;">
+  <label for="level">World</label>
+  <select id="level" name="level" onchange="this.form.submit()">
+    {% for w in worlds %}
+      <option value="{{ w }}" {% if w == level %}selected{% endif %}>{{ w }}</option>
+    {% endfor %}
+  </select>
+</form>
+{% endif %}
+
+{% if not map %}
+  <p>No world selected — create a world under <code>Python/worlds/</code>.</p>
+{% elif not map.has_bounds %}
+  <p><strong>{{ level }}</strong> has no bounded grid — add
+     <code>worlds/{{ level }}/world_grid.json</code> with <code>bounds</code> to see the cell map.
+     ({{ map.cells|length }} place cell(s) recorded so far.)</p>
+{% else %}
+  <p class="breadcrumb">
+    <strong>{{ level }}</strong> · {{ map.cols }}×{{ map.rows }} cells · {{ map.cell_size|int }}cm each ·
+    row 0 = north (top)
+  </p>
+
+  <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap; margin-bottom:.75rem;">
+    <span><span class="swatch" style="background:#2d6a4f"></span> named <b id="n-named">0</b></span>
+    <span><span class="swatch" style="background:#e9c46a"></span> swept <b id="n-swept">0</b></span>
+    <span><span class="swatch" style="background:#e9ecef; border:1px solid #ccc"></span> unexplored</span>
+    <span id="pct" style="color:#666"></span>
+  </div>
+
+  <div id="grid" data-level="{{ level }}" data-cols="{{ map.cols }}" data-rows="{{ map.rows }}"
+       style="display:grid; gap:1px; background:#ddd; padding:1px; width:max-content; max-width:100%; overflow:auto;">
+  </div>
+  <p id="tip" style="color:#666; min-height:1.4em; margin-top:.5rem;">Hover a cell for details.</p>
+
+  <style>
+    .swatch { display:inline-block; width:14px; height:14px; border-radius:2px; vertical-align:middle; margin-right:.25rem; }
+    #grid .cell { width:100%; height:100%; background:#e9ecef; }
+    #grid .cell.named { background:#2d6a4f; }
+    #grid .cell.swept { background:#e9c46a; }
+  </style>
+
+  <script>
+    const gridEl = document.getElementById("grid");
+    const cols = parseInt(gridEl.dataset.cols, 10);
+    const rows = parseInt(gridEl.dataset.rows, 10);
+    const level = gridEl.dataset.level;
+    const cellPx = Math.max(6, Math.min(16, Math.floor(900 / cols)));
+
+    // Build the empty grid once (row 0 at top). Cell id = "c-<col>-<row>".
+    gridEl.style.gridTemplateColumns = `repeat(${cols}, ${cellPx}px)`;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const d = document.createElement("div");
+        d.className = "cell";
+        d.id = `c-${c}-${r}`;
+        d.style.height = cellPx + "px";
+        gridEl.appendChild(d);
+      }
+    }
+
+    const tip = document.getElementById("tip");
+
+    async function refresh() {
+      let data;
+      try {
+        data = await (await fetch(`/api/map?level=${encodeURIComponent(level)}`)).json();
+      } catch (e) { return; }
+      // Reset styling, then paint stateful cells.
+      gridEl.querySelectorAll(".cell.named, .cell.swept").forEach(el => el.className = "cell");
+      for (const cell of data.cells) {
+        const el = document.getElementById(`c-${cell.col}-${cell.row}`);
+        if (!el) continue;
+        el.className = "cell " + cell.state;
+        const who = cell.state === "named" ? `named "${cell.name}" by ${cell.named_by}` : `swept by ${cell.swept_by}`;
+        el.dataset.tip = `(${cell.col}, ${cell.row}) — ${who} · ${cell.landmarks} landmark(s)`;
+      }
+      document.getElementById("n-named").textContent = data.counts.named;
+      document.getElementById("n-swept").textContent = data.counts.swept;
+      const built = data.counts.named + data.counts.swept;
+      const total = data.counts.total_cells || (cols * rows);
+      document.getElementById("pct").textContent =
+        `${built}/${total} cells built out (${(100 * built / total).toFixed(1)}%)`;
+    }
+
+    gridEl.addEventListener("mouseover", e => {
+      if (e.target.dataset && e.target.dataset.tip) tip.textContent = e.target.dataset.tip;
+    });
+
+    refresh();
+    setInterval(refresh, 3000);   // watch the world build out live
+  </script>
+{% endif %}
+{% endblock %}

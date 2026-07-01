@@ -1,0 +1,132 @@
+"""Offline tests for the web map view (staged plan A1).
+
+Watch the grid + place cells get built out from the web app. Covers
+``PlaceDB.map_cells()`` (the data layer — every named/swept cell + landmark
+count) and the ``/map`` page + ``/api/map`` JSON route rendered against a temp
+world (no Unreal, no network). Run:
+    .venv\\Scripts\\python.exe scripts\\agent_runtime\\test_map_view.py
+"""
+from __future__ import annotations
+
+import json
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]      # Python/
+sys.path.insert(0, str(ROOT))
+
+from fastapi.testclient import TestClient          # noqa: E402
+from agent_runtime.place_db import PlaceDB          # noqa: E402
+import web_ui.main as wm                            # noqa: E402
+
+
+def check(label, cond):
+    if not cond:
+        print(f"FAIL: {label}")
+        sys.exit(1)
+    print(f"ok: {label}")
+
+
+# ── data layer: PlaceDB.map_cells ──────────────────────────────────────────────
+
+def test_map_cells_reports_named_swept_and_landmarks():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = PlaceDB(Path(tmp) / "world_places.db")
+        db.set_name("maren", 3, 4, "Village Square", "T0")
+        db.ingest_compass("maren", 3, 4, "N", [{"label": "fountain", "confidence": 0.9},
+                                               {"label": "clock tower", "confidence": 0.9}])
+        db.mark_swept("dufus", 7, 2, "T1")           # swept-only, no name
+        db.touch("dufus", 9, 9)                       # bare visit — not a place cell
+
+        cells = db.map_cells()
+        by = {(c["col"], c["row"]): c for c in cells}
+        check("bare-visit cell is not on the map", (9, 9) not in by)
+        check("named + swept cells are both on the map", set(by) == {(3, 4), (7, 2)})
+        check("named cell reports state=named", by[(3, 4)]["state"] == "named")
+        check("named cell carries its name", by[(3, 4)]["name"] == "Village Square")
+        check("landmark count counts distinct observations", by[(3, 4)]["landmarks"] == 2)
+        check("swept-only cell reports state=swept", by[(7, 2)]["state"] == "swept")
+        check("swept-only cell has no landmarks", by[(7, 2)]["landmarks"] == 0)
+        check("swept-only cell records who swept it", by[(7, 2)]["swept_by"] == "dufus")
+        check("empty world -> empty map", PlaceDB(Path(tmp) / "empty.db").map_cells() == [])
+
+
+# ── web layer: build_map + routes ──────────────────────────────────────────────
+
+def _world(tmp: str, level: str = "TestWorld") -> Path:
+    """Create a bounded world dir with a small grid + a PlaceDB with two cells."""
+    world = Path(tmp) / level
+    (world / "agents").mkdir(parents=True)
+    (world / "world_grid.json").write_text(json.dumps({
+        "cell_size": 400.0,
+        "bounds": {"min_x": -2000, "min_y": -2000, "max_x": 1999, "max_y": 1999},
+    }), encoding="utf-8")
+    db = PlaceDB(world / "world_places.db")
+    db.set_name("maren", 3, 4, "Village Square", "T0")
+    db.mark_swept("dufus", 7, 2, "T1")
+    return world
+
+
+def _with_worlds(tmp, fn):
+    old = wm.WORLDS_DIR
+    wm.WORLDS_DIR = Path(tmp)
+    try:
+        fn(TestClient(wm.app))
+    finally:
+        wm.WORLDS_DIR = old
+
+
+def test_api_map_returns_grid_and_cells():
+    with tempfile.TemporaryDirectory() as tmp:
+        _world(tmp)
+
+        def body(client):
+            data = client.get("/api/map?level=TestWorld").json()
+            check("api reports the level", data["level"] == "TestWorld")
+            check("api reports grid dims (10x10)", (data["cols"], data["rows"]) == (10, 10))
+            check("api reports cell_size", data["cell_size"] == 400.0)
+            check("api returns both place cells", len(data["cells"]) == 2)
+            check("api counts named + swept", data["counts"]["named"] == 1 and data["counts"]["swept"] == 1)
+        _with_worlds(tmp, body)
+
+
+def test_api_map_missing_db_is_empty_not_error():
+    with tempfile.TemporaryDirectory() as tmp:
+        level = "Barren"
+        (Path(tmp) / level / "agents").mkdir(parents=True)
+        (Path(tmp) / level / "world_grid.json").write_text(json.dumps({
+            "cell_size": 400.0,
+            "bounds": {"min_x": 0, "min_y": 0, "max_x": 799, "max_y": 799},
+        }), encoding="utf-8")
+
+        def body(client):
+            data = client.get("/api/map?level=Barren").json()
+            check("missing DB -> empty cells, no error", data["cells"] == [])
+            check("no DB file was created by a GET", not (Path(tmp) / level / "world_places.db").exists())
+        _with_worlds(tmp, body)
+
+
+def test_map_page_renders_with_legend_and_polls_api():
+    with tempfile.TemporaryDirectory() as tmp:
+        _world(tmp)
+
+        def body(client):
+            text = client.get("/map?level=TestWorld").text
+            check("map page names the world", "TestWorld" in text)
+            check("map page has a legend for named/swept/unexplored",
+                  "named" in text.lower() and "swept" in text.lower() and "unexplored" in text.lower())
+            check("map page fetches /api/map to build out live", "/api/map" in text)
+        _with_worlds(tmp, body)
+
+
+def main():
+    test_map_cells_reports_named_swept_and_landmarks()
+    test_api_map_returns_grid_and_cells()
+    test_api_map_missing_db_is_empty_not_error()
+    test_map_page_renders_with_legend_and_polls_api()
+    print("\nAll map-view checks passed.")
+
+
+if __name__ == "__main__":
+    main()

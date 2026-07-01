@@ -217,6 +217,43 @@ class PlaceDB:
             ).fetchall()
         return [{"name": r["name"], "col": r["col"], "row": r["row"]} for r in rows]
 
+    def map_cells(self) -> list[dict]:
+        """Every place cell (named and/or swept) with its landmark count — the map view.
+
+        One dict per row in place_cells that has a name or a sweep::
+
+            {col, row, name, named_by, named_at, swept_at, swept_by, landmarks, state}
+
+        ``state`` is ``"named"`` if the cell has a name, else ``"swept"``.
+        ``landmarks`` counts distinct compass observations at/above the confidence
+        floor. Cells with only agent visits (no name, no sweep) are excluded — a
+        bare visit doesn't make a place cell. Ordered by (col, row). This is what
+        the web map view renders so you can watch the world get built out.
+        """
+        with self._connect() as conn:
+            cells = conn.execute(
+                "SELECT col, row, name, named_by, named_at, swept_at, swept_by "
+                "FROM place_cells "
+                "WHERE name IS NOT NULL OR swept_at IS NOT NULL "
+                "ORDER BY col, row"
+            ).fetchall()
+            counts = conn.execute(
+                "SELECT col, row, COUNT(*) AS n FROM place_observations "
+                "WHERE confidence >= ? GROUP BY col, row",
+                (_CONFIDENCE_FLOOR,),
+            ).fetchall()
+        landmark_count = {(c["col"], c["row"]): c["n"] for c in counts}
+        return [
+            {
+                "col": r["col"], "row": r["row"],
+                "name": r["name"], "named_by": r["named_by"], "named_at": r["named_at"],
+                "swept_at": r["swept_at"], "swept_by": r["swept_by"],
+                "landmarks": landmark_count.get((r["col"], r["row"]), 0),
+                "state": "named" if r["name"] else "swept",
+            }
+            for r in cells
+        ]
+
     def is_explored(self, col: int, row: int) -> bool:
         """True if this grid cell already has a place cell (named or swept).
 

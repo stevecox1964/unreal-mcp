@@ -13,6 +13,8 @@ from fastapi.templating import Jinja2Templates
 from agent_runtime.config_store import read_config, write_config, is_secret
 from agent_runtime import provider_profiles
 from agent_runtime.runner_client import RunnerClient, DEFAULT_BASE_URL
+from agent_runtime.place_db import PlaceDB
+from agent_runtime.world_grid import WorldGrid
 from web_ui import unreal_client
 
 BASE_DIR = Path(__file__).parent
@@ -100,6 +102,46 @@ def save_agent(level: str, agent_id: str, form: dict) -> None:
         mem_path.write_text(json.dumps({"agent_id": agent_id, "memories": []}, indent=2), encoding="utf-8")
 
 
+def _resolve_level(level: str = None) -> str | None:
+    """Pick the world to show: an explicit ?level=, else the first world dir."""
+    if level:
+        return level
+    worlds = list_worlds()
+    return worlds[0] if worlds else None
+
+
+def build_map(level: str) -> dict:
+    """Assemble the map view for a world from its grid file + shared PlaceDB.
+
+    Reads ``worlds/<level>/world_grid.json`` (dims) and ``world_places.db``
+    (named/swept cells). Never creates the DB — a missing DB yields an empty
+    map, so a GET can't spawn a blank world. Shape::
+
+        {level, cell_size, has_bounds, cols, rows, cells: [...],
+         counts: {named, swept, total_cells}}
+    """
+    grid = WorldGrid.load(WORLDS_DIR / level / "world_grid.json")
+    cols = rows = None
+    if grid.has_bounds:
+        probe = grid.locate(grid.bounds["min_x"], grid.bounds["min_y"])
+        cols, rows = probe["cols"], probe["rows"]
+
+    db_path = WORLDS_DIR / level / "world_places.db"
+    cells = PlaceDB(db_path).map_cells() if db_path.exists() else []
+    named = sum(1 for c in cells if c["state"] == "named")
+    swept = sum(1 for c in cells if c["state"] == "swept")
+    return {
+        "level": level,
+        "cell_size": grid.cell_size,
+        "has_bounds": grid.has_bounds,
+        "cols": cols,
+        "rows": rows,
+        "cells": cells,
+        "counts": {"named": named, "swept": swept,
+                   "total_cells": (cols or 0) * (rows or 0)},
+    }
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -112,6 +154,30 @@ async def index(request: Request):
         "current_level": unreal_client.get_current_level(),
     })
 
+
+
+@app.get("/map", response_class=HTMLResponse)
+async def map_page(request: Request, level: str = None):
+    """Live map view — watch the grid + place cells get built out."""
+    worlds = list_worlds()
+    level = _resolve_level(level)
+    data = build_map(level) if level else None
+    return templates.TemplateResponse(request, "map.html", {
+        "request": request,
+        "worlds": worlds,
+        "level": level,
+        "map": data,
+    })
+
+
+@app.get("/api/map")
+async def api_map(level: str = None):
+    """JSON grid state for the map view; polled by the page to animate build-out."""
+    level = _resolve_level(level)
+    if not level:
+        return JSONResponse({"level": None, "cols": None, "rows": None,
+                             "cells": [], "counts": {"named": 0, "swept": 0, "total_cells": 0}})
+    return JSONResponse(build_map(level))
 
 
 @app.get("/worlds/{level}/agents/new", response_class=HTMLResponse)
