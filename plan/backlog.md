@@ -91,6 +91,16 @@ grooming: 2026-06-26.
 > recording *by name* (the two NPCs never came within range), and the #7 maintenance APC (no
 > `role:"maintenance"` agent configured). System is healthy for multi-day running.
 
+> **⚑ Architect pass (2026-07-01, afternoon — Fable):** the stalled items are now **spec'd for executor
+> sessions** (Opus/Sonnet grunt work) under **`plan/specs/`** — every design call made, exact files/
+> functions/tests named, gates marked. Read `plan/specs/README.md` first (executor contract). Queue:
+> **WP1** (render acquaintances/known_places/recent_episodes into the decision prompt — an architect
+> *finding*: all three are computed each tick in `_perceive_and_decide` but never rendered into
+> `_USER_TEMPLATE_VISION`, so #5 social recall and the #6 map query are invisible to the LLM), **WP2**
+> (#10.5 balanced-gate prompt edits, offline slice), **WP3** (A4/#11.1 sweep-as-capability refactor).
+> **Gated (user approval before build):** **WP4** (A5/#11.2 owned places — minimal slice defined),
+> **WP5** (#6b top-down map — design answers ready for sign-off). WP1–WP3 are loop-safe and hands-off.
+
 ## ▶▶ Staged plan (2026-07-01) — direction reset: wind down grid/place, then observability
 
 Two ordered queues. **A** is what I grind hands-off while you're gone (loop-safe, commit-per-green, no
@@ -121,8 +131,20 @@ together when you're back. Detail for each lives in the thematic sections below 
 - [ ] **A4 · Collapse the maintenance-role gating (#11.1 logic).** Refactor so the sweep is a capability
       any APC invokes; remove the `role:"maintenance"` branch/`_pulse_maintenance`. Offline-test the
       enter-cell → central-missing → sweep decision as a pure step. (Live verify is B-side.)
+      **Spec: `plan/specs/WP3-sweep-capability.md`** (2026-07-01 — trigger = schedule status act/idle in
+      an unexplored cell, never mid-travel; start in `_act_agent`, continue pre-LLM; role plumbing deleted).
 - [ ] **A5 · APC-owned place cells schema (#11.2).** PlaceDB schema/ownership change for multiple
       APC-owned cells per grid cell + tests. Larger; after A1–A4.
+      **Spec: `plan/specs/WP4-owned-places.md` — GATED, needs your approval** (minimal slice: owned table
+      + resolver fallback + organic write path; note: today a second name in an already-named cell is
+      silently dropped, so "My Home" is being lost).
+- [ ] **A6 · Render recall context into the decision prompt (architect finding, 2026-07-01).**
+      `acquaintances` / `known_places` / `recent_episodes` are attached to the observation each tick but
+      never rendered in `_USER_TEMPLATE_VISION` — social recall (#5) and the map query (#6) are invisible
+      to the LLM. Loop-safe. **Spec: `plan/specs/WP1-recall-context.md`.** Prerequisite for A7.
+- [ ] **A7 · #10.5 balanced-gate prompt edits (offline slice).** The exact template/`_schedule_note`
+      wording implementing the BALANCED decision, contract-pinned by string tests; live tune stays B3.
+      Loop-safe, after A6. **Spec: `plan/specs/WP2-reaction-gate.md`.**
 
 ### B — Work together (blocked on you: editor / PIE / live / design)
 
@@ -296,7 +318,9 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
           + `_schedule_note`, raise the scheduled destination's weight above the "greet whoever you see"
           reaction, then verify Dufus reaches the village square instead of diverting to every passer-by.
           Also: navmesh wedging (`stuck on an obstacle`) persists as a separate live robustness issue —
-          agent recovers but it stalls progress.
+          agent recovers but it stalls progress. **Spec for the offline slice:
+          `plan/specs/WP2-reaction-gate.md`** (A7; depends on A6/WP1 — the prompt must show "People You
+          Know" before "only a known friend interrupts" can bind).
 
 11. **Grid-cell place-cell model — central community cell + APC-owned cells + staleness.**
     *(user, 2026-07-01 — a design-reconciliation pass. "I think we have all of this in the design but make
@@ -324,6 +348,7 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
           interrupt — reuses the balanced reaction gate from #10.5: initialize-if-needed wins, then resume).
           The `cell_sweep.py` state machine + `mark_swept` mechanics are reused as-is. *Live/PIE verify: a
           personality APC actually detours + sweeps a fresh cell it wants to use.*
+          **Spec: `plan/specs/WP3-sweep-capability.md`** (A4).
     - [ ] **11.2 Multiple APC-owned place cells per grid cell (schema gap).** The schema allows only **one**
           place cell per `(col,row)` (it's the PK). The model wants a **central community cell** *plus*
           several **APC-owned** place cells in the same grid cell (owned by an APC, readable/reusable by
@@ -341,6 +366,8 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
             **XY offset + 3m extent + owner + reusable flag**, distinct from the central community cell.
           *(User flagged this may be more than we need yet — capture the model, sequence after A1–A3 /
           the #6b APC map. Grid-first nav is the load-bearing idea.)*
+          **Spec: `plan/specs/WP4-owned-places.md` — GATED on your approval** (minimal slice defined:
+          schema + resolver fallback + write path; multi-leg routing deferred to #6b).
     - [~] **11.3 Staleness / TTL re-observation. — SHELVED (user, 2026-07-01: "maybe we don't need this
           now"). Keep in backlog, don't build the re-observation path yet.** *Signal already built (A2,
           2026-07-01):* `PlaceDB.is_stale` + `updated_at` (real UTC) + a `stale` flag on the map; basis =
@@ -695,6 +722,9 @@ never prescriptive advice).
 *(Design questions for later — do not implement yet: is the "map" a semantic structure the LLM reads, or
 a rendered image? how far around the APC does it extend — just the corridor between here↔there, or a
 radius? shared with the web A1 view or separate?)*
+
+**Design answers ready for sign-off: `plan/specs/WP5-apc-topdown-map.md`** (rec: semantic text map,
+corridor+1 pad capped 15×15, separate renderer over shared PlaceDB; still DO NOT BUILD until approved).
 
 ---
 
