@@ -164,15 +164,28 @@ Ordered for a joint session:
    *Editor + mesh choice.* — you named this as a next thing; detail in **"▶ Next up"** below.
 2. **B2 · Live grid/place debug in PIE** — run the sim and watch cells build out on the **A1 map view**;
    confirm reuse + A2 staleness behave. Pairs with A1/A2 to *finish* the grid/place design.
-3. **B3 · #10.5 balanced-gate live tune** — the PIE prompt-weighting change + verify Dufus reaches the
-   village square instead of diverting to every passer-by.
+3. ~~**B3 · #10.5 balanced-gate live tune**~~ — **VERIFIED LIVE ✓ 2026-07-01 eve** (two PIE runs).
+   Run 1 exposed the failure precisely: the travel intent led with the activity ("It's time to greet
+   passers-by — head to...") so Dufus greeted strangers en route and stalled at the gas station. Fixed
+   destination-first (`2f2aece`); run 2: the gate held **every tick** — "I see two unknown people ahead...
+   but I gotta keep heading", "my routine says to head straight". Maren stayed at her post both runs.
+   *(Friend-interrupt path still untested — the two NPCs haven't met.)*
 4. **B4 · Restart-from-morning live verify** — drive the A3 reset button against PIE.
 5. **B5 · `observe_heading`** — **built offline 2026-07-01, NO C++/rebuild needed** (composed from
    `set_facing` + `capture_view` + perceive + `ingest_compass` — the wake look-around's own primitives).
    What's left of B5 is just the **PIE verify**: watch a sweep turn through 8 headings and landmarks
    appear on `/map` — folds into B2.
 6. **B6 · Merge `auto-loop/backlog` → `main`** + push decision.
-7. **Carryover:** settings-page UX polish, providers end-to-end spot check, navmesh `stuck` robustness.
+7. **B7 · Dufus crashes into people (pawn collision during walk_to).** *(user, 2026-07-01 eve — observed
+   live; one `walk_to` returned `error` as he passed the sidewalk person.)* He routes *through* pawns
+   instead of around them. Candidate fixes, decide when we work it:
+   (a) **engine crowd avoidance** — enable RVO on `BP_CameraNPC`'s CharacterMovement (one editor checkbox,
+   inherited by everyone) or a DetourCrowd AI controller — pawn-vs-pawn steering is locomotion competence,
+   arguably lizard-brain-legal per [[architecture_lizard_brain_sensing]];
+   (b) **acceptance radius** on the bridge's MoveTo so approaches stop ~1m short;
+   (c) **cognitive** — the `blocker` sense already reports "person N cm ahead"; let the LLM sidestep.
+   Rec: (a)+(b) together — steering is not a decision, it's gait. *Editor.*
+8. **Carryover:** settings-page UX polish, providers end-to-end spot check, navmesh `stuck` robustness.
 
 ---
 
@@ -319,7 +332,8 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
           and persists `last_activity`. **Live result:** full in-character daily schedule generated +
           persisted to `runtime.json`; wake resolved `'village square' -> cell center` and issued a real
           `move_to` (goal-directed navigation, previously impossible). Suite 24/24.
-    - [ ] **10.5 Reaction-gate weighting (tuning)** — decide-phase reactivity still tends to override the
+    - [x] **10.5 Reaction-gate weighting (tuning)** — **DONE + VERIFIED LIVE ✓ 2026-07-01** (WP2 offline
+          slice + destination-first travel-intent fix `2f2aece`; see B3 above for the two-run story) — decide-phase reactivity still tends to override the
           scheduled destination (agent greets every passer-by instead of pressing on). Bias the prompt so
           the routine destination wins unless a genuinely salient event interrupts (Master Plan §14 reaction
           gate). **Decision (user, 2026-07-01): BALANCED GATE** — the routine destination wins by default;
