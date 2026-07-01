@@ -29,7 +29,14 @@ grooming: 2026-06-26.
 > autonomous queue** (I grind these hands-off, commit-per-green, no push) and a **"work together" queue**
 > (blocked on you — editor/PIE/design), ordered so we can knock them out together when you're back.
 > Baseline restored to **24/24** (fixed a Starlette-1.0 `TemplateResponse` breakage from the Python-3.14
-> env upgrade).
+> env upgrade). **Then ground the loop-safe queue: A1, A2, A3 all landed** (commit-per-green, unpushed) —
+> **A1** web map view (`/map` + `/api/map`, watch cells build out live), **A2** staleness (`is_stale` +
+> `updated_at`, real-wall-clock basis, stale cells flagged on the map), **A3** restart-from-morning
+> (`restart_day()` + `☀ Restart day` cockpit button, keeps memories/places). Suite **26/26**.
+> **Stopped there:** A4 (collapse the maintenance-role routing) + A5 (owned-cells schema) are live-path
+> refactors with open design calls — held for a joint session. **Two decisions needed from you:** (i) #11.3
+> re-observe **eager on entry vs. lazy** when a cell is stale; (ii) #11.2 what defines an **APC-owned place
+> cell** (rec: a named spot with a world position inside the cell; central = the unnamed 360 breadcrumb).
 >
 > **⚑ Status (2026-06-28, late — Claude-driven, PUSHED):** built **MASTER_PLAN Milestone 1 — the
 > daily-schedule planner + sequencer** (`planner.py`, #10.1–10.4) and **wired it into the live tick**,
