@@ -90,17 +90,11 @@ class Agent:
 
     @property
     def role(self) -> str:
-        """Agent role: "npc" (personality-driven, default) or "maintenance".
-
-        A maintenance/monitor APC is a system worker — no personality and no LLM
-        decisions. Its job is keeping the world map current (sweeping unexplored
-        grid cells and dropping community breadcrumbs) for the personality APCs.
+        """Agent role from state.json, default "npc". No role changes behavior
+        today — the old dedicated-maintenance role was retired (#11.1): the
+        cell sweep is a capability any APC invokes when it needs one.
         """
         return self.state.get("role", "npc")
-
-    @property
-    def is_maintenance(self) -> bool:
-        return self.role == "maintenance"
 
     @property
     def is_active(self) -> bool:

@@ -128,11 +128,16 @@ together when you're back. Detail for each lives in the thematic sections below 
       web `POST /api/sim/reset_day` → a **☀ Restart day** cockpit button (with a confirm). Transport tested
       offline (`test_runner_api.py`, `test_sim_controller.py`) + `WorldClock.reset()` unit test
       (`test_world_clock.py`). Suite 26/26. *(Live drive = B4.)*
-- [ ] **A4 · Collapse the maintenance-role gating (#11.1 logic).** Refactor so the sweep is a capability
-      any APC invokes; remove the `role:"maintenance"` branch/`_pulse_maintenance`. Offline-test the
-      enter-cell → central-missing → sweep decision as a pure step. (Live verify is B-side.)
-      **Spec: `plan/specs/WP3-sweep-capability.md`** (2026-07-01 — trigger = schedule status act/idle in
-      an unexplored cell, never mid-travel; start in `_act_agent`, continue pre-LLM; role plumbing deleted).
+- [x] **A4 · Collapse the maintenance-role gating (#11.1 logic).** ✓ 2026-07-01 (WP3 built) — sweep is
+      now a capability any APC invokes: `_should_sweep_here` (schedule status act/idle in an unexplored
+      cell — **never mid-travel**) starts the sweep in `_act_agent` (first step replaces that tick's LLM
+      action); agents mid-sweep skip perceive/decide and continue LLM-free via `_pulse_sweep` until
+      `mark_swept` drops the breadcrumb, then the sequencer resumes the routine. Deleted:
+      `_pulse_maintenance`, `_maintenance_tick_action`, `_nearest_unexplored_target` (proactive hunting
+      retired with the role), `Agent.is_maintenance` (+ the tick/pulse role branches). `Agent.role` field
+      stays (inert). Tests: `test_cell_sweep.py` rewritten to the capability model. Suite 28/28.
+      Spec: `plan/specs/WP3-sweep-capability.md`. *(Live verify = B-side: a personality APC detours +
+      sweeps in PIE.)*
 - [x] **A5 · APC-owned place cells schema (#11.2) — minimal slice.** ✓ 2026-07-01 (**user approved WP4**,
       built same session) — `owned_place_cells` table (named ~3m box, XY offset from the community anchor,
       PK `(col,row,owner,name)`); `PlaceDB.add_owned_place`/`find_owned_place` (exact>substring,
@@ -141,13 +146,15 @@ together when you're back. Detail for each lives in the thematic sections below 
       owned place instead of dropping it ("My Home" inside "village square" is no longer lost). Test:
       `test_owned_places.py`. Suite 27/27. Spec: `plan/specs/WP4-owned-places.md`. *Deferred per spec D5:
       prompt/known_places surfacing, /map display, extent geometry, multi-leg grid→grid routing (#6b).*
-- [ ] **A6 · Render recall context into the decision prompt (architect finding, 2026-07-01).**
-      `acquaintances` / `known_places` / `recent_episodes` are attached to the observation each tick but
-      never rendered in `_USER_TEMPLATE_VISION` — social recall (#5) and the map query (#6) are invisible
-      to the LLM. Loop-safe. **Spec: `plan/specs/WP1-recall-context.md`.** Prerequisite for A7.
-- [ ] **A7 · #10.5 balanced-gate prompt edits (offline slice).** The exact template/`_schedule_note`
-      wording implementing the BALANCED decision, contract-pinned by string tests; live tune stays B3.
-      Loop-safe, after A6. **Spec: `plan/specs/WP2-reaction-gate.md`.**
+- [x] **A6 · Render recall context into the decision prompt.** ✓ 2026-07-01 (WP1 built) — new prompt
+      sections **People You Know / Places You Know / Relevant Past Moments** rendered from
+      `acquaintances`/`known_places`/`recent_episodes` (previously computed every tick but never shown to
+      the LLM — social recall #5 and the map query #6 were invisible). Renderers are pure + tested
+      (`test_prompt_context.py`). Spec: `plan/specs/WP1-recall-context.md`.
+- [x] **A7 · #10.5 balanced-gate prompt edits (offline slice).** ✓ 2026-07-01 (WP2 built) — "What Wins
+      Right Now" block (routine wins; only a known person / being spoken to interrupts; resume after),
+      exploration gated on an empty schedule, travel directive stated as the priority. Contract-pinned by
+      string tests; **live tune + verify stays B3.** Spec: `plan/specs/WP2-reaction-gate.md`.
 
 ### B — Work together (blocked on you: editor / PIE / live / design)
 
@@ -343,7 +350,8 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
           `cell_sweep.py` does GOTO_CENTER → observe 8 compass headings → `PlaceDB.mark_swept` (the
           `swept_at` community breadcrumb); landmarks land in `place_observations`. Reuse via
           `is_explored`/`get_swept`/`explored_cells` (#1, #7). **This is the central-cell design already.**
-    - [ ] **11.1 Any-APC self-initialization (behavior gap + role retirement).** **Decided (2026-07-01):
+    - [x] **11.1 Any-APC self-initialization (behavior gap + role retirement).** ✓ 2026-07-01 offline
+          half (WP3/A4 — see A-queue above); live PIE verify still pending (B-side). **Decided (2026-07-01):
           no dedicated maintenance role** — collapse the `role:"maintenance"` gating (`_pulse_maintenance`
           + the role branches in `pulse_agent`/`tick`) so the sweep is a **capability any APC invokes**, not
           a role. Behavior: an APC that enters a grid cell with no central place cell **it needs now**

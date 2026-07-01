@@ -176,11 +176,12 @@ that only exercised deleted functions) and add coverage:
 
 ## Acceptance
 
-- [ ] `python scripts/run_tests.py` green.
-- [ ] `grep -rn "is_maintenance\|_pulse_maintenance\|_maintenance_tick_action\|_nearest_unexplored_target" Python/` → no hits.
-- [ ] `plan/backlog.md`: check A4 + #11.1's offline half; note live verify stays
+- [x] `python scripts/run_tests.py` green. (28/28.)
+- [x] `grep -rn "is_maintenance\|_pulse_maintenance\|_maintenance_tick_action\|_nearest_unexplored_target" Python/`
+      → only the negative test assertion (`test_cell_sweep.py` checks the property is gone).
+- [x] `plan/backlog.md`: check A4 + #11.1's offline half; note live verify stays
       B-side.
-- [ ] Changes confined to `agent_manager.py`, `agent.py`, tests, backlog.
+- [x] Changes confined to `agent_manager.py`, `agent.py`, tests, backlog.
 
 ## Deliberately out of scope
 
@@ -191,4 +192,8 @@ that only exercised deleted functions) and add coverage:
 
 ## Executor notes
 
-*(append findings/deviations here)*
+- **Built 2026-07-01 by the architect session.** As specced (D1–D5), one addition beyond the letter of
+  the spec: stub agents in `test_pacing_and_reset.py`/`test_world_grid.py` carried a dead
+  `is_maintenance = False` attribute — removed. `test_cell_sweep.py`'s role/dispatch sections rewritten
+  to the capability model (gate, act-phase start, LLM-free continuation, travel-does-not-sweep,
+  tick routing).

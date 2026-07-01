@@ -121,12 +121,13 @@ New `Python/scripts/agent_runtime/test_prompt_context.py`, copying the
 
 ## Acceptance
 
-- [ ] `python scripts/run_tests.py` green (existing suite + the new file).
-- [ ] `grep -rn "acquaintance_lines" Python/agent_runtime/llm_router.py` shows the
+- [x] `python scripts/run_tests.py` green (existing suite + the new file).
+- [x] `grep -rn "acquaintance_lines" Python/agent_runtime/llm_router.py` shows the
       renderer, the template placeholder, and the format kwarg (same for the
       other two).
-- [ ] No changes outside `llm_router.py` + the new test file.
+- [x] No changes outside `llm_router.py` + the new test file.
 
 ## Executor notes
 
-*(append findings/deviations here)*
+- **Built 2026-07-01 by the architect session** (user: "chip away"). As specced, no deviations.
+  Commit `dd13951`.

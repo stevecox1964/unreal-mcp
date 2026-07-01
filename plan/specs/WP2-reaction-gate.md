@@ -103,9 +103,9 @@ works — that is B3 (live PIE). Say so in the commit message.
 
 ## Acceptance
 
-- [ ] `python scripts/run_tests.py` green.
-- [ ] Only `llm_router.py` + the test file changed.
-- [ ] `plan/backlog.md` #10.5: check the offline slice, leave the live-tune line
+- [x] `python scripts/run_tests.py` green.
+- [x] Only `llm_router.py` + the test file changed.
+- [x] `plan/backlog.md` #10.5: check the offline slice, leave the live-tune line
       open, pointing at B3.
 
 ## Deliberately out of scope
@@ -119,4 +119,5 @@ works — that is B3 (live PIE). Say so in the commit message.
 
 ## Executor notes
 
-*(append findings/deviations here)*
+- **Built 2026-07-01 by the architect session.** As specced, no deviations. Commit `c494461`.
+  Live tune/verify remains B3.

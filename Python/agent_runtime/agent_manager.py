@@ -687,15 +687,16 @@ class AgentManager:
             a for a in self.agents.values()
             if a.is_active and not a.is_busy and a.cooldown_expired()
         ]
-        # Maintenance APCs run a deterministic, bridge-only, no-LLM tick — keep
-        # them out of the perceive/decide phases (they have no personality).
-        maintenance = [a for a in ready if a.is_maintenance]
-        ready = [a for a in ready if not a.is_maintenance]
+        # Agents mid-sweep (#11.1) run a deterministic, bridge-only, no-LLM step —
+        # keep them out of the perceive/decide phases until the sweep finishes.
+        sweeping = [a for a in ready if a.agent_id in self._cell_sweeps]
+        ready = [a for a in ready if a.agent_id not in self._cell_sweeps]
 
         results = []
-        # Maintenance phase (sequential — single bridge socket, like the others).
-        for agent in maintenance:
-            results.append(self._pulse_maintenance(agent))
+        # Sweep phase (sequential — single bridge socket, like the others).
+        for agent in sweeping:
+            self._set_activity(agent, "sweeping")
+            results.append(self._pulse_sweep(agent))
 
         # Phase 1: observe (sequential, bridge)
         observations: dict[str, dict | None] = {}
@@ -719,7 +720,7 @@ class AgentManager:
             for agent, result in zip(llm_needed, results_raw):
                 decisions[agent.agent_id] = result
 
-        # Phase 3: act (sequential, bridge) — appends to the maintenance results.
+        # Phase 3: act (sequential, bridge) — appends to the sweep results.
         for agent in ready:
             obs = observations.get(agent.agent_id)
             decision = decisions.get(agent.agent_id)
@@ -732,8 +733,8 @@ class AgentManager:
         agent = self.agents.get(agent_id)
         if not agent:
             return {"error": f"Agent '{agent_id}' not loaded"}
-        if agent.is_maintenance:
-            return self._pulse_maintenance(agent)
+        if agent.agent_id in self._cell_sweeps:
+            return self._pulse_sweep(agent)
         if self.mode == "explore":
             return self._pulse_explore(agent)
         obs = self._observe_agent(agent)
@@ -968,6 +969,15 @@ class AgentManager:
             self._pie_activity(agent_id, "OBS fire -> invalid decision (idle)")
             return {"agent_id": agent_id, "action": "idle", "reason": "validation_failed"}
 
+        # Sweep interrupt (#11.1): an APC staying in an unexplored cell maps it
+        # before acting — the sweep's first step replaces this tick's LLM action;
+        # the following steps run LLM-free via _pulse_sweep until the breadcrumb
+        # drops, then the sequencer resumes the routine.
+        if self._should_sweep_here(observation):
+            sweep_action = self._sweep_step(agent_id, observation, start=True)
+            if sweep_action is not None:
+                action = sweep_action
+
         result = self._execute_world_action(agent, action, observation)
         status = result.get("status") or result.get("success")
         self._pie_activity(agent_id, f"OBS fire -> {action.get('type')} [{status}]")
@@ -1140,17 +1150,19 @@ class AgentManager:
         if changed:
             social.save(self._agents_dir / agent_id / "social.json")
 
-    def _maintenance_sweep(self, agent_id: str, observation: dict) -> dict | None:
-        """The maintenance APC's behavior: sweep the current cell if unexplored.
+    def _sweep_step(self, agent_id: str, observation: dict, start: bool = True) -> dict | None:
+        """One step of the shared sweep capability (#11.1).
 
-        A maintenance/monitor APC is a system worker — no personality, no LLM. In
-        a grid cell that has no place cell yet it walks to the cell center,
-        observes each compass heading, then drops a community breadcrumb
-        (``PlaceDB.mark_swept``) so the personality APCs skip the costly 360.
-        Returns the next sweep action, or None when there is nothing to do (cell
-        already explored, no PlaceDB / bounds / grid, or the sweep just finished).
-        The returned action carries ``_maintenance`` so the tick runs it directly
-        without the LLM or `validate`.
+        Any APC that needs an unexplored cell walks to the cell center, observes
+        each compass heading, then drops the community breadcrumb
+        (``PlaceDB.mark_swept``) so every other APC skips the costly 360.
+
+        With ``start=True`` a new sweep may begin when the current cell is
+        genuinely unexplored; with ``start=False`` only an already-active sweep
+        continues. Returns the next sweep sub-action, or None when there is
+        nothing to do (nothing active/startable, missing PlaceDB / bounds /
+        grid, or the sweep just finished). The returned action carries
+        ``_sweep_interrupt`` so callers can see the tick was spent sweeping.
         """
         col, row = self._cell_col_row(observation.get("grid"))
         if col is None:
@@ -1161,7 +1173,9 @@ class AgentManager:
 
         active = self._cell_sweeps.get(agent_id)
         if active is None:
-            # Only start a sweep on entering a genuinely unexplored cell.
+            if not start:
+                return None
+            # Only start a sweep on a genuinely unexplored cell.
             if self.place_db is None or self.place_db.is_explored(col, row):
                 return None
             sweep = cell_sweep.default_sweep(self.world_grid, col, row, z=xyz[2])
@@ -1169,61 +1183,31 @@ class AgentManager:
                 return None
             active = {"sweep": sweep, "col": col, "row": row}
             self._cell_sweeps[agent_id] = active
-            logger.info(f"[{agent_id}] maintenance: unexplored cell ({col},{row}) — sweeping")
+            logger.info(f"[{agent_id}] sweep: unexplored cell ({col},{row}) — sweeping")
 
         action = active["sweep"].next_action((xyz[0], xyz[1]))
         if action.get("type") == "sweep_done":
             self.place_db.mark_swept(agent_id, active["col"], active["row"],
                                      observation.get("world_time", self.world_clock.now_text()))
             self._cell_sweeps.pop(agent_id, None)
-            logger.info(f"[{agent_id}] maintenance: swept ({active['col']},{active['row']}) — breadcrumb dropped")
+            logger.info(f"[{agent_id}] sweep: swept ({active['col']},{active['row']}) — breadcrumb dropped")
             return None
-        action["_maintenance"] = "sweep"
+        action["_sweep_interrupt"] = True
         return action
 
-    def _nearest_unexplored_target(self, observation: dict) -> list[float] | None:
-        """Walk target ``[x,y,z]`` toward the nearest unexplored grid cell, or None.
-
-        Scans the bounded grid once against PlaceDB's explored set and returns the
-        center of the closest cell with no place cell yet — the maintenance APC's
-        next job once its current cell is mapped. None when the grid is unbounded
-        or the whole map is explored.
+    def _should_sweep_here(self, observation: dict) -> bool:
+        """True when this agent needs its current cell mapped right now (#11.1):
+        it is staying here (schedule status act/idle — not passing through mid-
+        travel), the cell is unexplored, and there is a PlaceDB + bounded grid.
+        A missing/degraded schedule never triggers a detour.
         """
-        if self.place_db is None:
-            return None
-        xyz = _loc_xyz(observation.get("location"))
-        if xyz is None:
-            return None
-        probe = self.world_grid.locate(xyz[0], xyz[1])
-        if "cols" not in probe:           # unbounded grid — no fixed cell index space
-            return None
-        explored = self.place_db.explored_cells()
-        best: list[float] | None = None
-        best_d: float | None = None
-        for c in range(probe["cols"]):
-            for r in range(probe["rows"]):
-                if (c, r) in explored:
-                    continue
-                center = self.world_grid.cell_center(c, r)
-                if center is None:
-                    continue
-                d = math.hypot(center[0] - xyz[0], center[1] - xyz[1])
-                if best_d is None or d < best_d:
-                    best_d, best = d, [center[0], center[1], xyz[2]]
-        return best
-
-    def _maintenance_tick_action(self, agent_id: str, observation: dict) -> dict | None:
-        """The maintenance APC's whole tick: sweep here, else head to the nearest
-        unexplored cell. Returns the next action, or None when the map is fully
-        explored (nothing left to maintain).
-        """
-        action = self._maintenance_sweep(agent_id, observation)
-        if action is not None:
-            return action
-        target = self._nearest_unexplored_target(observation)
-        if target is not None:
-            return {"type": "walk_to", "location": target, "_maintenance": "goto_unexplored"}
-        return None
+        sched = observation.get("schedule")
+        if not sched or sched.get("status") not in ("act", "idle"):
+            return False
+        col, row = self._cell_col_row(observation.get("grid"))
+        if col is None or self.place_db is None:
+            return False
+        return not self.place_db.is_explored(col, row)
 
     def _episodic(self, agent_id: str) -> EpisodicLog:
         """Load (and cache) this agent's append-only episodic event log."""
@@ -1376,13 +1360,14 @@ class AgentManager:
 
         return self.bridge.execute_action(agent.bound_unreal_actor_name, action)
 
-    def _pulse_maintenance(self, agent: Agent) -> dict:
-        """One tick for a maintenance/monitor APC — no perception LLM, no personality.
+    def _pulse_sweep(self, agent: Agent) -> dict:
+        """One tick for an agent mid-sweep — deterministic, no perception LLM.
 
-        Builds a minimal observation (position + grid; no vision diff gate, which
-        a deterministic worker doesn't need), then runs the composed maintenance
-        action: sweep the current cell or head to the nearest unexplored one.
-        Idles when the whole map is mapped.
+        Builds a minimal observation (position + grid; no vision diff gate,
+        which a deterministic step doesn't need), then continues the active
+        sweep. When the sweep just finished (breadcrumb dropped), reports it
+        and lets the next tick resume the normal perceive/decide path — the
+        #10 sequencer directive re-issues the routine on its own.
         """
         agent_id = agent.agent_id
         observation = self.bridge.get_observation(
@@ -1393,16 +1378,15 @@ class AgentManager:
         observation["place"] = place
         observation["world_time"] = self.world_clock.now_text()
 
-        action = self._maintenance_tick_action(agent_id, observation)
+        action = self._sweep_step(agent_id, observation, start=False)
         if action is None:
             agent.mark_ticked(self._agents_dir)
-            return {"agent_id": agent_id, "action": "idle", "reason": "map_fully_explored",
-                    "grid": grid}
+            return {"agent_id": agent_id, "action": "sweep_done", "grid": grid, "sweep": True}
 
         result = self._execute_world_action(agent, action, observation)
         agent.mark_ticked(self._agents_dir)
         return {"agent_id": agent_id, "action": action, "result": result,
-                "grid": grid, "maintenance": action.get("_maintenance")}
+                "grid": grid, "sweep": True}
 
     def _pulse_explore(self, agent: Agent) -> dict:
         """One exploration tick: see → perceive → map → pick frontier → walk.
