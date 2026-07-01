@@ -20,6 +20,7 @@ from agent_runtime.llm_router import (             # noqa: E402
     _acquaintance_lines,
     _episode_lines,
     _known_place_lines,
+    _schedule_note,
 )
 
 
@@ -91,11 +92,47 @@ def test_template_contract():
           'A CHARACTER sighting matching\na name under "People You Know"' in _USER_TEMPLATE_VISION)
 
 
+def test_reaction_gate_template():
+    """WP2 (#10.5 BALANCED gate): routine wins; only a known person or being
+    spoken to interrupts; exploration only when nothing is scheduled."""
+    check("priorities block present", "## What Wins Right Now" in _USER_TEMPLATE_VISION)
+    check("strangers do not interrupt", "Do NOT stop for\nstrangers" in _USER_TEMPLATE_VISION
+          or "Do NOT stop for strangers" in _USER_TEMPLATE_VISION.replace("\n", " "))
+    check("unconditional greeting pull removed",
+          "consider greeting or\napproaching them" not in _USER_TEMPLATE_VISION
+          and "consider greeting or approaching them" not in _USER_TEMPLATE_VISION)
+    check("exploration gated on empty schedule",
+          "If nothing is scheduled right now and nothing in view" in _USER_TEMPLATE_VISION)
+    check("resume after interrupt stated",
+          "goes back to the scheduled destination" in _USER_TEMPLATE_VISION)
+    check("quirks are a nudge, not an override",
+          "they do not cancel WHERE you are going" in _USER_TEMPLATE_VISION)
+
+
+def test_schedule_note_weighting():
+    travel = _schedule_note({
+        "status": "travel", "place": "village square",
+        "intent": "It's time to sell — head to village square.",
+    })
+    check("travel is stated as the priority", "This is your priority right now" in travel)
+    check("travel names the walk_to target", 'target_location "village square"' in travel)
+    check("travel names the only valid interrupts",
+          "a person you know or someone speaking to you" in travel)
+
+    act = _schedule_note({"status": "act", "place": "stall",
+                          "intent": "You're at stall where you should be — sell."})
+    check("act branch unchanged", "You are where you should be" in act)
+    idle = _schedule_note(None)
+    check("idle/None branch unchanged", "nothing fixed right now" in idle)
+
+
 def main():
     test_acquaintance_lines()
     test_known_place_lines()
     test_episode_lines()
     test_template_contract()
+    test_reaction_gate_template()
+    test_schedule_note_weighting()
     print("\nAll prompt-context checks passed.")
 
 

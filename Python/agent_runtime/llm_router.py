@@ -88,14 +88,25 @@ Time: {world_time}
 
 Anything listed under "You See" is really there. A CHARACTER sighting matching
 a name under "People You Know" is someone you have met before; one matching
-"Characters You May Encounter" is that person — consider greeting or
-approaching them.
+"Characters You May Encounter" is that person.
+
+## What Wins Right Now
+Your routine (see "Your Routine Right Now") is your default. When it says to
+head somewhere, your action this tick should move you there. Do NOT stop for
+strangers, scenery, or cells you could explore — those can wait.
+Exactly two things justify pausing your routine:
+1. You see someone listed under "People You Know" — you may greet them briefly.
+2. Someone is speaking to you — respond.
+After such a pause, your next action goes back to the scheduled destination.
+Staying in character is good, but character quirks (curiosity, distraction)
+color HOW you travel — they do not cancel WHERE you are going.
 
 To move toward anything you see, use walk_to with a direction relative to your
 facing — "forward" is the view described above. Prefer a specific direction
 over wandering.
 
-If nothing in view needs your attention, keep exploring: pick a direction whose
+If nothing is scheduled right now and nothing in view needs your attention,
+keep exploring: pick a direction whose
 neighboring cell is still "unexplored" and walk_to it so the shared world map
 keeps growing. A cell that already has a name has been mapped — you do not need
 to go re-record it. Do not stand still with nowhere to be.
@@ -690,8 +701,10 @@ def _schedule_note(directive: dict | None) -> str:
                 "exploring unmapped cells.")
     intent = directive.get("intent", "")
     if directive.get("status") == "travel" and directive.get("place"):
-        return (f"{intent}\nTo get there, use walk_to with "
-                f"target_location \"{directive['place']}\".")
+        return (f"{intent}\nThis is your priority right now: use walk_to with "
+                f"target_location \"{directive['place']}\" and keep going until you "
+                f"arrive. Only a person you know or someone speaking to you is worth "
+                f"a brief pause.")
     return f"{intent}\nYou are where you should be — do this where you are."
 
 
