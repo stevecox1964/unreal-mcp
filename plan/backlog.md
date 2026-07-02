@@ -22,8 +22,11 @@ grooming: 2026-06-26.
 > tick, mobile blockers become facts that force a re-decide, the LLM sidesteps (`test_blocker_sense.py`).
 > **(2) WP5/#6b signed off + built** — user answered all four gates (**Q1 = rendered IMAGE**, against
 > the text rec; corridor+1 cap 15; separate renderer; travel-ticks-only): `route_map.py` + travel-tick
-> injection + the PNG attached to the multimodal decision call (`test_route_map.py`). Suite **30/30**,
-> committed to `auto-loop/backlog`, unpushed. Both need only a **PIE verify** now (fold into B2).
+> injection + the PNG attached to the multimodal decision call (`test_route_map.py`). Suite **30/30**.
+> **Live run same night (user):** Dufus **roams all around** (huge progress — the system is starting
+> to work), the **web `/map` updates live** (B2 ✓ in essence), and B7 is **partial** — he moves around
+> people but only after getting in their faces → **B7b personal-space follow-up** queued. Merged +
+> pushed to `main` at the user's request.
 >
 > **⚑ Status (2026-07-01 — grooming + direction reset, Claude-driven):** Two director calls locked:
 > **(1) #10.5 = BALANCED reaction gate** (routine destination wins; only a known friend / being-spoken-to
@@ -170,8 +173,9 @@ Ordered for a joint session:
 
 1. **B1 · Child Blueprints** `BP_Dufus` / `BP_Maren` (child of `BP_CameraNPC`, mesh override + rebind).
    *Editor + mesh choice.* — you named this as a next thing; detail in **"▶ Next up"** below.
-2. **B2 · Live grid/place debug in PIE** — run the sim and watch cells build out on the **A1 map view**;
-   confirm reuse + A2 staleness behave. Pairs with A1/A2 to *finish* the grid/place design.
+2. **B2 · Live grid/place debug in PIE** — **mostly ✓ 2026-07-01 night (user):** Dufus roams freely and
+   the **A1 `/map` page updates live** as he goes. Still worth a focused pass: cell *reuse* on a revisit,
+   A2 staleness flags, a sweep populating landmarks (B5), and the WP5 route-map PNG on a travel tick.
 3. ~~**B3 · #10.5 balanced-gate live tune**~~ — **VERIFIED LIVE ✓ 2026-07-01 eve** (two PIE runs).
    Run 1 exposed the failure precisely: the travel intent led with the activity ("It's time to greet
    passers-by — head to...") so Dufus greeted strangers en route and stalled at the gas station. Fixed
@@ -192,8 +196,12 @@ Ordered for a joint session:
    scene-unchanged gate no longer skips the LLM), so the agent sidesteps via `walk_to
    forward-left/right` before the collision. Structures ahead stay silent while traveling (navmesh
    business); the stuck path is unchanged. Prompt: `_sense_note` (facts) + step-around doctrine.
-   Test: `test_blocker_sense.py`. **Remaining: PIE verify** — watch Dufus actually route around the
-   sidewalk person (folds into B2). *(Fallback if live behavior isn't clean: (b) acceptance radius.)*
+   Test: `test_blocker_sense.py`. **PIE-verified 2026-07-01 night (partial ✓):** Dufus roams and
+   *does* move around people — but only **after the fact**: he still gets right in their faces before
+   sidestepping (undesirable). **Follow-up (B7b, open):** give him personal space — trigger the
+   sidestep earlier. Candidates: longer/earlier trace or re-decide at a standoff threshold (~150–250 cm
+   fact escalation), and/or the (b) **acceptance radius** on MoveTo so approaches stop ~1m short.
+   Cognitive-first per the user's engine-agnostic call.
 8. **Carryover:** settings-page UX polish, providers end-to-end spot check, navmesh `stuck` robustness.
 
 ---
