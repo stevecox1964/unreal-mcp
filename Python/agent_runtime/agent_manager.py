@@ -65,6 +65,14 @@ _STUCK_PROGRESS_CM = 100.0   # min cm advanced per tick to count as real progres
 _STUCK_TICKS = 3             # consecutive no-progress moving ticks → stuck
 _STUCK_TRACE_CM = 300.0      # forward raycast distance when stuck (cm)
 
+# Path sense (B7): while traveling, watch what is directly ahead so the agent
+# can step around people/vehicles instead of walking through them — pawn-vs-pawn
+# collision is invisible to the navmesh, so this is the cognitive loop's problem,
+# not an engine steering feature. Only *mobile* categories interrupt travel;
+# structures ahead are ordinary navmesh business (corners, walls) and would spam.
+_AHEAD_TRACE_CM = 500.0      # forward raycast distance while traveling (cm)
+_MOBILE_BLOCKERS = {"person", "animal", "vehicle"}
+
 # Semantic classifier for forward-trace hits.
 # Maps engine actor names/classes → generic categories the LLM can reason about.
 # The lizard brain translates engine noise; it does NOT infer meaning or advise action.
@@ -787,16 +795,24 @@ class AgentManager:
         moving = "moving" in str(observation.get("current_action") or "").lower()
         stuck = self._detect_stuck(agent_id, _loc_xyz(observation.get("location")), moving)
         observation["stuck"] = stuck
-        if stuck:
-            trace = self.bridge.line_trace_forward(agent.bound_unreal_actor_name, _STUCK_TRACE_CM)
+        # Forward path sense (B7): trace ahead on every moving tick, not just when
+        # already wedged. A mobile blocker (someone crossing the path) becomes a
+        # fact the LLM can sidestep *before* the collision; when stuck, whatever
+        # is ahead is reported. Facts only — the decision stays with the LLM.
+        if moving or stuck:
+            trace = self.bridge.line_trace_forward(
+                agent.bound_unreal_actor_name,
+                _STUCK_TRACE_CM if stuck else _AHEAD_TRACE_CM,
+            )
             if trace.get("hit"):
-                observation["blocker"] = {
-                    "category": _classify_blocker(
-                        trace.get("actor_name", ""),
-                        trace.get("actor_class", ""),
-                    ),
-                    "distance_cm": trace.get("distance_cm", 0.0),
-                }
+                category = _classify_blocker(
+                    trace.get("actor_name", ""), trace.get("actor_class", "")
+                )
+                if stuck or category in _MOBILE_BLOCKERS:
+                    observation["blocker"] = {
+                        "category": category,
+                        "distance_cm": trace.get("distance_cm", 0.0),
+                    }
 
         if not self.bridge.is_scene_changed(agent_id, observation.get("image_path")):
             # The view is unchanged. Skip the LLM if the avatar is still travelling
@@ -806,10 +822,13 @@ class AgentManager:
             # this a stationary agent freezes: no motion → identical view → LLM
             # skipped → no new move → identical view, forever. A *stuck* agent
             # reports "moving" but isn't progressing, so never skip it — it must
-            # re-decide to escape the obstacle.
+            # re-decide to escape the obstacle. Same for a mobile blocker directly
+            # ahead (B7): the agent must re-decide *now* to step around, not after
+            # it has already walked through them.
             skips = self._scene_skips.get(agent_id, 0) + 1
             self._scene_skips[agent_id] = skips
-            if not stuck and (moving or skips % _STATIONARY_REDECIDE_TICKS != 0):
+            blocked = "blocker" in observation
+            if not stuck and not blocked and (moving or skips % _STATIONARY_REDECIDE_TICKS != 0):
                 agent.mark_ticked(self._agents_dir)
                 reason = "moving" if moving else f"idle {skips}/{_STATIONARY_REDECIDE_TICKS}"
                 logger.info(
@@ -819,7 +838,12 @@ class AgentManager:
                 )
                 self._pie_activity(agent_id, f"OBS skip ({reason})")
                 return None
-            why = "stuck on an obstacle" if stuck else f"stationary {skips} ticks"
+            if stuck:
+                why = "stuck on an obstacle"
+            elif blocked:
+                why = f"{observation['blocker']['category']} directly ahead"
+            else:
+                why = f"stationary {skips} ticks"
             logger.info(
                 f"[{agent_id}] {why} — re-deciding to pick a new direction"
             )

@@ -105,6 +105,10 @@ To move toward anything you see, use walk_to with a direction relative to your
 facing — "forward" is the view described above. Prefer a specific direction
 over wandering.
 
+Never walk through a person, animal, or vehicle. If a sense reports one
+directly ahead while you travel, step around it: walk_to forward-left or
+forward-right past it, then continue to your destination.
+
 If nothing is scheduled right now and nothing in view needs your attention,
 keep exploring: pick a direction whose
 neighboring cell is still "unexplored" and walk_to it so the shared world map
@@ -112,7 +116,7 @@ keeps growing. A cell that already has a name has been mapped — you do not nee
 to go re-record it. Do not stand still with nowhere to be.
 
 The "Place" line above is what you have previously called the spot you are standing on (empty means you have never named it). If you can tell what this place is — from the image, your goals, or your memories — name it in the "place" field; it is saved to your map so next time you will know you have been here before.
-{stuck_note}
+{sense_note}
 Based on what you observe, choose exactly ONE next action. Return ONLY valid JSON: no prose, no markdown fences.
 
 {{
@@ -420,17 +424,6 @@ class LLMRouter:
                 action_state += f" ({observation['ai_state']})"
             known = observation.get("known_characters") or []
             known_text = ", ".join(known) if known else "none known yet"
-            # Two raw facts — no inference, no advice. The LLM reasons; the lizard brain senses.
-            if observation.get("stuck"):
-                stuck_note = "\nSense: you have not advanced for several ticks while moving.\n"
-                blocker = observation.get("blocker")
-                if blocker:
-                    stuck_note += (
-                        f"Sense: there is a {blocker['category']} "
-                        f"{blocker['distance_cm']:.0f} cm directly ahead.\n"
-                    )
-            else:
-                stuck_note = ""
             user_text = _USER_TEMPLATE_VISION.format(
                 agent_id=agent.agent_id,
                 memories=mem_lines,
@@ -446,7 +439,7 @@ class LLMRouter:
                 world_time=observation.get("world_time", "unknown"),
                 current_action=action_state,
                 current_goal=agent.current_goal,
-                stuck_note=stuck_note,
+                sense_note=_sense_note(observation),
                 schedule_note=_schedule_note(observation.get("schedule")),
                 acquaintance_lines=_acquaintance_lines(observation.get("acquaintances")),
                 known_place_lines=_known_place_lines(observation.get("known_places")),
@@ -592,6 +585,25 @@ def _image_block(image_path: str) -> dict:
     import base64
     image_data = base64.standard_b64encode(open(image_path, "rb").read()).decode()
     return {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_data}}
+
+
+def _sense_note(observation: dict) -> str:
+    """Raw movement senses — facts only, no inference, no advice.
+
+    ``stuck`` (not advancing while moving) and ``blocker`` (something directly
+    ahead on the travel path, B7) are independent: a person can be ahead before
+    the agent is wedged on them. The LLM reasons; the lizard brain senses.
+    """
+    lines = []
+    if observation.get("stuck"):
+        lines.append("Sense: you have not advanced for several ticks while moving.")
+    blocker = observation.get("blocker")
+    if blocker:
+        lines.append(
+            f"Sense: there is a {blocker['category']} "
+            f"{blocker['distance_cm']:.0f} cm directly ahead of you."
+        )
+    return ("\n" + "\n".join(lines) + "\n") if lines else ""
 
 
 def _facing_text(rotation) -> str:
