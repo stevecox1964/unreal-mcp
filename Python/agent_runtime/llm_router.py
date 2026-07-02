@@ -85,7 +85,7 @@ Time: {world_time}
 
 ## Your Routine Right Now
 {schedule_note}
-
+{route_map_note}
 Anything listed under "You See" is really there. A CHARACTER sighting matching
 a name under "People You Know" is someone you have met before; one matching
 "Characters You May Encounter" is that person.
@@ -441,6 +441,7 @@ class LLMRouter:
                 current_goal=agent.current_goal,
                 sense_note=_sense_note(observation),
                 schedule_note=_schedule_note(observation.get("schedule")),
+                route_map_note=_route_map_note(observation),
                 acquaintance_lines=_acquaintance_lines(observation.get("acquaintances")),
                 known_place_lines=_known_place_lines(observation.get("known_places")),
                 episode_lines=_episode_lines(observation.get("recent_episodes")),
@@ -454,13 +455,18 @@ class LLMRouter:
                 current_goal=agent.current_goal,
             )
 
+        # Travel ticks may carry a rendered route map (#6b/WP5) — attach it so
+        # the multimodal decision call literally sees the terrain between here
+        # and the destination. OpenAI's path here is text-only; it still gets
+        # the map's facts through the "Your Map" prompt section.
+        map_image = (observation.get("route_map") or {}).get("image_path")
         try:
             if provider == "ollama":
-                raw = self._decide_ollama(model, system_text, user_text)
+                raw = self._decide_ollama(model, system_text, user_text, image_path=map_image)
             elif provider == "openai":
                 raw = self._decide_openai(model, system_text, user_text)
             elif provider == "anthropic":
-                raw = self._decide_anthropic(model, system_text, user_text)
+                raw = self._decide_anthropic(model, system_text, user_text, image_path=map_image)
             else:
                 logger.error("[%s] Unknown LLM provider: %s", agent.agent_id, provider)
                 return _idle_decision(agent.agent_id, f"Unknown LLM provider: {provider}")
@@ -604,6 +610,35 @@ def _sense_note(observation: dict) -> str:
             f"{blocker['distance_cm']:.0f} cm directly ahead of you."
         )
     return ("\n" + "\n".join(lines) + "\n") if lines else ""
+
+
+def _route_map_note(observation: dict) -> str:
+    """The "Your Map" section for a travel tick (#6b/WP5) — facts + the image
+    legend. Empty when no route map was built this tick. The map describes the
+    terrain; charting the course stays with the LLM."""
+    route = observation.get("route_map")
+    if not route:
+        return ""
+    to = route.get("to") or {}
+    dest = to.get("name") or "your destination"
+    lines = [f'\n## Your Map — the area between you and "{dest}"']
+    if to.get("bearing"):
+        lines.append(f"The destination is {to['bearing']} of you, about {to['distance_m']} m away.")
+    else:
+        lines.append("You are already in the destination's grid cell.")
+    named = [c for c in route.get("cells") or [] if c.get("name")]
+    if named:
+        lines.append("Known places on this map: "
+                     + "; ".join(f'"{c["name"]}" at cell ({c["cell"][0]},{c["cell"][1]})'
+                                 for c in named[:8]) + ".")
+    if route.get("image_path"):
+        lines.append("A top-down map image is attached: north is up; A (blue) = you, "
+                     "B (red) = the destination; green cells are named places, tan cells "
+                     "have been observed, gray cells are unknown.")
+    if route.get("truncated"):
+        lines.append("The map is truncated — the destination area may extend past its edge.")
+    lines.append("The map only shows what is known — chart your own course with walk_to.")
+    return "\n".join(lines) + "\n"
 
 
 def _facing_text(rotation) -> str:

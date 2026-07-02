@@ -1,4 +1,4 @@
-# WP5 — APC top-down map via lizard brain (#6b) — DESIGN, do not build
+# WP5 — APC top-down map via lizard brain (#6b) — APPROVED + BUILT 2026-07-01
 
 **Item:** backlog #6b · **Scenario (user, 2026-07-01):** *"I woke up, I'm at my
 house, but my schedule says I need to be at my vegetable truck. Build a top-down
@@ -112,12 +112,40 @@ a small synthetic world; unbounded grid → None/empty (no crash).
 
 ## Decision checklist for the sign-off session
 
-- [ ] Q1 semantic-text map (rec: yes)
-- [ ] Q2 corridor+1, cap 15 (rec: yes)
-- [ ] Q3 separate renderer over shared PlaceDB (rec: yes)
-- [ ] Exposure: inject on travel ticks only (rec) vs. an explicit LLM tool
-- [ ] Build now vs. after WP4 (rec: after, if WP4 approved)
+- [x] Q1 — **user chose RENDERED IMAGE** (diverges from the semantic-text rec)
+- [x] Q2 corridor+1, cap 15 — yes
+- [x] Q3 separate renderer over shared PlaceDB — yes
+- [x] Exposure: inject on travel ticks only — yes
+- [x] Build now vs. after WP4 — WP4 had already landed, so moot
 
 ## Executor notes
 
-*(append findings/deviations here)*
+*Signed off + built same session (2026-07-01, Fable; user present for the four
+decisions above).*
+
+- **Q1 divergence, how it works in practice:** the map is still *built* as the
+  spec's facts dict (`build_route_map`) — the image is a projection of it
+  (`render_map_image`, Pillow, already in the venv). The PNG is attached to the
+  **decision** call (`_decide_anthropic`/`_decide_ollama` already took an
+  optional `image_path`; the live path now passes it) — the decision LLM
+  otherwise reads facts, never pixels, so this is the first image it sees.
+  OpenAI's decide path is text-only; it still gets the facts through the
+  prompt note. The "ascii" field was dropped (image replaced it).
+- **Prompt seam:** `{route_map_note}` section in `_USER_TEMPLATE_VISION`
+  (`_route_map_note`): destination bearing/distance, named cells in the
+  corridor, the image legend (A=you blue, B=destination red, green named,
+  tan swept, gray unknown, north up), truncation notice. Facts, not advice.
+- **Wiring as spec'd:** `AgentManager.route_map_for(agent_id, destination,
+  observation)` resolves community name → owned place (WP4), builds, renders to
+  `agents/<id>/observations/route_map.png` (overwritten per travel tick;
+  cockpit can peek). Injection in `_perceive_and_decide` only when the
+  sequencer directive is `status == "travel"`. Render failure degrades to
+  facts-only; any route-map failure degrades to no map — never breaks a tick.
+- **Truncation detail:** when capped, the window anchors at the *from* end and
+  extends toward the destination (the agent needs the terrain ahead of it).
+- Tests: `test_route_map.py` (corridor math, facts from a temp PlaceDB,
+  bearing/distance conventions incl. -Y = north, pixel-level render checks,
+  route_map_for resolution chain, travel-tick injection end-to-end through
+  `_perceive_and_decide`, prompt-note contract). Suite 30/30.
+- **Live verify (B-side, PIE):** watch a travel tick attach the map and the
+  agent reference it; check the PNG in the observations dir looks right.

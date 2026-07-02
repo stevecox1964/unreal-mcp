@@ -14,6 +14,7 @@ from . import explorer
 from .perception import VisionPerceiver
 from . import cell_sweep
 from . import planner
+from . import route_map
 from .episodic_memory import EpisodicLog
 from .place_db import PlaceDB, yaw_to_compass
 from .social_memory import SocialMemory, is_anonymous
@@ -942,6 +943,18 @@ class AgentManager:
         # decision prompt; the LLM still chooses the action.
         self._attach_schedule(agent, observation)
 
+        # Travel ticks get a top-down route map (#6b/WP5): the corridor between
+        # here and the scheduled destination, as facts + a rendered image the
+        # multimodal decision call reads. Travel-only bounds the token cost.
+        sched = observation.get("schedule") or {}
+        if sched.get("status") == "travel" and sched.get("place"):
+            try:
+                route = self.route_map_for(agent_id, sched["place"], observation)
+                if route:
+                    observation["route_map"] = route
+            except Exception as e:
+                logger.warning(f"[{agent_id}] route map failed: {e}")
+
         memories = self.memory.get_relevant_memories(agent_id)
         return self.llm.decide(agent, observation, memories)
 
@@ -1103,6 +1116,42 @@ class AgentManager:
             })
         out.sort(key=lambda p: p["distance_m"])
         return out
+
+    def route_map_for(self, agent_id: str, destination_name: str, observation: dict) -> dict | None:
+        """Top-down route map facts + rendered image for a travel tick (#6b/WP5).
+
+        Resolves the destination through the same chain as walk_to (community
+        name first, then this agent's owned places), locates the agent's current
+        cell, and delegates to route_map.build_route_map. The image lands in the
+        agent's observations dir (overwritten per tick — it is ephemeral sense
+        data, though the cockpit can peek at the latest one). Returns None when
+        anything is missing (no PlaceDB, unbounded grid, unknown destination,
+        no current cell) — the tick proceeds without a map.
+        """
+        if self.place_db is None or not self.world_grid.has_bounds:
+            return None
+        col, row = self._cell_col_row(observation.get("grid"))
+        if col is None:
+            return None
+        dest = self.place_db.find_named_cell(destination_name)
+        if dest is None:
+            owned = self.place_db.find_owned_place(destination_name, preferred_owner=agent_id)
+            if owned is not None:
+                dest = (owned["col"], owned["row"])
+        if dest is None:
+            return None
+        route = route_map.build_route_map(
+            self.place_db, self.world_grid, (col, row), dest,
+            destination_name=destination_name,
+        )
+        if route is None:
+            return None
+        image = route_map.render_map_image(
+            route, self._agents_dir / agent_id / "observations" / "route_map.png"
+        )
+        if image is not None:
+            route["image_path"] = str(image)
+        return route
 
     def _cell_col_row(self, grid: dict | None) -> tuple[int, int] | tuple[None, None]:
         """Extract (col, row) integers from a world_grid.locate() result dict."""
