@@ -29,6 +29,8 @@ MAX_SPAN = 15      # corridor cap per axis, cells (sign-off Q2)
 # with the legend drawn on the image and the prompt note in llm_router.
 _CELL_PX = 48
 _LEGEND_H = 20
+_MARGIN_L = 20     # left gutter: absolute row numbers (grid cell layout)
+_MARGIN_T = 14     # top gutter: absolute column numbers
 _COLORS = {
     "unexplored": (212, 212, 212),   # gray
     "swept":      (232, 216, 168),   # tan
@@ -140,14 +142,16 @@ def render_map_image(route: dict, out_path: Path, cell_px: int = _CELL_PX) -> Pa
         col_lo, col_hi = route["cols"]
         row_lo, row_hi = route["rows"]
         ncols, nrows = col_hi - col_lo + 1, row_hi - row_lo + 1
-        w, h = ncols * cell_px, nrows * cell_px + _LEGEND_H
+        w = _MARGIN_L + ncols * cell_px
+        h = _MARGIN_T + nrows * cell_px + _LEGEND_H
         img = Image.new("RGB", (w, h), _COLORS["legend_bg"])
         draw = ImageDraw.Draw(img)
         font = ImageFont.load_default()
 
         for c in route["cells"]:
             col, row = c["cell"]
-            x0, y0 = (col - col_lo) * cell_px, (row - row_lo) * cell_px
+            x0 = _MARGIN_L + (col - col_lo) * cell_px
+            y0 = _MARGIN_T + (row - row_lo) * cell_px
             draw.rectangle([x0, y0, x0 + cell_px, y0 + cell_px],
                            fill=_COLORS[c["state"]], outline=_COLORS["grid"])
             if c["name"]:
@@ -155,10 +159,22 @@ def render_map_image(route: dict, out_path: Path, cell_px: int = _CELL_PX) -> Pa
                 label = c["name"][: max(3, cell_px // 7)]
                 draw.text((x0 + 3, y0 + 3), label, fill=_COLORS["text"], font=font)
 
+        # Grid cell layout: absolute column numbers across the top gutter, row
+        # numbers down the left — the same (col,row) vocabulary as the facts
+        # dict and the web /map tooltips.
+        for i in range(ncols):
+            s = str(col_lo + i)
+            draw.text((_MARGIN_L + i * cell_px + cell_px // 2 - 3 * len(s), 2),
+                      s, fill=_COLORS["text"], font=font)
+        for j in range(nrows):
+            s = str(row_lo + j)
+            draw.text((2, _MARGIN_T + j * cell_px + cell_px // 2 - 5),
+                      s, fill=_COLORS["text"], font=font)
+
         def _marker(cell, letter, color, dx=0):
             col, row = cell
-            cx = (col - col_lo) * cell_px + cell_px // 2 + dx
-            cy = (row - row_lo) * cell_px + cell_px // 2
+            cx = _MARGIN_L + (col - col_lo) * cell_px + cell_px // 2 + dx
+            cy = _MARGIN_T + (row - row_lo) * cell_px + cell_px // 2
             r = cell_px // 4
             draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=color)
             draw.text((cx - 3, cy - 6), letter, fill=_COLORS["marker_text"], font=font)
@@ -167,7 +183,7 @@ def render_map_image(route: dict, out_path: Path, cell_px: int = _CELL_PX) -> Pa
         _marker(route["from"]["cell"], "A", _COLORS["from"], dx=-cell_px // 5 if same_cell else 0)
         _marker(route["to"]["cell"], "B", _COLORS["to"], dx=cell_px // 5 if same_cell else 0)
 
-        legend = "A=you  B=destination  green=named  tan=observed  gray=unknown  N=up"
+        legend = "A=you  B=destination  green=named  tan=observed  gray=unknown  N=up  edges=col,row"
         if route.get("truncated"):
             legend += "  (map truncated)"
         draw.text((4, h - _LEGEND_H + 4), legend, fill=_COLORS["text"], font=font)

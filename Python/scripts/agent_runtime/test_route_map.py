@@ -118,15 +118,24 @@ def test_render_map_image():
         check("image written (parent dir created)", out is not None and out.exists())
 
         img = Image.open(out)
-        # corridor is 9x3 cells at 48px + a 20px legend strip
-        check("image geometry matches the corridor", img.size == (9 * 48, 3 * 48 + 20))
+        # corridor is 9x3 cells at 48px + col/row label gutters + a 20px legend strip
+        ML, MT = route_map._MARGIN_L, route_map._MARGIN_T
+        check("image geometry matches the corridor + gutters",
+              img.size == (ML + 9 * 48, MT + 3 * 48 + 20))
         px = img.load()
         # Sample inside the marker disc but left of its white letter glyph.
-        check("A marker (you) is blue at the from cell", px[64, 72] == (32, 96, 208))
-        check("B marker (destination) is red at the to cell", px[352, 72] == (208, 48, 48))
-        check("named cell filled green", px[168, 72] == (168, 216, 168))
-        check("swept cell filled tan", px[264, 72] == (232, 216, 168))
-        check("unexplored cell filled gray", px[24, 24] == (212, 212, 212))
+        check("A marker (you) is blue at the from cell", px[ML + 64, MT + 72] == (32, 96, 208))
+        check("B marker (destination) is red at the to cell", px[ML + 352, MT + 72] == (208, 48, 48))
+        check("named cell filled green", px[ML + 168, MT + 72] == (168, 216, 168))
+        check("swept cell filled tan", px[ML + 264, MT + 72] == (232, 216, 168))
+        check("unexplored cell filled gray", px[ML + 24, MT + 24] == (212, 212, 212))
+        # Grid cell layout labels: dark text pixels in the top and left gutters
+        # (the font may anti-alias, so "dark", not exactly black).
+        w, hh = img.size
+        def _has_text(xs, ys):
+            return any(sum(px[x, y][:3]) < 384 for y in ys for x in xs)
+        check("column numbers drawn in the top gutter", _has_text(range(ML, w), range(MT)))
+        check("row numbers drawn in the left gutter", _has_text(range(ML), range(MT, hh - 20)))
 
         same = route_map.build_route_map(db, _grid(), (8, 5), (8, 5))
         out2 = route_map.render_map_image(same, Path(tmp) / "maps" / "same.png")
