@@ -91,6 +91,7 @@ _BLOCKER_KEYWORDS: list[tuple[set[str], str]] = [
     ({"npc", "apc", "character", "person", "human", "pedestrian", "civilian", "thirdperson"}, "person"),
     ({"dog", "cat", "animal", "bird", "creature", "pet"}, "animal"),
     ({"wall", "building", "fence", "barrier", "door", "gate", "pillar", "column"}, "structure"),
+    ({"corn", "cornfield", "crop", "wheat", "foliage", "bush", "hedge", "shrub", "vegetation"}, "foliage"),
 ]
 
 def _classify_blocker(actor_name: str, actor_class: str) -> str:
@@ -1304,14 +1305,15 @@ class AgentManager:
         return action
 
     def _should_sweep_here(self, observation: dict) -> bool:
-        """True when this agent needs its current cell mapped right now (#11.1):
-        it is staying here (schedule status act/idle — not passing through mid-
-        travel), the cell is unexplored, and there is a PlaceDB + bounded grid.
-        A missing/degraded schedule never triggers a detour.
+        """True when the agent's current grid cell has no community place cell yet
+        (#11.1). The sweep fires on **entry to any un-swept cell** — whether the
+        agent is traveling through or stopped — so the world's grid districts get
+        mapped as APCs roam (user, 2026-07-03: "sweep on entry to any new cell,"
+        even mid-travel). The first APC into a cell pays the ~9-tick 360; every
+        APC after reuses the community breadcrumb (``is_explored``), so detours
+        fall off as the map fills in. Needs a bounded grid (a cell center to walk
+        to) + a PlaceDB (somewhere to drop the breadcrumb).
         """
-        sched = observation.get("schedule")
-        if not sched or sched.get("status") not in ("act", "idle"):
-            return False
         col, row = self._cell_col_row(observation.get("grid"))
         if col is None or self.place_db is None:
             return False

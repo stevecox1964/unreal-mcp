@@ -173,6 +173,17 @@ def test_apc_child_bp_classifies_as_person():
     check("APC child BP is a person", _classify_blocker("APC_BP_2", "APC_BP_C") == "person")
 
 
+def test_crops_classify_as_foliage():
+    # "Dufus went into the corn": a cornfield the agent wedges in must read as a
+    # navigable-scenery blocker so the stuck-escape doctrine fires (not fall to the
+    # generic "obstacle"). A fence stays a structure (barrier keyword wins first).
+    from agent_runtime.agent_manager import _classify_blocker
+    check("a corn field is foliage", _classify_blocker("SM_CornField_7", "StaticMeshActor") == "foliage")
+    check("a hedge is foliage", _classify_blocker("SM_Hedge_2", "StaticMeshActor") == "foliage")
+    check("a cornfield FENCE is still a structure (barrier)",
+          _classify_blocker("SM_CornfieldFence_3", "StaticMeshActor") == "structure")
+
+
 class GreetBridge:
     """Stub bridge for the walk-to-character standoff: a fixed target position."""
     def __init__(self, target_xy):
@@ -247,6 +258,15 @@ def test_prompt_carries_sense_slot_and_doctrine():
           "step around" in tpl and "continue to your destination" in tpl)
     check("doctrine: halted means close enough (B7b)",
           "do not walk\ncloser" in tpl or "do not walk closer" in tpl.replace("\n", " "))
+    flat = tpl.replace("\n", " ")
+    check("doctrine: stuck/structure escape — don't re-issue the same walk_to",
+          "Do NOT re-issue the same walk_to" in flat)
+    check("doctrine: stuck/structure escape — turn aside to a new direction",
+          "Turn aside" in flat and "left, right, or back" in flat)
+    check("doctrine: navigate by sight, not by physical walkability",
+          "navigate by what you SEE" in flat)
+    check("doctrine: route around impassable-looking terrain (fields/crops)",
+          "field of crops" in flat and "choose a route along roads" in flat)
 
 
 def main():
@@ -256,6 +276,7 @@ def main():
     test_idle_agent_never_traces()
     test_stuck_still_reports_any_category()
     test_apc_child_bp_classifies_as_person()
+    test_crops_classify_as_foliage()
     test_walk_to_character_stops_at_greeting_distance()
     test_walk_to_character_already_close_does_not_close_in()
     test_sense_note_renders_facts_only()

@@ -472,6 +472,32 @@ Gemini-media-type fix landed 2026-06-28, 24/24.)
 
 ---
 
+## 12. Interaction memory (met-someone events + "no need to re-greet")
+
+**Status:** Not started · **Independence:** Self-contained (loop-safe logic) · *(user, 2026-07-03)*
+
+Fallout from B7b working: now that Dufus **stops ~3 m short and faces people** instead of walking
+through them, greetings become real *interactions* with state — and that adds detail/complexity we
+have to remember. Two related pieces, in priority order:
+
+- **12.1 — Don't re-greet.** *(user's higher priority — "I have been here before and talked to these
+  people, no need to go back and say Hi.")* An agent that has already greeted/spoken with someone
+  recently should **not** re-trigger the "you may greet a known person" interrupt (#10.5 gate) every
+  time they're in view. Needs a per-pair **last-interacted** timestamp (extend `SocialMemory` — it
+  already records acquaintances by name) + a cooldown the reaction gate reads ("you already spoke with
+  Maren this morning — press on"). Loop-safe: the cooldown logic + prompt line are offline-testable;
+  live verify is a PIE run where two agents meet, greet once, then pass without re-greeting.
+- **12.2 — Interaction memory proper.** A greeting is an **interaction** with content worth keeping: who,
+  when, where (grid/place), what was said, sentiment. Today speech→interaction feeds `SocialMemory`
+  + episodic, but there's no first-class "interaction" record an agent can recall ("last time I saw
+  Maren she was heading to her truck"). Design a compact interaction event (likely a specialization of
+  the episodic log) that the decision prompt can surface under "People You Know."
+
+Relates to: #5 (social/episodic memory), #10.5 (reaction gate — the greet interrupt), B7b (the standoff
+that turns a pass-by into a face-to-face interaction).
+
+---
+
 ## Outstanding — human / editor / live (not loop-safe)
 
 - **Merge** `auto-loop/backlog` → `main` (21 commits) and decide on `git push`.

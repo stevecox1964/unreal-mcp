@@ -185,20 +185,23 @@ def test_sweep_step_runs_then_drops_breadcrumb():
 
 
 def test_should_sweep_here_gate():
+    # Sweep-on-entry (user, 2026-07-03): any un-swept cell the agent is in gets
+    # mapped — traveling OR stopped, with or without a schedule. Only an already-
+    # explored cell (or no grid/PlaceDB) is skipped.
     with tempfile.TemporaryDirectory() as tmp:
         mgr = _manager(tmp)   # cell (5,5) unexplored
         check("act in an unexplored cell -> sweep",
               mgr._should_sweep_here(_obs(200.0, 200.0, schedule={"status": "act"})))
         check("idle in an unexplored cell -> sweep",
               mgr._should_sweep_here(_obs(200.0, 200.0, schedule={"status": "idle"})))
-        check("travel (passing through) -> no sweep",
-              not mgr._should_sweep_here(_obs(200.0, 200.0, schedule={"status": "travel"})))
-        check("missing schedule -> no detour",
-              not mgr._should_sweep_here(_obs(200.0, 200.0, schedule=None)))
+        check("travel (entering a new cell) -> sweep on entry",
+              mgr._should_sweep_here(_obs(200.0, 200.0, schedule={"status": "travel"})))
+        check("missing schedule -> still sweep an unexplored cell",
+              mgr._should_sweep_here(_obs(200.0, 200.0, schedule=None)))
 
         mgr.place_db.mark_swept("someone", 5, 5, "T0")
-        check("explored cell -> no sweep",
-              not mgr._should_sweep_here(_obs(200.0, 200.0, schedule={"status": "act"})))
+        check("explored cell -> no re-sweep",
+              not mgr._should_sweep_here(_obs(200.0, 200.0, schedule={"status": "travel"})))
 
         mgr.place_db = None
         check("no PlaceDB -> no sweep",
@@ -304,8 +307,10 @@ def test_act_agent_starts_sweep_interrupt():
         check("result reports the sweep action", result["action"].get("_sweep_interrupt") is True)
 
 
-def test_act_agent_travel_does_not_sweep():
-    """Passing through an unexplored cell mid-travel must not detour (D1)."""
+def test_act_agent_travel_sweeps_on_entry():
+    """Entering an unexplored cell mid-travel now DOES detour to sweep it (user,
+    2026-07-03) — the walk_to intent is interrupted, the cell is mapped, then the
+    routine resumes. Inverts the old travel-silent behavior."""
     with tempfile.TemporaryDirectory() as tmp:
         bridge = _StubBridge({"x": 1500.0, "y": 1500.0, "z": 90.0})
         mgr = _manager(tmp)
@@ -315,8 +320,10 @@ def test_act_agent_travel_does_not_sweep():
 
         obs = _obs(1500.0, 1500.0, schedule={"status": "travel", "place": "village square"})
         mgr._act_agent(agent, _idle_decision("dufus"), obs)
-        check("LLM action executed unchanged", bridge.actions[-1]["type"] == "idle")
-        check("no sweep went active", "dufus" not in mgr._cell_sweeps)
+        check("travel action replaced by the sweep's walk-to-center",
+              bridge.actions[-1]["type"] == "walk_to"
+              and bridge.actions[-1].get("_sweep_interrupt") is True)
+        check("sweep went active on entry", "dufus" in mgr._cell_sweeps)
 
 
 def test_pulse_routes_active_sweep_without_llm():
@@ -418,7 +425,7 @@ def main():
     test_should_sweep_here_gate()
     test_explored_cells_set()
     test_act_agent_starts_sweep_interrupt()
-    test_act_agent_travel_does_not_sweep()
+    test_act_agent_travel_sweeps_on_entry()
     test_pulse_routes_active_sweep_without_llm()
     test_observe_heading_direction_and_ingest()
     test_observe_heading_degrades_on_turn_failure()
