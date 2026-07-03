@@ -14,6 +14,9 @@ class MemoryStore:
         self.agents_dir: Path | None = None
         self.decisions_log: Path | None = None
         self.events_log: Path | None = None
+        # Current sim run tag (SR<n>), set by AgentManager at run start so each
+        # decision-log entry is attributable to a single run.
+        self.sim_run_id: str = "SR0"
 
     def update_agents_dir(self, agents_dir: Path) -> None:
         self.agents_dir = agents_dir
@@ -105,6 +108,7 @@ class MemoryStore:
 
         entry = {
             "timestamp": timestamp,
+            "sim_run": self.sim_run_id,
             "agent_id": agent_id,
             "action_type": action.get("type"),
             "thought": observation.get("_thought"),

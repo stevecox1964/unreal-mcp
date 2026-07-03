@@ -30,6 +30,9 @@ class UnrealBridge:
     def __init__(self) -> None:
         # Keyed by agent_id â€” used by is_scene_changed for the visual diff gate.
         self._last_image_hashes: dict[str, str] = {}
+        # Current sim run tag (SR<n>), set by AgentManager at run start; prefixes
+        # every observation screenshot so captures are attributable to one run.
+        self.sim_run_id: str = "SR0"
 
     def _send(self, command: str, params: dict) -> dict:
         from unreal_sim_server import get_unreal_connection
@@ -138,7 +141,7 @@ class UnrealBridge:
         obs_dir = agents_dir / agent_id / "observations"
         obs_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        image_file = obs_dir / f"observation_{timestamp}.png"
+        image_file = obs_dir / f"{self.sim_run_id}_observation_{timestamp}.png"
         capture = self._send("capture_camera_image", {
             "actor_name": actor_name,
             "file_path":  str(image_file),
@@ -169,7 +172,7 @@ class UnrealBridge:
         obs_dir = agents_dir / agent_id / "observations"
         obs_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        image_file = obs_dir / f"observation_{timestamp}_{tag}.png"
+        image_file = obs_dir / f"{self.sim_run_id}_observation_{timestamp}_{tag}.png"
         capture = self._send("capture_camera_image", {
             "actor_name": actor_name,
             "file_path":  str(image_file),
@@ -294,7 +297,7 @@ class UnrealBridge:
         obs_dir = agents_dir / agent_id / "observations"
         obs_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        file_path = obs_dir / f"observation_{timestamp}.png"
+        file_path = obs_dir / f"{self.sim_run_id}_observation_{timestamp}.png"
         return self._send("capture_camera_image", {
             "actor_name": actor_name,
             "file_path":  str(file_path),

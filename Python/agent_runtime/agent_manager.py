@@ -16,6 +16,7 @@ from .perception import VisionPerceiver
 from . import cell_sweep
 from . import planner
 from . import route_map
+from . import sim_run
 from .episodic_memory import EpisodicLog
 from .place_db import PlaceDB, yaw_to_compass
 from .social_memory import SocialMemory, is_anonymous
@@ -172,6 +173,10 @@ class AgentManager:
         # SQLite place cell store — initialised in start_simulation once world dir is known.
         self.place_db: PlaceDB | None = None
 
+        # Sim run tag (SR<n>) — allocated per-world in start_simulation, pushed to
+        # the bridge (observation filenames) + memory (decision log) for attribution.
+        self.sim_run_id: str = "SR0"
+
     # Lifecycle
 
     async def start_simulation(
@@ -210,6 +215,13 @@ class AgentManager:
         if self._agents_dir is not None:
             db_path = self._agents_dir.parent / "world_places.db"
             self.place_db = PlaceDB(db_path)
+
+            # Allocate this run's SR<n> tag (per-world) and push it everywhere the
+            # run needs stamping: observation filenames + the decision log.
+            self.sim_run_id = sim_run.allocate_run(self._agents_dir.parent)
+            self.bridge.sim_run_id = self.sim_run_id
+            self.memory.sim_run_id = self.sim_run_id
+            logger.info(f"Sim run {self.sim_run_id} — observations + decision log tagged")
 
         active = [a for a in self.agents.values() if a.is_active and a.has_unreal_binding]
         if not active:

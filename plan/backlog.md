@@ -320,23 +320,25 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
    `get_unreal_connection` intact); suite 22/22; no stale refs anywhere. First phase of the
    "deprecate the custom MCP" idea below; C++/Blueprints untouched.
 
-9. **Sim Run ID (`SR<n>`) — tag observations + logs per run.** *(user, 2026-06-28 — loop-safe.
-   **Parked:** user said "no rename for now" — keep backlogged, don't implement/schedule yet.)* Give
-   every sim run a monotonic number so artifacts and logs are attributable to a single run for
-   debugging. Pieces:
-   - **Allocator** — a small `agent_runtime/sim_run.py`: read+increment a persisted counter at sim
-     start (first run = `SR1`), expose the **current run id**. Persist in a git-ignored file (e.g.
-     `Python/worlds/<level>/sim_run.json` or alongside `runtime.json`). *Decision: global vs per-world
-     counter (rec: per-world).*
-   - **Observation files** — prefix `SR<n>_`: `SR42_observation_<ts>.png` at the three capture sites
-     in `unreal_bridge.py` (`capture`/`capture_view`/`capture_observation`, lines ~141/172/297). The
-     run id has to reach the bridge (set on the manager at run start → passed to capture calls).
-   - **Decision log** — add a `sim_run` field to each entry in `memory_store.record()`
-     (`agent_decisions.log`), and/or prefix — so you can filter the JSONL by run.
-   - **General logs** — a `logging.Filter` that injects `SR<n>` into `AgentRuntime` log lines, wired
-     into `sim_runner.py`'s format (`%(sim_run)s …`), so console/file lines carry the run.
-   - **Offline-testable:** counter increment/persistence, filename prefixing, the log-record field, the
-     filter injection — all without Unreal. Live verify: filenames + log prefixes appear in a real run.
+9. **Sim Run ID (`SR<n>`) — tag observations + logs per run.** *(user, 2026-06-28; **un-parked +
+   core landed 2026-07-03**.)* Give every sim run a monotonic number so artifacts and logs are
+   attributable to a single run for debugging. Pieces:
+   - [x] **Allocator** ✓ 2026-07-03 — `agent_runtime/sim_run.py`: `allocate_run(world_dir)` reads+
+     increments a **per-world** counter (first run = `SR1`; corrupt/missing → restarts at 1), plus
+     `current_run`/`current_number`/`format_run`. Persists to a git-ignored
+     `Python/worlds/<level>/sim_run.json`. Allocated once in `AgentManager.start_simulation` (after
+     `_load_agents`, world dir = `_agents_dir.parent`), then pushed to the bridge + memory.
+   - [x] **Observation files** ✓ 2026-07-03 — all three capture sites in `unreal_bridge.py`
+     (`get_observation`/`capture_view`/`capture_observation`) now prefix `SR<n>_observation_<ts>.png`.
+     The run id reaches the bridge via `bridge.sim_run_id` (default `SR0`, set at run start).
+   - [x] **Decision log** ✓ 2026-07-03 — each `memory_store.record()` entry carries a `sim_run` field
+     (via `memory.sim_run_id`), so `agent_decisions.log` is filterable by run.
+   - [ ] **General logs** — a `logging.Filter` that injects `SR<n>` into `AgentRuntime` log lines, wired
+     into `sim_runner.py`'s format (`%(sim_run)s …`), so console/file lines carry the run. *(Remaining
+     sub-item; needs care so records emitted before a run allocates one still format.)*
+   - **Offline test:** `test_sim_run.py` (counter increment/persist/corruption/per-world, bridge
+     filename prefix, decision-log field). **Live verify:** `SR<n>_` filenames + the `sim_run` field
+     appear in a real PIE run.
 
 10. **Daily-schedule planner + sequencer — MASTER_PLAN Milestone 1 (the cognitive-loop spine).**
     *(Claude-driven, 2026-06-28. The biggest behavioral gap: agents decide tick-by-tick with no
