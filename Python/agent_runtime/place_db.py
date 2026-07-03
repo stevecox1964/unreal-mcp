@@ -483,6 +483,21 @@ class PlaceDB:
                     break
         return best[1] if best else None
 
+    def all_owned_places(self) -> list[dict]:
+        """Every APC-owned place cell — the owned half of the world map (#11.2).
+
+        Returns ``{"col","row","owner","name","dx","dy","extent_cm"}`` per row,
+        ordered by (col, row, owner, name). ``known_places`` and the web map
+        read this alongside ``all_named_places`` so owned places ("My Home")
+        are consultable, not just resolvable.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT col, row, owner, name, dx, dy, extent_cm "
+                "FROM owned_place_cells ORDER BY col, row, owner, name"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def owned_places_in_cell(self, col: int, row: int) -> list[dict]:
         """All APC-owned place cells inside one grid cell, ordered by (owner, name)."""
         with self._connect() as conn:

@@ -57,6 +57,12 @@ def test_known_place_lines():
     check("place renders name/bearing/distance", "- village square — SE, 34 m" in out)
     out = _known_place_lines([{"name": "home", "bearing": "N", "distance_m": 11.6}])
     check("distance rounds to whole meters", "12 m" in out)
+    out = _known_place_lines([{"name": "My Home", "bearing": "N", "distance_m": 12.0,
+                               "owner": "maren"}])
+    check("owned place renders its owner (#11.2)",
+          "- My Home — N, 12 m (maren's place)" in out)
+    out = _known_place_lines([{"name": "village square", "bearing": "SE", "distance_m": 34.4}])
+    check("community place has no owner suffix", "place)" not in out)
     placeholder = "No named places yet — name places as you discover them."
     check("empty -> placeholder", _known_place_lines([]) == placeholder)
     check("None -> placeholder", _known_place_lines(None) == placeholder)

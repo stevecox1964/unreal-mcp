@@ -95,6 +95,7 @@ def _world(tmp: str, level: str = "TestWorld") -> Path:
     db = PlaceDB(world / "world_places.db")
     db.set_name("maren", 3, 4, "Village Square", "T0")
     db.mark_swept("dufus", 7, 2, "T1")
+    db.add_owned_place("maren", 3, 4, "My Home", dx=120.0, dy=-80.0)
     return world
 
 
@@ -118,6 +119,9 @@ def test_api_map_returns_grid_and_cells():
             check("api reports cell_size", data["cell_size"] == 400.0)
             check("api returns both place cells", len(data["cells"]) == 2)
             check("api counts named + swept", data["counts"]["named"] == 1 and data["counts"]["swept"] == 1)
+            check("api carries owned places (#11.2)",
+                  data["owned"] == [{"col": 3, "row": 4, "owner": "maren", "name": "My Home"}])
+            check("api counts owned places", data["counts"]["owned"] == 1)
         _with_worlds(tmp, body)
 
 
@@ -146,6 +150,8 @@ def test_map_page_renders_with_legend_and_polls_api():
             check("map page names the world", "TestWorld" in text)
             check("map page has a legend for named/swept/unexplored",
                   "named" in text.lower() and "swept" in text.lower() and "unexplored" in text.lower())
+            check("map page has an owned-place legend + marker style",
+                  "owned place" in text and "owned-mark" in text)
             check("map page fetches /api/map to build out live", "/api/map" in text)
         _with_worlds(tmp, body)
 

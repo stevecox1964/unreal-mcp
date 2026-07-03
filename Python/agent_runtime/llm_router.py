@@ -678,13 +678,20 @@ def _acquaintance_lines(acquaintances: list | None) -> str:
 
 
 def _known_place_lines(places: list | None) -> str:
-    """The agent's named-place map, nearest first (from AgentManager.known_places)."""
+    """The agent's named-place map, nearest first (from AgentManager.known_places).
+
+    Community places render bare; APC-owned places (#11.2) carry their owner —
+    "My Home — N, 12 m (maren's place)" — so an agent can tell its own spots
+    from someone else's.
+    """
     lines = []
     for p in places or []:
         name = str(p.get("name") or "").strip()
         if not name:
             continue
-        lines.append(f"- {name} — {p.get('bearing', '?')}, {round(p.get('distance_m') or 0)} m")
+        owner = str(p.get("owner") or "").strip()
+        suffix = f" ({owner}'s place)" if owner else ""
+        lines.append(f"- {name} — {p.get('bearing', '?')}, {round(p.get('distance_m') or 0)} m{suffix}")
     return "\n".join(lines) or "No named places yet — name places as you discover them."
 
 

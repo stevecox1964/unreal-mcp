@@ -55,6 +55,18 @@ def test_owned_place_crud():
         check("two owners coexist", len(in_cell) == 2)
         check("ordered by owner", [p["owner"] for p in in_cell] == ["dufus", "maren"])
 
+        # all_owned_places: the whole owned map, deterministic order (#11.2).
+        db.add_owned_place("maren", 2, 9, "Herb Garden", dx=0.0, dy=0.0)
+        world = db.all_owned_places()
+        check("all_owned_places lists every entry", len(world) == 3)
+        check("all_owned_places ordered by cell then owner",
+              [(p["col"], p["row"], p["owner"]) for p in world]
+              == [(2, 9, "maren"), (5, 5, "dufus"), (5, 5, "maren")])
+        check("all_owned_places carries offsets",
+              all("dx" in p and "dy" in p and "extent_cm" in p for p in world))
+        check("empty db -> no owned places",
+              PlaceDB(Path(tmp) / "empty.db").all_owned_places() == [])
+
 
 def test_find_owned_place():
     with tempfile.TemporaryDirectory() as tmp:

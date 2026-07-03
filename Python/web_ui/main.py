@@ -119,7 +119,7 @@ def build_map(level: str) -> dict:
     map, so a GET can't spawn a blank world. Shape::
 
         {level, cell_size, has_bounds, cols, rows, cells: [...],
-         counts: {named, swept, total_cells}}
+         owned: [{col,row,owner,name}], counts: {named, swept, stale, owned, total_cells}}
     """
     grid = WorldGrid.load(WORLDS_DIR / level / "world_grid.json")
     cols = rows = None
@@ -128,7 +128,9 @@ def build_map(level: str) -> dict:
         cols, rows = probe["cols"], probe["rows"]
 
     db_path = WORLDS_DIR / level / "world_places.db"
-    cells = PlaceDB(db_path).map_cells(max_age_seconds=MAP_STALE_SECONDS) if db_path.exists() else []
+    db = PlaceDB(db_path) if db_path.exists() else None
+    cells = db.map_cells(max_age_seconds=MAP_STALE_SECONDS) if db else []
+    owned = db.all_owned_places() if db else []
     named = sum(1 for c in cells if c["state"] == "named")
     swept = sum(1 for c in cells if c["state"] == "swept")
     stale = sum(1 for c in cells if c.get("stale"))
@@ -140,7 +142,9 @@ def build_map(level: str) -> dict:
         "rows": rows,
         "stale_after_hours": MAP_STALE_SECONDS // 3600,
         "cells": cells,
-        "counts": {"named": named, "swept": swept, "stale": stale,
+        "owned": [{"col": o["col"], "row": o["row"], "owner": o["owner"], "name": o["name"]}
+                  for o in owned],
+        "counts": {"named": named, "swept": swept, "stale": stale, "owned": len(owned),
                    "total_cells": (cols or 0) * (rows or 0)},
     }
 

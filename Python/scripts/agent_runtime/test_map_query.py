@@ -74,9 +74,31 @@ def test_known_places_bearing_and_distance():
         check("no location -> empty map", mgr.known_places(None) == [])
 
 
+def test_known_places_includes_owned_places():
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _manager(tmp)
+        mgr.place_db.set_name("dufus", 10, 5, "east market", "T0")
+        # Owned place in cell (10,5): anchor (2200,200) + offset (-200,0) = (2000,200)
+        # — 1800 cm due East of the agent at (200,200).
+        mgr.place_db.add_owned_place("maren", 10, 5, "My Stall", dx=-200.0, dy=0.0)
+
+        places = mgr.known_places({"x": 200.0, "y": 200.0, "z": 90.0})
+        by_name = {p["name"]: p for p in places}
+        check("owned place appears on the map", "My Stall" in by_name)
+        stall = by_name["My Stall"]
+        check("owned place carries its owner", stall["owner"] == "maren")
+        check("owned distance uses anchor + offset (1800cm -> 18m)",
+              round(stall["distance_m"]) == 18)
+        check("owned bearing from the offset position", stall["bearing"] == "E")
+        check("community entries carry no owner", "owner" not in by_name["east market"])
+        check("merged list still sorted nearest first",
+              [p["distance_m"] for p in places] == sorted(p["distance_m"] for p in places))
+
+
 def main():
     test_all_named_places()
     test_known_places_bearing_and_distance()
+    test_known_places_includes_owned_places()
     print("\nAll map-query checks passed.")
 
 

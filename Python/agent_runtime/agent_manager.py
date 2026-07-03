@@ -1112,7 +1112,9 @@ class AgentManager:
 
         Each entry: ``{"name", "bearing", "distance_m", "col", "row"}`` where
         bearing is a compass label (N..NW) from the agent toward the place and
-        distance is in meters. This is the "map" an agent consults — it answers
+        distance is in meters. APC-owned place cells (#11.2) are included too,
+        positioned at their community anchor + XY offset and carrying an extra
+        ``"owner"`` key. This is the "map" an agent consults — it answers
         *what places exist and roughly which way* before any routing. Returns []
         with no PlaceDB, an unbounded grid, or no location.
         """
@@ -1123,18 +1125,29 @@ class AgentManager:
             return []
         x, y = xyz[0], xyz[1]
         out: list[dict] = []
-        for place in self.place_db.all_named_places():
-            center = self.world_grid.cell_center(place["col"], place["row"])
-            if center is None:
-                continue
-            dx, dy = center[0] - x, center[1] - y
-            out.append({
+
+        def _entry(place, px, py, **extra):
+            dx, dy = px - x, py - y
+            return {
                 "name": place["name"],
                 "bearing": yaw_to_compass(math.degrees(math.atan2(dy, dx))),
                 "distance_m": math.hypot(dx, dy) / 100.0,
                 "col": place["col"],
                 "row": place["row"],
-            })
+                **extra,
+            }
+
+        for place in self.place_db.all_named_places():
+            center = self.world_grid.cell_center(place["col"], place["row"])
+            if center is None:
+                continue
+            out.append(_entry(place, center[0], center[1]))
+        for place in self.place_db.all_owned_places():
+            center = self.world_grid.cell_center(place["col"], place["row"])
+            if center is None:
+                continue
+            out.append(_entry(place, center[0] + place["dx"], center[1] + place["dy"],
+                              owner=place["owner"]))
         out.sort(key=lambda p: p["distance_m"])
         return out
 

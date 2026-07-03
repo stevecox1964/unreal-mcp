@@ -32,6 +32,7 @@
     <span><span class="swatch" style="background:#e9c46a"></span> swept <b id="n-swept">0</b></span>
     <span><span class="swatch" style="background:#e9ecef; border:1px solid #ccc"></span> unexplored</span>
     <span><span class="swatch" style="background:#fff; box-shadow:inset 0 0 0 2px #c0392b"></span> stale <b id="n-stale">0</b></span>
+    <span><span class="swatch" style="background:radial-gradient(circle, #6f42c1 0 32%, #e9ecef 36%)"></span> owned place <b id="n-owned">0</b></span>
     <span id="pct" style="color:#666"></span>
   </div>
   <p class="breadcrumb" style="margin-top:-.25rem;">stale = not re-observed in over {{ map.stale_after_hours }}h (real time)</p>
@@ -47,6 +48,9 @@
     #grid .cell.named { background:#2d6a4f; }
     #grid .cell.swept { background:#e9c46a; }
     #grid .cell.stale { box-shadow:inset 0 0 0 2px #c0392b; }
+    /* Owned-place dot overlays the state color (keep after .named/.swept so the
+       background-image survives their background shorthand). */
+    #grid .cell.owned-mark { background-image:radial-gradient(circle, #6f42c1 0 32%, transparent 36%); }
   </style>
 
   <script>
@@ -76,7 +80,8 @@
         data = await (await fetch(`/api/map?level=${encodeURIComponent(level)}`)).json();
       } catch (e) { return; }
       // Reset styling, then paint stateful cells.
-      gridEl.querySelectorAll(".cell.named, .cell.swept, .cell.stale").forEach(el => el.className = "cell");
+      gridEl.querySelectorAll(".cell.named, .cell.swept, .cell.stale, .cell.owned-mark")
+            .forEach(el => el.className = "cell");
       for (const cell of data.cells) {
         const el = document.getElementById(`c-${cell.col}-${cell.row}`);
         if (!el) continue;
@@ -85,9 +90,19 @@
         const age = cell.stale ? " · STALE (needs re-observation)" : "";
         el.dataset.tip = `(${cell.col}, ${cell.row}) — ${who} · ${cell.landmarks} landmark(s)${age}`;
       }
+      // APC-owned place cells (#11.2): a dot on the cell + names in the tooltip.
+      for (const o of data.owned || []) {
+        const el = document.getElementById(`c-${o.col}-${o.row}`);
+        if (!el) continue;
+        el.classList.add("owned-mark");
+        const tag = `owned: "${o.name}" (${o.owner})`;
+        el.dataset.tip = el.dataset.tip ? `${el.dataset.tip} · ${tag}`
+                                        : `(${o.col}, ${o.row}) — ${tag}`;
+      }
       document.getElementById("n-named").textContent = data.counts.named;
       document.getElementById("n-swept").textContent = data.counts.swept;
       document.getElementById("n-stale").textContent = data.counts.stale;
+      document.getElementById("n-owned").textContent = data.counts.owned || 0;
       const built = data.counts.named + data.counts.swept;
       const total = data.counts.total_cells || (cols * rows);
       document.getElementById("pct").textContent =
