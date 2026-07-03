@@ -531,6 +531,32 @@ build-out), the child-BP rework (the first hand-linked example), `/create-npc`.
 
 ---
 
+## 14. Run replay — single-step through a sim run's observations
+
+**Status:** Not started · **Depends on:** #9 (SR<n> tag — landed) · *(user, 2026-07-03)*
+
+The point of the SR<n> tag (#9): **be able to single-step through the sim runs** for debugging — scrub
+the captured observation frames of a run in order (and jump between runs), seeing what each agent saw
+and decided tick by tick. #9 tagged the artifacts (`SR<n>_observation_<ts>.png` + a `sim_run` field on
+every `agent_decisions.log` entry); this item is the **review surface** that consumes them.
+
+Pieces to design:
+- **Group by run + agent:** list runs (from `sim_run.json` / distinct `SR<n>` in the observations dir),
+  and within a run, each agent's frames in timestamp order. The filename already carries `SR<n>` +
+  agent (via the per-agent `observations/` dir) + timestamp, so this is a directory/filename scan.
+- **Step UI (web cockpit):** prev/next through frames, showing the observation image alongside the
+  matching decision (join `agent_decisions.log` rows on `sim_run` + nearest timestamp — action,
+  thought, result). A scrubber + keyboard step. Lives in `web_ui` next to the `/sim` cockpit + `/map`.
+- **Cross-run compare (later):** step the *same* tick/time across two runs to see how a change moved
+  behavior.
+
+Loop-safe core: the run/frame indexing + the log-join are pure and offline-testable; the page is a
+`TestClient` route like the other `web_ui` pages. Live value: watch a real run back frame by frame.
+
+Relates to: #9 (the tag it consumes), #6/#6b (map + route images), the `web_ui` cockpit (`/sim`).
+
+---
+
 ## Outstanding — human / editor / live (not loop-safe)
 
 - **Merge** `auto-loop/backlog` → `main` (21 commits) and decide on `git push`.
