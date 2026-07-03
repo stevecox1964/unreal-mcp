@@ -149,14 +149,17 @@ class PlaceDB:
     def reset(self) -> dict:
         """Wipe all geographic knowledge — start the world map from scratch.
 
-        Clears place_cells (names), place_observations (landmarks), and
-        agent_visits (per-agent history). The schema is preserved; only rows
-        are deleted. Returns the row count removed from each table.
+        Clears place_cells (names), place_observations (landmarks), agent_visits
+        (per-agent history), and owned_place_cells (APC-owned ~3 m spots). The
+        schema is preserved; only rows are deleted. Returns the row count removed
+        from each table. All of these are keyed by grid (col, row), so a change
+        in the grid's cell_size invalidates every row — reset after regridding.
         """
         with self._lock, self._connect() as conn:
             counts = {
                 table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                for table in ("place_cells", "place_observations", "agent_visits")
+                for table in ("place_cells", "place_observations", "agent_visits",
+                              "owned_place_cells")
             }
             for table in counts:
                 conn.execute(f"DELETE FROM {table}")

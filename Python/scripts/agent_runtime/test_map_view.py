@@ -152,6 +152,8 @@ def test_map_page_renders_with_legend_and_polls_api():
                   "named" in text.lower() and "swept" in text.lower() and "unexplored" in text.lower())
             check("map page has an owned-place legend + marker style",
                   "owned place" in text and "owned-mark" in text)
+            check("grid lines are visible (not the near-invisible pale gap)",
+                  "#8b95a1" in text and "background:#ddd" not in text)
             check("map page fetches /api/map to build out live", "/api/map" in text)
         _with_worlds(tmp, body)
 

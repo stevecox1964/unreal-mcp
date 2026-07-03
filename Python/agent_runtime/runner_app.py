@@ -130,7 +130,7 @@ def build_control_app(manager) -> FastAPI:
     async def world_grid(request: Request) -> dict:
         body = await _json_body(request)
         return manager.generate_world_grid(
-            cell_size=float(body.get("cell_size", 400.0)),
+            cell_size=float(body.get("cell_size", 3000.0)),
             padding=float(body.get("padding", 800.0)),
         )
 

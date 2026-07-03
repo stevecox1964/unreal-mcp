@@ -394,7 +394,17 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
 
 11. **Grid-cell place-cell model — central community cell + APC-owned cells + staleness.**
     *(user, 2026-07-01 — a design-reconciliation pass. "I think we have all of this in the design but make
-    a backlog item to make sure.")* User's intended model of how the world gets built out:
+    a backlog item to make sure.")*
+
+    > **⚑ SIZES RESOLVED (user, 2026-07-03, from a top-down world screenshot):** the old grid cell
+    > (**4 m**) ≈ the place cell (**3 m**), which collapsed the hierarchy — a 4 m cell can't hold
+    > "several place cells," and 119×78 = 9,282 cells was absurd to sweep. **Decision: grid cell = 30 m
+    > (`cell_size` 3000 cm) — a navigation *district*; place cell = ~3 m default, buildings bigger via
+    > `extent_cm`.** MCP_World regridded to **17×12 = 204 cells**; the place DB was reset (its rows were
+    > keyed under the old 4 m grid). `generate_world_grid` default is now 3000 cm; `PlaceDB.reset` now
+    > also clears `owned_place_cells`; the web `/map` gridlines were darkened so cells are visible.
+
+    User's intended model of how the world gets built out:
     - Each **grid cell** houses **one central place cell** at the cell **center** with a **360° observation
       scan** — the *community* record for all APCs.
     - When an APC **navigates into a new grid cell**, it **checks for an initialized central place cell**; if

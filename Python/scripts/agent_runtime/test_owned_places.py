@@ -165,11 +165,28 @@ def test_record_place_owned_write_path():
         check("no owned row in a fresh cell", mgr.place_db.owned_places_in_cell(6, 5) == [])
 
 
+def test_reset_clears_owned_places():
+    # Owned places are keyed by grid (col,row) too, so a world reset (e.g. after
+    # regridding to a new cell_size) must wipe them along with community cells —
+    # otherwise stale 3 m boxes survive at grid coordinates that no longer mean
+    # the same place.
+    with tempfile.TemporaryDirectory() as tmp:
+        db = PlaceDB(Path(tmp) / "world_places.db")
+        db.set_name("maren", 5, 5, "Village Square", "T0")
+        db.add_owned_place("maren", 5, 5, "My Home", dx=120.0, dy=-80.0)
+
+        removed = db.reset()
+        check("reset reports owned rows removed", removed["owned_place_cells"] == 1)
+        check("named cells wiped", db.all_named_places() == [])
+        check("owned cells wiped", db.all_owned_places() == [])
+
+
 def main():
     test_owned_place_crud()
     test_find_owned_place()
     test_resolver_order()
     test_record_place_owned_write_path()
+    test_reset_clears_owned_places()
     print("\nAll owned-place checks passed.")
 
 

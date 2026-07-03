@@ -1856,7 +1856,7 @@ class AgentManager:
         logger.info(f"[{agent_id}] Goal updated -> '{goal}'")
         return {"status": "updated", "agent_id": agent_id, "goal": goal}
 
-    def generate_world_grid(self, cell_size: float = 400.0, padding: float = 800.0) -> dict:
+    def generate_world_grid(self, cell_size: float = 3000.0, padding: float = 800.0) -> dict:
         """Compute the fixed world grid from the current level's actor positions.
 
         Scans every actor, takes the min/max x/y plus padding as the world
@@ -1864,6 +1864,10 @@ class AgentManager:
         grid in place. Needs the editor open with PIE stopped (editor-world
         scan). Lived in the MCP tool until #3/2.4 moved it here so the runner
         (the bridge's sole owner) can serve it over HTTP.
+
+        ``cell_size`` default is 3000 cm (30 m) — a grid cell is a *district*
+        that holds several ~3 m place cells, not a place-sized tile (the 4 m
+        default made grid cells ≈ place cells, collapsing the hierarchy).
         """
         level = self.bridge.get_current_level()
         if not level:

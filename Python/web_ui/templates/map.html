@@ -30,7 +30,7 @@
   <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap; margin-bottom:.75rem;">
     <span><span class="swatch" style="background:#2d6a4f"></span> named <b id="n-named">0</b></span>
     <span><span class="swatch" style="background:#e9c46a"></span> swept <b id="n-swept">0</b></span>
-    <span><span class="swatch" style="background:#e9ecef; border:1px solid #ccc"></span> unexplored</span>
+    <span><span class="swatch" style="background:#f4f6f8; border:1px solid #8b95a1"></span> unexplored</span>
     <span><span class="swatch" style="background:#fff; box-shadow:inset 0 0 0 2px #c0392b"></span> stale <b id="n-stale">0</b></span>
     <span><span class="swatch" style="background:radial-gradient(circle, #6f42c1 0 32%, #e9ecef 36%)"></span> owned place <b id="n-owned">0</b></span>
     <span id="pct" style="color:#666"></span>
@@ -38,13 +38,13 @@
   <p class="breadcrumb" style="margin-top:-.25rem;">stale = not re-observed in over {{ map.stale_after_hours }}h (real time)</p>
 
   <div id="grid" data-level="{{ level }}" data-cols="{{ map.cols }}" data-rows="{{ map.rows }}"
-       style="display:grid; gap:1px; background:#ddd; padding:1px; width:max-content; max-width:100%; overflow:auto;">
+       style="display:grid; gap:1px; background:#8b95a1; padding:1px; width:max-content; max-width:100%; overflow:auto;">
   </div>
   <p id="tip" style="color:#666; min-height:1.4em; margin-top:.5rem;">Hover a cell for details.</p>
 
   <style>
     .swatch { display:inline-block; width:14px; height:14px; border-radius:2px; vertical-align:middle; margin-right:.25rem; }
-    #grid .cell { width:100%; height:100%; background:#e9ecef; }
+    #grid .cell { width:100%; height:100%; background:#f4f6f8; }
     #grid .cell.named { background:#2d6a4f; }
     #grid .cell.swept { background:#e9c46a; }
     #grid .cell.stale { box-shadow:inset 0 0 0 2px #c0392b; }

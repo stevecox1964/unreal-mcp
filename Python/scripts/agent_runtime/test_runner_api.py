@@ -161,9 +161,9 @@ def test_director_routes():
 
     r = client.post("/world_grid", json={"cell_size": 500.0, "padding": 100.0})
     check("world_grid forwards args", mgr.calls[-1] == ("world_grid", 500.0, 100.0))
-    check("world_grid defaults on empty body",
+    check("world_grid defaults on empty body (30 m district cells)",
           client.post("/world_grid").status_code == 200
-          and mgr.calls[-1] == ("world_grid", 400.0, 800.0))
+          and mgr.calls[-1] == ("world_grid", 3000.0, 800.0))
 
 
 def test_runner_client_director_methods():

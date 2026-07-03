@@ -232,7 +232,7 @@ def register_simulation_tools(mcp: FastMCP, runner: RunnerClient = None) -> None
         return _attached(lambda r: r.reset_places())
 
     @mcp.tool()
-    def generate_world_grid(cell_size: float = 400.0, padding: float = 800.0) -> Dict[str, Any]:
+    def generate_world_grid(cell_size: float = 3000.0, padding: float = 800.0) -> Dict[str, Any]:
         """Compute the fixed world grid from the current level's actor positions.
 
         Scans every actor in the level, takes the min/max x/y plus padding as the
@@ -242,12 +242,15 @@ def register_simulation_tools(mcp: FastMCP, runner: RunnerClient = None) -> None
         Re-run after the level layout changes; edit the JSON to trim outliers
         (e.g. a distant skybox actor inflating the bounds).
 
+        A grid cell is a navigation *district* that holds several ~3 m place
+        cells, so the default is 3000 cm (30 m) — not a place-sized tile.
+
         Args:
-            cell_size: Grid cell edge length in centimeters. Default 400.
+            cell_size: Grid cell edge length in centimeters. Default 3000 (30 m).
             padding: Extra margin added around the actor bounds, in cm. Default 800.
 
         Example valid input:
-            {"cell_size": 400.0, "padding": 800.0}
+            {"cell_size": 3000.0, "padding": 800.0}
         """
         return _attached(lambda r: r.generate_world_grid(cell_size=cell_size, padding=padding))
 
