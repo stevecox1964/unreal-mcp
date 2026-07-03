@@ -558,7 +558,7 @@ class AgentManager:
                     continue
 
                 known_chars = [
-                    a.bound_unreal_actor_label or a.unreal_actor_name
+                    a.display_name
                     for a in self.agents.values()
                     if a.agent_id != agent.agent_id and a.has_unreal_binding
                 ]
@@ -789,7 +789,7 @@ class AgentManager:
             agent.bound_unreal_actor_name, agent_id, self._agents_dir
         )
         observation["known_characters"] = [
-            a.bound_unreal_actor_label or a.unreal_actor_name
+            a.display_name
             for a in self.agents.values()
             if a.agent_id != agent_id and a.has_unreal_binding
         ]
@@ -1956,10 +1956,35 @@ class AgentManager:
         }
 
     def _resolve_action_actor_refs(self, action: dict) -> dict:
-        """Translate agent IDs in action targets into bound Unreal actor names."""
+        """Translate a character reference in an action target into the bound
+        Unreal actor name the bridge needs.
+
+        The LLM only ever knows agents by their **display name** (that is all
+        known_characters exposes), so a targeted action arrives as
+        ``target_actor="Maren"`` — not the actor "APC_Maren_BP" the engine wants.
+        This is the reverse of known_characters: match the reference against each
+        agent's display name, actor label, or id (case-insensitively) and swap in
+        the bound actor name. Non-matches (e.g. the human player) pass through.
+        """
         resolved = dict(action)
         for key in ("target", "target_actor"):
             value = resolved.get(key)
-            if isinstance(value, str) and value in self.agents:
-                resolved[key] = self.agents[value].bound_unreal_actor_name
+            if isinstance(value, str):
+                actor = self._actor_name_for(value)
+                if actor:
+                    resolved[key] = actor
         return resolved
+
+    def _actor_name_for(self, ref: str) -> str | None:
+        """Resolve a character reference (display name / actor label / agent id)
+        to its bound Unreal actor name, case-insensitively; None if no match."""
+        key = ref.strip().lower()
+        if not key:
+            return None
+        for a in self.agents.values():
+            if not a.has_unreal_binding:
+                continue
+            if key in {a.agent_id.lower(), a.display_name.lower(),
+                       (a.bound_unreal_actor_label or "").lower()}:
+                return a.bound_unreal_actor_name
+        return None

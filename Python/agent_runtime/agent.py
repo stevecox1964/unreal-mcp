@@ -69,6 +69,15 @@ class Agent:
         return self.state.get("unreal_actor_name", self.agent_id)
 
     @property
+    def display_name(self) -> str:
+        """The name other agents call this one — a clean semantic label, never the
+        engine actor label/name. Decoupled so a placed actor can be tagged with
+        engine plumbing (e.g. "APC_Maren_BP") while she stays "Maren" in the sim.
+        Falls back to the actor-name hint for legacy agents that predate the field.
+        """
+        return self.state.get("display_name") or self.unreal_actor_name
+
+    @property
     def bound_unreal_actor_name(self) -> str:
         return self.state.get("bound_unreal_actor_name", self.unreal_actor_name)
 

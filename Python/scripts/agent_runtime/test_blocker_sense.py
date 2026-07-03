@@ -81,6 +81,7 @@ class StubAgent:
         self.bound_unreal_actor_name = f"BP_{agent_id}"
         self.bound_unreal_actor_label = agent_id
         self.unreal_actor_name = agent_id
+        self.display_name = agent_id
         self.has_unreal_binding = True
         self.is_active = True
 

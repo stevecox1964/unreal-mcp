@@ -1,7 +1,8 @@
 {
   "agent_id": "maren",
-  "unreal_actor_name": "Maren",
-  "blueprint_class": "/Game/Blueprints/BP_CameraNPC.BP_CameraNPC_C",
+  "unreal_actor_name": "APC_Maren_BP",
+  "display_name": "Maren",
+  "blueprint_class": "/Game/Blueprints/APC_Maren_BP.APC_Maren_BP_C",
   "tier": 2,
   "is_active": true,
   "tick_interval_seconds": 2,

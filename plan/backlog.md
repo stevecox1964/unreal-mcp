@@ -500,6 +500,37 @@ that turns a pass-by into a face-to-face interaction).
 
 ---
 
+## 13. World initialization + "make all the things" generation
+
+**Status:** Not started · *(user, 2026-07-03)*
+
+The long-term goal: **initialize a world from scratch** with **generation code that builds all the
+things** — spawns/wires the actors, child BPs, agents, grid, and place cells automatically, so a new
+world stands itself up. This is the automated end-state of the [[drag-and-drop]] philosophy: the end
+user adds content, the system makes it work; config complexity is ours, never theirs.
+
+**Interim (now):** until that generation code exists, **Claude Code (dev mode) does the linking by
+hand when the user adds things in Unreal.** Concretely, what the child-BP rework needed this session:
+- A user drops a new actor / child BP in the level (e.g. `APC_Maren_BP`, `APC_Dufus_BP`).
+- CC relinks the agent config: `unreal_actor_name` (find/bind hint), `blueprint_class` (spawn
+  fallback), and `display_name` (the clean name others use — engine label stays out of the sim).
+- CC verifies the binding round-trips (known_characters shows the clean name; targeted actions
+  resolve back to the actor) and the suite stays green.
+
+**Toward generation (future pieces to design):**
+- A world-init routine that takes an inventory of placed actors + intended agents and **emits the
+  agent `state.json` + bindings** (the manual step above, automated).
+- Auto-discovery of placed actors from the running level (the bridge can already `find_actor`) so the
+  config can be **generated from what's actually in the world**, not hand-authored.
+- Bootstrapping the grid + community place cells for a fresh level (relates to #11 activation / the
+  30 m district grid — see [[grid-place-cell-sizes]]).
+- Scaffolding a new agent end-to-end (the `/create-npc` skill is the seed of this).
+
+Relates to: `feedback_drag_and_drop`, `feedback_dev_sim_modes` (dev-mode CC operates), #11 (grid/place
+build-out), the child-BP rework (the first hand-linked example), `/create-npc`.
+
+---
+
 ## Outstanding — human / editor / live (not loop-safe)
 
 - **Merge** `auto-loop/backlog` → `main` (21 commits) and decide on `git push`.
@@ -509,7 +540,8 @@ that turns a pass-by into a face-to-face interaction).
 - **#2 settings page + rename:** UI (`config_store` backend done); "NPC Builder" → "Unreal World Sim". *Live app to verify.*
 - **#6 map:** manual-capture mode (user snapshots) + lizard-brain routing (path-as-facts). *Editor/design.*
 - **#5 consolidation** + a **sentiment policy:** need an LLM summariser/signal.
-- **Child Blueprints** `BP_Dufus`/`BP_Maren` (mesh override) + rebind. *Editor + mesh choice.*
+- **Child Blueprints** — child BPs made (`APC_Maren_BP`/`APC_Dufus_BP`) + Python rebind ✓ 2026-07-03;
+  **only the mesh override remains** (editor + mesh choice). See "▶ Next up".
 
 ## Recently landed
 
@@ -540,21 +572,26 @@ that turns a pass-by into a face-to-face interaction).
 
 ## ▶ Next up: Child Blueprints for per-agent meshes
 
-**Status:** Next · **Independence:** Self-contained
+**Status:** Rebind landed (2026-07-03); mesh choice pending · **Independence:** Self-contained
 
 Dufus and Maren currently share one Blueprint (`BP_CameraNPC`) and look
 identical. Give each its own mesh without duplicating logic.
 
-- [ ] Create `BP_Dufus` and `BP_Maren` as **child Blueprints of `BP_CameraNPC`**,
-      overriding **only** the skeletal mesh (keep all shared logic — the
-      `APCCharacterComponent`, the AIState Text Render display, AI controller —
-      on the base so both inherit it).
-- [ ] Rebind the agents to the new child BPs: today `dufus` → `BP_CameraNPC_C_1`,
-      `maren` → `BP_CameraNPC_C_0` (placed actors). Either replace the placed
-      actors with the child BPs or update each agent's `unreal_actor_name` /
-      `blueprint_class` binding so the sim spawns/binds the right one.
+- [x] Create child Blueprints of `BP_CameraNPC` — **user made `APC_Maren_BP` +
+      `APC_Dufus_BP`** in-editor (2026-07-03), inheriting the shared
+      `APCCharacterComponent` / AIState display / AI controller from the base.
+- [x] **Rebind the agents (Python side) ✓ 2026-07-03.** Each `state.json` now
+      binds to its child actor (`unreal_actor_name` = the placed label
+      `APC_<Name>_BP`, `blueprint_class` = `/Game/Blueprints/APC_<Name>_BP.APC_<Name>_BP_C`).
+      **Plus a display-name decoupling** so the engine label never leaks into the
+      sim: new `Agent.display_name` ("Maren"/"Dufus") drives `known_characters`,
+      and `_resolve_action_actor_refs`/`_actor_name_for` map a target back
+      (display name / label / id → bound actor). Test: `test_actor_binding.py`.
 - [ ] Pick the two meshes (project has `SkeletonCharacter` + AssetsvilleTown
-      character skeletal meshes available).
+      character skeletal meshes available). *(Editor + mesh choice — B-side.)*
+
+*(The hand-linking done here is the first worked example of **#13** world-build
+assistance — CC wires config when the user adds things, pending generation code.)*
 
 Why child BPs not full copies: fix shared bugs once; the status-bubble display
 and component come along automatically.
