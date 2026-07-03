@@ -87,7 +87,7 @@ _STANDOFF_CM = 300.0
 # The lizard brain translates engine noise; it does NOT infer meaning or advise action.
 _BLOCKER_KEYWORDS: list[tuple[set[str], str]] = [
     ({"van", "car", "truck", "vehicle", "bus", "taxi", "auto"}, "vehicle"),
-    ({"npc", "character", "person", "human", "pedestrian", "civilian", "thirdperson"}, "person"),
+    ({"npc", "apc", "character", "person", "human", "pedestrian", "civilian", "thirdperson"}, "person"),
     ({"dog", "cat", "animal", "bird", "creature", "pet"}, "animal"),
     ({"wall", "building", "fence", "barrier", "door", "gate", "pillar", "column"}, "structure"),
 ]

@@ -166,6 +166,13 @@ def test_stuck_still_reports_any_category():
               bridge.actions == [])
 
 
+def test_apc_child_bp_classifies_as_person():
+    # The user's child blueprints (APC_BP) carry no "npc"/"character" substring —
+    # they must still read as a person or avoidance goes silent for them.
+    from agent_runtime.agent_manager import _classify_blocker
+    check("APC child BP is a person", _classify_blocker("APC_BP_2", "APC_BP_C") == "person")
+
+
 def test_sense_note_renders_facts_only():
     note = llm_router._sense_note({"blocker": {"category": "person", "distance_cm": 210.0}})
     check("blocker renders without stuck", "person 210 cm directly ahead" in note)
@@ -204,6 +211,7 @@ def main():
     test_structure_ahead_while_moving_stays_silent()
     test_idle_agent_never_traces()
     test_stuck_still_reports_any_category()
+    test_apc_child_bp_classifies_as_person()
     test_sense_note_renders_facts_only()
     test_prompt_carries_sense_slot_and_doctrine()
     print("\nAll blocker-sense checks passed.")
