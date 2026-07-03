@@ -58,6 +58,39 @@ class RunnerClient:
         """Restart the sim from morning — fresh day, keep memories + place cells."""
         return self._client.post("/reset_day").json()
 
+    def pause(self) -> dict:
+        return self._client.post("/pause").json()
+
+    def resume(self) -> dict:
+        return self._client.post("/resume").json()
+
+    def agents(self) -> list:
+        return self._client.get("/agents").json().get("agents", [])
+
+    def inspect_agent(self, agent_id: str) -> dict:
+        return self._client.get(f"/agents/{agent_id}").json()
+
+    def set_agent_goal(self, agent_id: str, goal: str) -> dict:
+        return self._client.post(f"/agents/{agent_id}/goal", json={"goal": goal}).json()
+
+    def pulse_agent(self, agent_id: str) -> dict:
+        """Tick one agent now, ignoring its cooldown."""
+        return self._client.post(f"/agents/{agent_id}/tick").json()
+
+    def reset_agents(self) -> dict:
+        return self._client.post("/reset_agents").json()
+
+    def reset_places(self) -> dict:
+        return self._client.post("/reset_places").json()
+
+    def resync(self) -> dict:
+        return self._client.post("/resync").json()
+
+    def generate_world_grid(self, cell_size: float = 400.0, padding: float = 800.0) -> dict:
+        return self._client.post("/world_grid", json={
+            "cell_size": cell_size, "padding": padding,
+        }).json()
+
     # ── Convenience ─────────────────────────────────────────────────────────────
 
     def is_running(self) -> bool:

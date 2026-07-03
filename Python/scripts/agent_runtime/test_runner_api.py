@@ -65,6 +65,46 @@ class StubManager:
         self.running = False
         return {"status": "day_reset", "world_time": "Day 1, 08:00", "stopped_simulation": True}
 
+    # ── Director surface (#3/2.4 — the MCP tools attach through these) ──────────
+
+    async def pause_simulation(self) -> dict:
+        self.calls.append(("pause",))
+        return {"status": "paused"}
+
+    async def resume_simulation(self) -> dict:
+        self.calls.append(("resume",))
+        return {"status": "resumed"}
+
+    def list_agents(self) -> list:
+        return [{"agent_id": "dufus"}, {"agent_id": "maren"}]
+
+    def inspect_agent(self, agent_id: str) -> dict:
+        return {"agent_id": agent_id, "tier": 2}
+
+    def set_agent_goal(self, agent_id: str, goal: str) -> dict:
+        self.calls.append(("set_goal", agent_id, goal))
+        return {"status": "updated", "agent_id": agent_id, "goal": goal}
+
+    async def pulse_agent(self, agent_id: str) -> dict:
+        self.calls.append(("pulse", agent_id))
+        return {"agent_id": agent_id, "action": "idle"}
+
+    async def reset_agents(self) -> dict:
+        self.calls.append(("reset_agents",))
+        return {"status": "reset"}
+
+    async def reset_world_places(self) -> dict:
+        self.calls.append(("reset_places",))
+        return {"status": "reset", "tables": ["place_cells"]}
+
+    def resync(self) -> dict:
+        self.calls.append(("resync",))
+        return {"status": "resynced", "level": "TestWorld"}
+
+    def generate_world_grid(self, cell_size: float = 400.0, padding: float = 800.0) -> dict:
+        self.calls.append(("world_grid", cell_size, padding))
+        return {"status": "generated", "level": "TestWorld"}
+
 
 def test_control_app_routes():
     mgr = StubManager()
@@ -95,6 +135,53 @@ def test_control_app_routes():
 
     check("stop returns the manager result", client.post("/stop").json()["ticks"] == 5)
     check("status reflects stopped", client.get("/status").json()["running"] is False)
+
+
+def test_director_routes():
+    """The #3/2.4 surface: everything the MCP simulation tools need over HTTP."""
+    mgr = StubManager()
+    client = TestClient(build_control_app(mgr))
+
+    check("pause proxies the manager", client.post("/pause").json()["status"] == "paused")
+    check("resume proxies the manager", client.post("/resume").json()["status"] == "resumed")
+    check("agents lists loaded agents",
+          [a["agent_id"] for a in client.get("/agents").json()["agents"]] == ["dufus", "maren"])
+    check("agent detail proxies inspect", client.get("/agents/dufus").json()["tier"] == 2)
+
+    r = client.post("/agents/dufus/goal", json={"goal": "greet the player"})
+    check("goal route forwards agent + goal", mgr.calls[-1] == ("set_goal", "dufus", "greet the player"))
+    check("goal route returns the update", r.json()["goal"] == "greet the player")
+
+    check("per-agent tick pulses now", client.post("/agents/maren/tick").json()["agent_id"] == "maren")
+    check("pulse recorded", mgr.calls[-1] == ("pulse", "maren"))
+
+    check("reset_agents proxies", client.post("/reset_agents").json()["status"] == "reset")
+    check("reset_places proxies", client.post("/reset_places").json()["tables"] == ["place_cells"])
+    check("resync proxies", client.post("/resync").json()["status"] == "resynced")
+
+    r = client.post("/world_grid", json={"cell_size": 500.0, "padding": 100.0})
+    check("world_grid forwards args", mgr.calls[-1] == ("world_grid", 500.0, 100.0))
+    check("world_grid defaults on empty body",
+          client.post("/world_grid").status_code == 200
+          and mgr.calls[-1] == ("world_grid", 400.0, 800.0))
+
+
+def test_runner_client_director_methods():
+    mgr = StubManager()
+    rc = RunnerClient(client=TestClient(build_control_app(mgr)))
+
+    check("client.pause", rc.pause()["status"] == "paused")
+    check("client.resume", rc.resume()["status"] == "resumed")
+    check("client.agents returns the list", rc.agents()[0]["agent_id"] == "dufus")
+    check("client.inspect_agent", rc.inspect_agent("maren")["agent_id"] == "maren")
+    check("client.set_agent_goal", rc.set_agent_goal("dufus", "patrol")["goal"] == "patrol")
+    check("client.pulse_agent", rc.pulse_agent("dufus")["agent_id"] == "dufus")
+    check("client.reset_agents", rc.reset_agents()["status"] == "reset")
+    check("client.reset_places", rc.reset_places()["status"] == "reset")
+    check("client.resync", rc.resync()["status"] == "resynced")
+    check("client.generate_world_grid forwards args",
+          rc.generate_world_grid(cell_size=250.0)["status"] == "generated"
+          and mgr.calls[-1] == ("world_grid", 250.0, 800.0))
 
 
 def test_start_defaults():
@@ -144,6 +231,8 @@ def test_sim_runner_create_app_wires_offline():
 
 def main():
     test_control_app_routes()
+    test_director_routes()
+    test_runner_client_director_methods()
     test_start_defaults()
     test_runner_client_round_trip()
     test_runner_client_is_running_helper()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import time
@@ -1854,6 +1855,48 @@ class AgentManager:
         a.set_goal(goal, self._agents_dir)
         logger.info(f"[{agent_id}] Goal updated -> '{goal}'")
         return {"status": "updated", "agent_id": agent_id, "goal": goal}
+
+    def generate_world_grid(self, cell_size: float = 400.0, padding: float = 800.0) -> dict:
+        """Compute the fixed world grid from the current level's actor positions.
+
+        Scans every actor, takes the min/max x/y plus padding as the world
+        bounds, writes ``worlds/<level>/world_grid.json``, and swaps the live
+        grid in place. Needs the editor open with PIE stopped (editor-world
+        scan). Lived in the MCP tool until #3/2.4 moved it here so the runner
+        (the bridge's sole owner) can serve it over HTTP.
+        """
+        level = self.bridge.get_current_level()
+        if not level:
+            return {"status": "error",
+                    "error": "Could not determine current level — is Unreal running?"}
+
+        actors = self.bridge.get_level_actors()
+        points = [a["location"][:2] for a in actors
+                  if isinstance(a.get("location"), list) and len(a["location"]) >= 2]
+        if not points:
+            return {"status": "error",
+                    "error": "No actor positions returned — is the editor open (and PIE stopped)?"}
+
+        xs, ys = [p[0] for p in points], [p[1] for p in points]
+        bounds = {
+            "min_x": min(xs) - padding, "min_y": min(ys) - padding,
+            "max_x": max(xs) + padding, "max_y": max(ys) + padding,
+        }
+        path = self.worlds_dir / level / "world_grid.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"cell_size": cell_size, "bounds": bounds}, indent=2),
+            encoding="utf-8",
+        )
+        self.world_grid = WorldGrid(cell_size=cell_size, bounds=bounds)
+        return {
+            "status": "generated",
+            "level": level,
+            "path": str(path),
+            "actors_scanned": len(points),
+            "bounds": bounds,
+            "grid": self.world_grid.describe(),
+        }
 
     # Helpers
 

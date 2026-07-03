@@ -19,11 +19,21 @@ def build_control_app(manager) -> FastAPI:
         (body: ``{tick_seconds?, active_agents?, mode?}``)
       - ``POST /stop``          → ``manager.stop_simulation()``
       - ``POST /tick``          → ``manager.tick()`` (run one tick now — single-step debugging)
+      - ``POST /pause`` / ``POST /resume`` → pause/resume the loop without stopping
+      - ``GET  /agents``        → ``{"agents": manager.list_agents()}``
+      - ``GET  /agents/{id}``   → ``manager.inspect_agent(id)``
+      - ``POST /agents/{id}/goal`` (body ``{goal}``) → ``manager.set_agent_goal``
+      - ``POST /agents/{id}/tick`` → ``manager.pulse_agent(id)`` (ignore cooldown)
+      - ``POST /reset_agents``  → ``manager.reset_agents()``
+      - ``POST /reset_places``  → ``manager.reset_world_places()``
+      - ``POST /resync``        → ``manager.resync()``
+      - ``POST /world_grid`` (body ``{cell_size?, padding?}``) → ``manager.generate_world_grid``
 
     This is transport only — all behavior lives in the manager, so the same app
     serves the standalone ``sim_runner`` and is exercised offline with a stub
     manager via ``TestClient``. The manager owns the single Unreal socket, so the
-    runner is the exclusive host of the sim loop.
+    runner is the exclusive host of the sim loop; the MCP simulation tools attach
+    here as thin clients (#3/2.4) instead of hosting a second manager.
     """
     app = FastAPI(title="Unreal World Sim Runner", docs_url=None, redoc_url=None)
 
@@ -36,7 +46,9 @@ def build_control_app(manager) -> FastAPI:
             "ok": True,
             "hint": "This is the JSON control API. Open the web cockpit to drive it: "
                     "http://127.0.0.1:8765/sim",
-            "endpoints": ["/health", "/status", "/events", "/start", "/stop", "/tick"],
+            "endpoints": ["/health", "/status", "/events", "/start", "/stop", "/tick",
+                          "/pause", "/resume", "/agents", "/reset_day", "/reset_agents",
+                          "/reset_places", "/resync", "/world_grid"],
         }
 
     @app.get("/health")
@@ -76,6 +88,51 @@ def build_control_app(manager) -> FastAPI:
     async def reset_day() -> dict:
         """Restart the sim from morning (fresh day; memories + place cells kept)."""
         return await manager.restart_day()
+
+    @app.post("/pause")
+    async def pause() -> dict:
+        return await manager.pause_simulation()
+
+    @app.post("/resume")
+    async def resume() -> dict:
+        return await manager.resume_simulation()
+
+    @app.get("/agents")
+    def agents() -> dict:
+        return {"agents": manager.list_agents()}
+
+    @app.get("/agents/{agent_id}")
+    def agent_detail(agent_id: str) -> dict:
+        return manager.inspect_agent(agent_id)
+
+    @app.post("/agents/{agent_id}/goal")
+    async def agent_goal(agent_id: str, request: Request) -> dict:
+        body = await _json_body(request)
+        return manager.set_agent_goal(agent_id, str(body.get("goal", "")))
+
+    @app.post("/agents/{agent_id}/tick")
+    async def agent_tick(agent_id: str) -> dict:
+        return await manager.pulse_agent(agent_id)
+
+    @app.post("/reset_agents")
+    async def reset_agents() -> dict:
+        return await manager.reset_agents()
+
+    @app.post("/reset_places")
+    async def reset_places() -> dict:
+        return await manager.reset_world_places()
+
+    @app.post("/resync")
+    def resync() -> dict:
+        return manager.resync()
+
+    @app.post("/world_grid")
+    async def world_grid(request: Request) -> dict:
+        body = await _json_body(request)
+        return manager.generate_world_grid(
+            cell_size=float(body.get("cell_size", 400.0)),
+            padding=float(body.get("padding", 800.0)),
+        )
 
     return app
 
