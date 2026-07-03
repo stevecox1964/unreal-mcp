@@ -823,6 +823,54 @@ decision call (OpenAI text-only). Test: `test_route_map.py`. Suite 30/30. **Rema
 
 ---
 
+## 6c. Real-world PNG map background — grid + place cells overlaid on the actual world
+
+**Status:** Not started · **Source:** user, 2026-07-03 · **Independence:** extends A1 (web `/map`) + #6b
+· **Asset in place:** `Python/web_ui/images/world_map_view.png` (1023×670, a top-down capture of the
+whole level; the user added it "for future work").
+
+Today both maps are **abstract**: the web `/map` (A1) is a bare CSS grid of colored cells, and the #6b
+route map is a rendered top-down of cell states. The user wants the grid + place cells drawn **on top of
+a real top-down image of the world**, so you see the actual town with the grid, named community cells,
+and APC-owned place cells (the 3 m boxes / bigger building extents) registered over it. Applies to the
+web `/map` first; could later back the #6b APC route map too.
+
+**The crux is registration (world ↔ image-pixel mapping), not drawing.** Everything else is
+straightforward overlay work; the hard part is knowing which world (X, Y) each pixel is.
+- The capture already looks **whole-world framed**: image aspect 1.527 ≈ world-bounds aspect 1.523
+  (`world_grid.json` bounds 47000×30859 cm). So a first cut can assume *the PNG covers exactly the grid
+  bounds* and map linearly bounds→pixels. Verify before trusting it.
+- **UE axis orientation must be reconciled:** X is forward/north-ish (red), Y is right/east (green),
+  and our grid convention is **row 0 = north (−Y) at the top** (see A1 / `route_map.py`). The capture's
+  in-editor axis gizmo (bottom-left of the screenshot) shows X/Y rotated from screen up/right, so the
+  overlay needs an explicit `world→pixel` transform (which world axis → image u, which → image v, and
+  the sign/flip), not an assumption.
+- Make it **robust to re-capture:** store the image's world extent + orientation next to it (e.g.
+  `world_map_view.json`: `{covers_bounds: {min_x,min_y,max_x,max_y}, x_axis:"right|left|up|down",
+  y_axis:...}` or a 2-point calibration `pixel↔world`). Then a new screenshot at a different framing
+  just updates that file, no code change. Decision below.
+
+**Build sketch (once registration is settled):**
+- `web_ui`: serve the PNG (static route/`/images/...`); add a `world→pixel` helper from the calibration.
+- `map.html`: put the PNG as the `#grid` background (or an absolutely-positioned layer under it), size
+  the grid to the image, and make cells a **semi-transparent overlay** with an opacity/hide toggle so
+  you can see the town through them. Named/swept/owned styling unchanged.
+- **Place-cell markers:** draw community names at their cell centers and owned places at
+  `cell_center + (dx,dy)` (already in `all_owned_places`), sized by `extent_cm` (the 3 m box, bigger for
+  buildings) — the first consumer of the extent field (#11.2 D5 left it unused).
+- Keep the abstract grid as a fallback when no image/calibration exists (worlds without a capture).
+
+**Decisions (human, later):** calibration method — assume-covers-bounds (simplest, works if every
+capture is whole-world ortho) vs. a stored world-extent JSON vs. an in-UI 2-point click-calibration
+(most robust to ad-hoc screenshots)? Is the capture **orthographic** (needed for a clean linear map) or
+a perspective shot (parallax → non-linear, would need corner homography)? One shared background for the
+web map and the #6b APC route map, or separate?
+
+Ties into: A1 (web `/map`), #6b (APC route map), #11.2 (owned-place extents), #1 (name→cell resolve),
+`generate_world_grid` (bounds source), [[architecture_lizard_brain_sensing]].
+
+---
+
 ## 7. Community place-cell sweep — unexplored-cell 360 + breadcrumbs  *(mechanics; role RETIRED)*
 
 **Status:** Mechanics built; **dedicated-role concept retired 2026-07-01** — behavior folded into **#11**
