@@ -15,6 +15,11 @@ was already wedged (stuck). The fix is cognitive, not engine steering (no RVO):
      when stuck, whatever is ahead is reported (unchanged behavior).
   4. The prompt renders the facts (_sense_note) and carries the mind-level
      doctrine: step around, don't walk through.
+
+B7b (personal space): the ~9 s tick cadence is too slow to stop a walk once
+someone is close, so inside _STANDOFF_CM the lizard brain halts the walk itself
+(motor reflex, not a decision), attaches blocker.halted, and the forced
+re-decide lets the LLM choose from a whole-person-in-frame distance.
 """
 from __future__ import annotations
 
@@ -27,7 +32,7 @@ sys.path.insert(0, str(ROOT))
 
 from agent_runtime import llm_router                                    # noqa: E402
 from agent_runtime.agent_manager import (                               # noqa: E402
-    AgentManager, _AHEAD_TRACE_CM, _STUCK_TICKS, _STUCK_TRACE_CM,
+    AgentManager, _AHEAD_TRACE_CM, _STANDOFF_CM, _STUCK_TICKS, _STUCK_TRACE_CM,
 )
 
 
@@ -45,6 +50,7 @@ class TraceBridge:
         self.current_action = current_action
         self.hit = hit                    # None = no hit, else dict returned on trace
         self.trace_calls: list[float] = []  # distances requested
+        self.actions: list[dict] = []       # execute_action payloads (reflex stops)
 
     def get_observation(self, name, agent_id, agents_dir):
         return {"actor_name": name, "image_path": None,
@@ -54,6 +60,10 @@ class TraceBridge:
     def line_trace_forward(self, actor_name, distance_cm=300.0):
         self.trace_calls.append(distance_cm)
         return dict(self.hit) if self.hit else {"hit": False}
+
+    def execute_action(self, actor_name, action):
+        self.actions.append(action)
+        return {"status": "accepted"}
 
     def is_scene_changed(self, agent_id, image_path):
         return False  # always unchanged — exercises the skip gate
@@ -101,6 +111,23 @@ def test_person_ahead_while_moving_is_a_fact_and_forces_redecide():
         check("person blocker attached", (obs.get("blocker") or {}).get("category") == "person")
         check("blocker distance carried", obs["blocker"]["distance_cm"] == 210.0)
         check("not flagged stuck (first tick just seeds position)", obs.get("stuck") is False)
+        check("inside standoff -> reflex stop issued (B7b)",
+              bridge.actions == [{"type": "stop"}])
+        check("halt reported as a fact", obs["blocker"].get("halted") is True)
+
+
+def test_person_beyond_standoff_is_a_fact_but_no_reflex_stop():
+    with tempfile.TemporaryDirectory() as tmp:
+        distance = _STANDOFF_CM + 100.0     # seen coming, still outside personal space
+        bridge = TraceBridge(hit={"hit": True, "actor_name": "BP_Maren_2",
+                                  "actor_class": "BP_CameraNPC_C", "distance_cm": distance})
+        mgr, agent = _manager(tmp, bridge)
+        obs = mgr._observe_agent(agent)
+        check("distant person still attaches the blocker fact",
+              (obs.get("blocker") or {}).get("distance_cm") == distance)
+        check("re-decide still forced beyond the standoff", obs is not None)
+        check("no reflex stop beyond the standoff (B7b)", bridge.actions == [])
+        check("no halted fact beyond the standoff", "halted" not in obs["blocker"])
 
 
 def test_structure_ahead_while_moving_stays_silent():
@@ -135,12 +162,19 @@ def test_stuck_still_reports_any_category():
         check("stuck reports the structure too",
               (obs.get("blocker") or {}).get("category") == "structure")
         check("stuck trace uses the stuck distance", bridge.trace_calls[-1] == _STUCK_TRACE_CM)
+        check("structure inside standoff triggers no reflex stop (mobile only)",
+              bridge.actions == [])
 
 
 def test_sense_note_renders_facts_only():
     note = llm_router._sense_note({"blocker": {"category": "person", "distance_cm": 210.0}})
     check("blocker renders without stuck", "person 210 cm directly ahead" in note)
     check("no stuck line when not stuck", "not advanced" not in note)
+    check("no halt line when not halted", "halted" not in note)
+
+    note = llm_router._sense_note(
+        {"blocker": {"category": "person", "distance_cm": 210.0, "halted": True}})
+    check("reflex halt renders as a fact", "your walk has been halted" in note)
 
     note = llm_router._sense_note({"stuck": True})
     check("stuck renders without blocker", "not advanced" in note)
@@ -160,10 +194,13 @@ def test_prompt_carries_sense_slot_and_doctrine():
     check("doctrine: never walk through", "Never walk through a person" in tpl)
     check("doctrine: sidestep then continue",
           "step around" in tpl and "continue to your destination" in tpl)
+    check("doctrine: halted means close enough (B7b)",
+          "do not walk\ncloser" in tpl or "do not walk closer" in tpl.replace("\n", " "))
 
 
 def main():
     test_person_ahead_while_moving_is_a_fact_and_forces_redecide()
+    test_person_beyond_standoff_is_a_fact_but_no_reflex_stop()
     test_structure_ahead_while_moving_stays_silent()
     test_idle_agent_never_traces()
     test_stuck_still_reports_any_category()

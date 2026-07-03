@@ -74,6 +74,14 @@ _STUCK_TRACE_CM = 300.0      # forward raycast distance when stuck (cm)
 _AHEAD_TRACE_CM = 500.0      # forward raycast distance while traveling (cm)
 _MOBILE_BLOCKERS = {"person", "animal", "vehicle"}
 
+# Personal space (B7b): the decision cadence (~9 s/tick) is far too slow to stop
+# a walk once someone is close — by the next tick the agent is in their face. So
+# inside this standoff the lizard brain halts the walk itself (a motor reflex,
+# like flinching — not a decision) and reports the halt as a fact; the forced
+# re-decide then lets the LLM choose: talk, step around, continue. 300 cm is
+# roughly where a whole person fills the first-person camera frame.
+_STANDOFF_CM = 300.0
+
 # Semantic classifier for forward-trace hits.
 # Maps engine actor names/classes → generic categories the LLM can reason about.
 # The lizard brain translates engine noise; it does NOT infer meaning or advise action.
@@ -814,6 +822,19 @@ class AgentManager:
                         "category": category,
                         "distance_cm": trace.get("distance_cm", 0.0),
                     }
+                    # Personal space (B7b): inside the standoff, halt the walk
+                    # NOW — waiting for the LLM means walking into their face.
+                    if (moving and category in _MOBILE_BLOCKERS
+                            and observation["blocker"]["distance_cm"] <= _STANDOFF_CM):
+                        self.bridge.execute_action(
+                            agent.bound_unreal_actor_name, {"type": "stop"}
+                        )
+                        observation["blocker"]["halted"] = True
+                        logger.info(
+                            f"[{agent_id}] reflex stop: {category} "
+                            f"{observation['blocker']['distance_cm']:.0f} cm ahead "
+                            f"(standoff {_STANDOFF_CM:.0f} cm)"
+                        )
 
         if not self.bridge.is_scene_changed(agent_id, observation.get("image_path")):
             # The view is unchanged. Skip the LLM if the avatar is still travelling

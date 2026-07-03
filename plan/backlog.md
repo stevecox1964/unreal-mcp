@@ -17,6 +17,18 @@ grooming: 2026-06-26.
 > **#3** factory ✓. The remaining MVP gap is **#3's standalone runner** (the "runs overnight
 > independent of Claude" long pole — nothing built but the factory).
 
+> **⚑ Status (2026-07-03 — user present, two items landed):** **(1) B7b personal space BUILT** —
+> lizard-brain **reflex stop**: while moving, a *mobile* blocker inside **300 cm** (`_STANDOFF_CM`
+> ≈ whole person fills the camera frame, per the user's ask) triggers an immediate bridge `stop`
+> (motor reflex, not a decision — the ~9 s tick cadence is too slow to react once someone is close),
+> the fact renders as "your walk has been halted", and the forced re-decide (B7) lets the LLM choose:
+> talk / step around / continue (doctrine: halted = close enough, do not walk closer). Facts from
+> 500 cm unchanged. No C++ changes. `test_blocker_sense.py`. **Needs PIE verify.**
+> **(2) Route map grid layout** — the WP5 PNG now draws the **grid cell layout**: absolute column
+> numbers across the top gutter, row numbers down the left (same col,row vocabulary as `/map`
+> tooltips + the facts dict); legend + prompt note updated. `test_route_map.py`. Suite **30/30**.
+> Meanwhile the user is building **B1 child BPs** (APC_BP as a child of the shared base BP) in-editor.
+>
 > **⚑ Status (2026-07-01, night — user present, two items landed):** **(1) B7 offline fix built** —
 > user's call: fix it **engine-agnostically** (no RVO); the lizard brain now traces ahead every moving
 > tick, mobile blockers become facts that force a re-decide, the LLM sidesteps (`test_blocker_sense.py`).
@@ -198,10 +210,13 @@ Ordered for a joint session:
    business); the stuck path is unchanged. Prompt: `_sense_note` (facts) + step-around doctrine.
    Test: `test_blocker_sense.py`. **PIE-verified 2026-07-01 night (partial ✓):** Dufus roams and
    *does* move around people — but only **after the fact**: he still gets right in their faces before
-   sidestepping (undesirable). **Follow-up (B7b, open):** give him personal space — trigger the
-   sidestep earlier. Candidates: longer/earlier trace or re-decide at a standoff threshold (~150–250 cm
-   fact escalation), and/or the (b) **acceptance radius** on MoveTo so approaches stop ~1m short.
-   Cognitive-first per the user's engine-agnostic call.
+   sidestepping (undesirable). **Follow-up B7b BUILT ✓ 2026-07-03 (reflex stop, no C++):** inside a
+   **300 cm standoff** (`_STANDOFF_CM` — whole person in camera frame, the user's spec) the lizard
+   brain halts the walk itself via a bridge `stop` (motor reflex — the ~9 s tick cadence can't stop
+   a walk in time once someone is close), attaches `blocker.halted`, and the forced re-decide lets
+   the LLM choose from talking distance (doctrine: halted = close enough; step around if passing).
+   Facts still attach from 500 cm. `test_blocker_sense.py`. **Needs PIE verify:** Dufus should now
+   stop ~3 m short of people instead of face-to-face.
 8. **Carryover:** settings-page UX polish, providers end-to-end spot check, navmesh `stuck` robustness.
 
 ---

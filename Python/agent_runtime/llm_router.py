@@ -108,6 +108,9 @@ over wandering.
 Never walk through a person, animal, or vehicle. If a sense reports one
 directly ahead while you travel, step around it: walk_to forward-left or
 forward-right past it, then continue to your destination.
+If your walk was halted with someone close ahead, you are already at a
+comfortable distance — talk to them or act from right here; do not walk
+closer. If you were only passing by, step around them instead.
 
 If nothing is scheduled right now and nothing in view needs your attention,
 keep exploring: pick a direction whose
@@ -609,6 +612,8 @@ def _sense_note(observation: dict) -> str:
             f"Sense: there is a {blocker['category']} "
             f"{blocker['distance_cm']:.0f} cm directly ahead of you."
         )
+        if blocker.get("halted"):
+            lines.append("Sense: your walk has been halted.")
     return ("\n" + "\n".join(lines) + "\n") if lines else ""
 
 
@@ -634,7 +639,8 @@ def _route_map_note(observation: dict) -> str:
     if route.get("image_path"):
         lines.append("A top-down map image is attached: north is up; A (blue) = you, "
                      "B (red) = the destination; green cells are named places, tan cells "
-                     "have been observed, gray cells are unknown.")
+                     "have been observed, gray cells are unknown. The numbers along the "
+                     "edges are grid cell columns (top) and rows (left).")
     if route.get("truncated"):
         lines.append("The map is truncated — the destination area may extend past its edge.")
     lines.append("The map only shows what is known — chart your own course with walk_to.")
