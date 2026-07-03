@@ -173,6 +173,50 @@ def test_apc_child_bp_classifies_as_person():
     check("APC child BP is a person", _classify_blocker("APC_BP_2", "APC_BP_C") == "person")
 
 
+class GreetBridge:
+    """Stub bridge for the walk-to-character standoff: a fixed target position."""
+    def __init__(self, target_xy):
+        self.target_xy = target_xy
+        self.actions: list[dict] = []
+
+    def get_character_transform(self, name):
+        x, y = self.target_xy
+        return {"location": {"x": x, "y": y, "z": 90.0}, "rotation": None}
+
+    def execute_action(self, actor_name, action):
+        self.actions.append(action)
+        return {"status": "accepted"}
+
+
+def test_walk_to_character_stops_at_greeting_distance():
+    # Greeting bug (user, live): walk_to a character drove all the way into their
+    # face, and the ~9s reflex stop can't catch a one-tick approach. Fix: the
+    # approach terminates _STANDOFF_CM short at the command level.
+    with tempfile.TemporaryDirectory() as tmp:
+        bridge = GreetBridge((1000.0, 0.0))         # target 1000 cm due +X
+        mgr, agent = _manager(tmp, bridge)
+        obs = {"location": {"x": 0.0, "y": 0.0, "z": 90.0}, "image_path": None}
+        mgr._execute_world_action(agent, {"type": "walk_to", "target_actor": "BP_Maren"}, obs)
+
+        walked = bridge.actions[-1]
+        check("approach converted to a location walk",
+              walked["type"] == "walk_to" and "location" in walked)
+        check("target_actor dropped from the approach", "target_actor" not in walked)
+        loc = walked["location"]
+        check("stops the standoff short of the target",
+              abs(loc[0] - (1000.0 - _STANDOFF_CM)) < 1.0 and abs(loc[1]) < 1.0)
+
+
+def test_walk_to_character_already_close_does_not_close_in():
+    with tempfile.TemporaryDirectory() as tmp:
+        bridge = GreetBridge((_STANDOFF_CM - 50.0, 0.0))   # already inside standoff
+        mgr, agent = _manager(tmp, bridge)
+        obs = {"location": {"x": 0.0, "y": 0.0, "z": 90.0}, "image_path": None}
+        res = mgr._execute_world_action(agent, {"type": "walk_to", "target_actor": "BP_Maren"}, obs)
+        check("no walk issued when already at greeting distance", bridge.actions == [])
+        check("stays put instead of stepping into their face", res.get("action") == "idle")
+
+
 def test_sense_note_renders_facts_only():
     note = llm_router._sense_note({"blocker": {"category": "person", "distance_cm": 210.0}})
     check("blocker renders without stuck", "person 210 cm directly ahead" in note)
@@ -212,6 +256,8 @@ def main():
     test_idle_agent_never_traces()
     test_stuck_still_reports_any_category()
     test_apc_child_bp_classifies_as_person()
+    test_walk_to_character_stops_at_greeting_distance()
+    test_walk_to_character_already_close_does_not_close_in()
     test_sense_note_renders_facts_only()
     test_prompt_carries_sense_slot_and_doctrine()
     print("\nAll blocker-sense checks passed.")

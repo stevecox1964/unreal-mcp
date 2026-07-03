@@ -1472,6 +1472,30 @@ class AgentManager:
             if target is not None:
                 action = {**action, "location": target}
 
+        # walk_to a known character: stop a personal-space standoff short of them
+        # (B7b) instead of walking into their face. The bridge's move-to-actor
+        # drives the whole gap closed, and the ~9 s decision cadence means the
+        # reflex stop in _observe_agent can't catch an approach that closes it
+        # within a single tick — so terminate the approach short at the command
+        # level. Engine-agnostic: compute a stop point and reuse walk_to location.
+        # Falls through unchanged if either position is unknown (e.g. the player).
+        if (t == "walk_to" and action.get("target_actor")
+                and not action.get("location") and not action.get("direction")):
+            me = _loc_xyz(observation.get("location"))
+            tgt = None
+            if me is not None:
+                tf = self.bridge.get_character_transform(action["target_actor"])
+                tgt = _loc_xyz((tf or {}).get("location"))
+            if me is not None and tgt is not None:
+                dist = math.hypot(tgt[0] - me[0], tgt[1] - me[1])
+                if dist <= _STANDOFF_CM:
+                    return {"status": "accepted", "action": "idle",
+                            "note": "already at greeting distance — did not close in"}
+                f = (dist - _STANDOFF_CM) / dist
+                action = {k: v for k, v in action.items() if k != "target_actor"}
+                action["location"] = [me[0] + (tgt[0] - me[0]) * f,
+                                      me[1] + (tgt[1] - me[1]) * f, tgt[2]]
+
         return self.bridge.execute_action(agent.bound_unreal_actor_name, action)
 
     def _execute_sweep_observe(self, agent: Agent, action: dict, observation: dict) -> dict:
