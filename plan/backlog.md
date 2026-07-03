@@ -27,7 +27,19 @@ grooming: 2026-06-26.
 > **(2) Route map grid layout** — the WP5 PNG now draws the **grid cell layout**: absolute column
 > numbers across the top gutter, row numbers down the left (same col,row vocabulary as `/map`
 > tooltips + the facts dict); legend + prompt note updated. `test_route_map.py`. Suite **30/30**.
-> Meanwhile the user is building **B1 child BPs** (APC_BP as a child of the shared base BP) in-editor.
+> Meanwhile the user is building **B1 child BPs** (APC_BP as a child of the shared base BP) in-editor
+> — the blocker classifier learned `apc` so those children still read as *person* (B7/B7b keep working).
+>
+> **⚑ Same session, later (user: "Finish #11.2 and #3"):** **(3) #11.2 leftovers landed** — owned
+> places now surface in `known_places` (anchor+offset position, `(maren's place)` owner tag in the
+> prompt) and on the web `/map` (purple dot + tooltip + legend count; new `PlaceDB.all_owned_places`).
+> Still open from the full #11.2 model: the 3 m extent doing geometry + multi-leg grid→grid routing.
+> **(4) #3/2.4 landed — attach, don't host:** `simulation_tools.py` MCP tools are now thin
+> `RunnerClient` attachers to the standalone `sim_runner` (which owns the sim lifetime + the single
+> Unreal socket); no runner = loud error, no in-process fallback. Runner API grew the full director
+> surface (pause/resume/agents/goal/pulse/resets/resync/world_grid); `generate_world_grid` logic moved
+> into `AgentManager`. End-to-end offline test `test_sim_tools_attach.py`. Suite **31/31**.
+> **Live verify (B-side):** drive the MCP tools against a real running `sim_runner` once.
 >
 > **⚑ Status (2026-07-01, night — user present, two items landed):** **(1) B7 offline fix built** —
 > user's call: fix it **engine-agnostically** (no RVO); the lizard brain now traces ahead every moving
@@ -426,9 +438,10 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
           *(User flagged this may be more than we need yet — capture the model, sequence after A1–A3 /
           the #6b APC map. Grid-first nav is the load-bearing idea.)*
           **APPROVED + minimal slice LANDED ✓ 2026-07-01** (see A5 above; spec
-          `plan/specs/WP4-owned-places.md`). *Still open from the full model:* surfacing owned places to
-          the LLM/known_places + the web map, using the 3m extent, and multi-leg grid→grid coarse routing
-          (deferred to #6b).
+          `plan/specs/WP4-owned-places.md`). **Surfacing landed ✓ 2026-07-03:** owned places appear in
+          `known_places`/the decision prompt (anchor+offset position, owner tag) and on the web `/map`
+          (dot + tooltip + count; `PlaceDB.all_owned_places`). *Still open from the full model:* the 3m
+          extent doing geometry, and multi-leg grid→grid coarse routing (#6b's course-charting).
     - [~] **11.3 Staleness / TTL re-observation. — SHELVED (user, 2026-07-01: "maybe we don't need this
           now"). Keep in backlog, don't build the re-observation path yet.** *Signal already built (A2,
           2026-07-01):* `PlaceDB.is_stale` + `updated_at` (real UTC) + a `stale` flag on the map; basis =
@@ -595,7 +608,11 @@ Action breakdown (from dreams iter 2, `plan/dreams/dreams_2026-06-24_2327.md` �
       No I/O at construction, so offline-testable: `test_factory.py`.
 - [ ] **2.2** New `Python/sim_runner.py` — standalone process that runs the loop with no MCP/Claude.
 - [ ] **2.3** Control surface on the runner (localhost HTTP: start/stop/status/tick).
-- [ ] **2.4** Make `simulation_tools.py` thin clients of the runner (attach, don't host).
+- [x] **2.4** Make `simulation_tools.py` thin clients of the runner (attach, don't host).
+      ✓ 2026-07-03 — every director tool goes through `RunnerClient`; no runner reachable = loud
+      error with the start hint (never an in-process manager). Runner API + client grew the missing
+      director surface; `generate_world_grid` moved into `AgentManager` (the runner owns the bridge).
+      Offline end-to-end: `test_sim_tools_attach.py`. *Live verify: run `sim_runner` + drive one tool.*
 - [ ] **2.5** Point web_ui at the runner control API (→ theme #2/③ controller). Fleshed out in dreams
       iter 3 (`plan/dreams/dreams_2026-06-25_1131.md` Action 3.5): `sim_runner_client` in
       `web_ui/unreal_client.py` + a dashboard status panel and start/stop buttons; no auto-spawn (keep
