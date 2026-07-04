@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Replay — Unreal World Sim{% endblock %}
+
+{% block content %}
+<h2>Run Replay</h2>
+
+{% if worlds %}
+<form method="get" action="/replay" style="margin-bottom:1rem;">
+  <label for="level">World</label>
+  <select id="level" name="level" onchange="this.form.submit()">
+    {% for w in worlds %}
+      <option value="{{ w }}" {% if w == level %}selected{% endif %}>{{ w }}</option>
+    {% endfor %}
+  </select>
+</form>
+{% endif %}
+
+{% if not level %}
+  <p>No world selected — create a world under <code>Python/worlds/</code>.</p>
+{% else %}
+  <div id="replay" data-level="{{ level }}">
+    <div style="display:flex; gap:1rem; align-items:flex-end; flex-wrap:wrap; margin-bottom:1rem;">
+      <label>Run
+        <select id="run"></select>
+      </label>
+      <label>Agent
+        <select id="agent"></select>
+      </label>
+    </div>
+
+    <div id="empty" style="color:#666;">No runs recorded yet — run the sim (its
+      observations are tagged <code>SR&lt;n&gt;</code>).</div>
+
+    <div id="viewer" style="display:none;">
+      <div style="display:flex; align-items:center; gap:1rem; margin-bottom:.5rem;">
+        <button id="prev" class="secondary" style="width:auto;">◀ Prev</button>
+        <input id="scrub" type="range" min="0" max="0" value="0" style="flex:1;">
+        <button id="next" class="secondary" style="width:auto;">Next ▶</button>
+      </div>
+      <p class="breadcrumb"><b id="pos">0 / 0</b> · <span id="stamp"></span>
+        <span id="tag" style="color:#888;"></span></p>
+
+      <div style="display:grid; grid-template-columns: minmax(0,2fr) minmax(0,1fr); gap:1rem; align-items:start;">
+        <img id="frame" alt="observation frame"
+             style="width:100%; border:1px solid #ccc; border-radius:6px; background:#111;">
+        <article style="margin:0;">
+          <header><b>Decision</b></header>
+          <div id="no-decision" style="color:#999;">— no decision this tick (scene unchanged) —</div>
+          <div id="decision" style="display:none;">
+            <p style="margin:.2rem 0;"><b>Action:</b> <code id="d-action"></code></p>
+            <p style="margin:.2rem 0;"><b>Result:</b> <span id="d-result"></span></p>
+            <p style="margin:.4rem 0 0;"><em id="d-thought"></em></p>
+          </div>
+        </article>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    const level = document.getElementById("replay").dataset.level;
+    const runSel = document.getElementById("run");
+    const agentSel = document.getElementById("agent");
+    const viewer = document.getElementById("viewer");
+    const empty = document.getElementById("empty");
+    const scrub = document.getElementById("scrub");
+    const frameImg = document.getElementById("frame");
+    let frames = [];
+    let idx = 0;
+
+    function show(i) {
+      if (!frames.length) return;
+      idx = Math.max(0, Math.min(i, frames.length - 1));
+      const fr = frames[idx];
+      frameImg.src = fr.image_url;
+      scrub.value = idx;
+      document.getElementById("pos").textContent = (idx + 1) + " / " + frames.length;
+      document.getElementById("stamp").textContent = fr.timestamp;
+      document.getElementById("tag").textContent = fr.tag ? "(" + fr.tag + ")" : "";
+      const d = fr.decision;
+      document.getElementById("decision").style.display = d ? "block" : "none";
+      document.getElementById("no-decision").style.display = d ? "none" : "block";
+      if (d) {
+        document.getElementById("d-action").textContent = d.action_type || "—";
+        document.getElementById("d-result").textContent = d.result_status ?? "—";
+        document.getElementById("d-thought").textContent = d.thought || "";
+      }
+    }
+
+    async function loadFrames() {
+      const run = runSel.value, agent = agentSel.value;
+      if (!run || !agent) { viewer.style.display = "none"; empty.style.display = "block"; return; }
+      const r = await fetch(`/api/replay/frames?level=${level}&run=${run}&agent=${encodeURIComponent(agent)}`);
+      frames = (await r.json()).frames || [];
+      if (!frames.length) { viewer.style.display = "none"; empty.style.display = "block"; return; }
+      empty.style.display = "none"; viewer.style.display = "block";
+      scrub.max = frames.length - 1;
+      show(0);
+    }
+
+    async function init() {
+      const r = await fetch(`/api/replay/runs?level=${level}`);
+      const data = await r.json();
+      runSel.innerHTML = (data.runs || []).map(x => `<option>${x}</option>`).join("");
+      agentSel.innerHTML = (data.agents || []).map(x => `<option>${x}</option>`).join("");
+      if (!data.runs || !data.runs.length) { empty.style.display = "block"; return; }
+      await loadFrames();
+    }
+
+    runSel.onchange = loadFrames;
+    agentSel.onchange = loadFrames;
+    scrub.oninput = () => show(parseInt(scrub.value, 10));
+    document.getElementById("prev").onclick = () => show(idx - 1);
+    document.getElementById("next").onclick = () => show(idx + 1);
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowLeft") show(idx - 1);
+      if (e.key === "ArrowRight") show(idx + 1);
+    });
+    init();
+  })();
+  </script>
+{% endif %}
+{% endblock %}

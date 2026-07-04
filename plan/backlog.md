@@ -533,7 +533,15 @@ build-out), the child-BP rework (the first hand-linked example), `/create-npc`.
 
 ## 14. Run replay — single-step through a sim run's observations
 
-**Status:** Not started · **Depends on:** #9 (SR<n> tag — landed) · *(user, 2026-07-03)*
+**Status:** BUILT (offline) 2026-07-03 · live verify pending · **Depends on:** #9 (SR<n> tag) · *(user, 2026-07-03)*
+
+> **✓ Landed 2026-07-03:** `agent_runtime/run_replay.py` (pure index/join —
+> `list_runs`/`list_agents`/`list_frames`, joining each observation frame to its nearest
+> decision-log entry by run+agent+time) + web routes `/replay`, `/api/replay/runs|frames|image`
+> (image serve is path-traversal-guarded to well-formed SR names inside the agent's obs dir) +
+> `replay.html` (run/agent pickers, prev/next + scrubber + ←/→ keys, frame beside its decision) +
+> a Replay nav link. Test: `test_run_replay.py` (index, join, name-guard, routes). Suite 34/34.
+> **Live verify:** run the web app after a PIE run and scrub `SR2` frame by frame.
 
 The point of the SR<n> tag (#9): **be able to single-step through the sim runs** for debugging — scrub
 the captured observation frames of a run in order (and jump between runs), seeing what each agent saw

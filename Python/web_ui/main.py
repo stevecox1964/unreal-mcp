@@ -6,12 +6,13 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from agent_runtime.config_store import read_config, write_config, is_secret
 from agent_runtime import provider_profiles
+from agent_runtime import run_replay
 from agent_runtime.runner_client import RunnerClient, DEFAULT_BASE_URL
 from agent_runtime.place_db import PlaceDB
 from agent_runtime.world_grid import WorldGrid
@@ -185,6 +186,59 @@ async def api_map(level: str = None):
         return JSONResponse({"level": None, "cols": None, "rows": None,
                              "cells": [], "counts": {"named": 0, "swept": 0, "total_cells": 0}})
     return JSONResponse(build_map(level))
+
+
+@app.get("/replay", response_class=HTMLResponse)
+async def replay_page(request: Request, level: str = None):
+    """Run replay — single-step a sim run's observation frames next to decisions (#14)."""
+    worlds = list_worlds()
+    level = _resolve_level(level)
+    return templates.TemplateResponse(request, "replay.html", {
+        "request": request,
+        "worlds": worlds,
+        "level": level,
+    })
+
+
+@app.get("/api/replay/runs")
+async def api_replay_runs(level: str = None):
+    """Run tags + agents available to replay for a world."""
+    level = _resolve_level(level)
+    if not level:
+        return JSONResponse({"level": None, "runs": [], "agents": []})
+    world_dir = WORLDS_DIR / level
+    return JSONResponse({
+        "level": level,
+        "runs": run_replay.list_runs(world_dir),
+        "agents": run_replay.list_agents(world_dir),
+    })
+
+
+@app.get("/api/replay/frames")
+async def api_replay_frames(run: str, agent: str, level: str = None):
+    """Ordered frames for one run+agent, each with its joined decision + image URL."""
+    level = _resolve_level(level)
+    if not level:
+        return JSONResponse({"frames": []})
+    frames = run_replay.list_frames(WORLDS_DIR / level, run, agent)
+    for fr in frames:
+        fr["image_url"] = (f"/api/replay/image?level={level}"
+                           f"&agent={agent}&file={fr['filename']}")
+    return JSONResponse({"level": level, "run": run, "agent": agent, "frames": frames})
+
+
+@app.get("/api/replay/image")
+async def api_replay_image(agent: str, file: str, level: str = None):
+    """Serve one observation PNG. Guards against path traversal: the name must be
+    a well-formed SR frame and resolve inside that agent's observations dir."""
+    level = _resolve_level(level)
+    if not level or not run_replay.is_frame_name(file):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    obs_dir = (WORLDS_DIR / level / "agents" / agent / "observations").resolve()
+    path = (obs_dir / file).resolve()
+    if obs_dir not in path.parents or not path.exists():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return FileResponse(str(path), media_type="image/png")
 
 
 @app.get("/worlds/{level}/agents/new", response_class=HTMLResponse)
