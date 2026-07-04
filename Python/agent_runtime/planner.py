@@ -37,6 +37,7 @@ logger = logging.getLogger("AgentRuntime")
 
 _DAY_MINUTES = 24 * 60
 _TIME_RE = re.compile(r"(\d{1,2}):(\d{2})")
+_DAY_RE = re.compile(r"[Dd]ay\s+(\d+)")
 
 # Used when there is no LLM (ask=None) or generation fails — the agent still has a
 # valid all-day block so the loop never falls back to a hard-coded behavior rule.
@@ -69,6 +70,29 @@ def minute_of_day(clock_text: str) -> int:
     if not m:
         return 0
     return int(m.group(1)) * 60 + int(m.group(2))
+
+
+def absolute_minute(clock_text: str) -> int:
+    """Minutes since the start of Day 1 from a `WorldClock.now_text()` string.
+
+    ``"Day 2, 08:00"`` -> ``1*1440 + 480 = 1920``. Day 1 is the origin; a missing
+    day counts as Day 1. Lets callers measure elapsed sim-time across day rollover
+    (e.g. the greet cooldown, #12.1). Example: ``absolute_minute("Day 1, 00:30")``
+    -> ``30``.
+    """
+    m = _DAY_RE.search(str(clock_text))
+    day = int(m.group(1)) if m else 1
+    return (day - 1) * _DAY_MINUTES + minute_of_day(clock_text)
+
+
+def minutes_between(earlier: str, later: str) -> int:
+    """Signed sim-minutes from ``earlier`` to ``later`` (both WorldClock strings).
+
+    Positive when ``later`` is after ``earlier``; negative if the clock went
+    backwards (e.g. a day was restarted). Example:
+    ``minutes_between("Day 1, 08:00", "Day 1, 09:30")`` -> ``90``.
+    """
+    return absolute_minute(later) - absolute_minute(earlier)
 
 
 def normalize_schedule(blocks: list) -> list[dict]:

@@ -95,8 +95,10 @@ Your routine (see "Your Routine Right Now") is your default. When it says to
 head somewhere, your action this tick should move you there. Do NOT stop for
 strangers, scenery, or cells you could explore — those can wait.
 Exactly two things justify pausing your routine:
-1. You see someone listed under "People You Know" — you may greet them briefly.
-2. Someone is speaking to you — respond.
+1. You see someone under "People You Know" you have NOT already greeted recently
+   — you may greet them briefly. If their line says "already greeted recently",
+   you have said hi this encounter; do not stop again — a nod is enough, keep going.
+2. Someone is speaking to you — respond (even if you already greeted them).
 After such a pause, your next action goes back to the scheduled destination.
 Staying in character is good, but character quirks (curiosity, distraction)
 color HOW you travel — they do not cancel WHERE you are going.
@@ -686,6 +688,8 @@ def _acquaintance_lines(acquaintances: list | None) -> str:
             parts.append(f"spoken with {a['interaction_count']} times")
         if a.get("last_seen"):
             parts.append(f"last seen {a['last_seen']}")
+        if a.get("recently_greeted"):
+            parts.append("already greeted recently — no need to say hi again")
         lines.append(f"- {name} — {', '.join(parts)}" if parts else f"- {name}")
     return "\n".join(lines) or "Nobody yet — you have not met anyone."
 

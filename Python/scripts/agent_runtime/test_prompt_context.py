@@ -51,6 +51,12 @@ def test_acquaintance_lines():
     check("capped at 8 lines", len(many.splitlines()) == 8)
     check("nameless items skipped", "None" not in _acquaintance_lines([{"meet_count": 3}]))
 
+    # #12.1: a recently-greeted acquaintance is marked so the gate won't re-greet.
+    greeted = _acquaintance_lines([{"name": "Maren", "meet_count": 4, "recently_greeted": True}])
+    check("recently-greeted mark rendered", "already greeted recently" in greeted)
+    not_greeted = _acquaintance_lines([{"name": "Maren", "meet_count": 4, "recently_greeted": False}])
+    check("no mark when not recently greeted", "already greeted recently" not in not_greeted)
+
 
 def test_known_place_lines():
     out = _known_place_lines([{"name": "village square", "bearing": "SE", "distance_m": 34.4}])
@@ -113,6 +119,14 @@ def test_reaction_gate_template():
           "goes back to the scheduled destination" in _USER_TEMPLATE_VISION)
     check("quirks are a nudge, not an override",
           "they do not cancel WHERE you are going" in _USER_TEMPLATE_VISION)
+    # #12.1: the greet gate excludes someone already greeted this encounter.
+    flat = _USER_TEMPLATE_VISION.replace("\n", " ")
+    check("greet gate skips a recently-greeted person",
+          'have NOT already greeted recently' in flat)
+    check("already-greeted -> keep going, don't stop again",
+          'do not stop again' in flat)
+    check("being spoken to still gets a response even if already greeted",
+          "respond (even if you already greeted them)" in flat)
 
 
 def test_schedule_note_weighting():

@@ -112,6 +112,45 @@ def test_manager_records_perceived_characters():
         check("sighting persisted to social.json", reloaded.knows("maren"))
 
 
+def test_last_interacted_tracks_speech_only():
+    # #12.1: last_interacted marks a real conversation, distinct from a sighting.
+    s = SocialMemory()
+    s.record_sighting("Maren", "3,4", "Day 1, 08:00")
+    check("a mere sighting sets no last_interacted", s.last_interacted("Maren") is None)
+    s.record_interaction("Maren", "Day 1, 08:05")
+    check("speaking sets last_interacted", s.last_interacted("maren") == "Day 1, 08:05")
+    check("record carries the field", s.get("maren")["last_interacted"] == "Day 1, 08:05")
+    check("unknown person has no last_interacted", s.last_interacted("nobody") is None)
+
+
+def test_recently_greeted_cooldown():
+    """AgentManager._mark_recent_greetings flags an acquaintance greeted within the
+    cooldown so the reaction gate won't re-greet (#12.1)."""
+    from agent_runtime.agent_manager import _GREET_COOLDOWN_MINUTES
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = AgentManager(worlds_dir=Path(tmp), llm_router=None,
+                           unreal_bridge=None, memory_store=None)
+        just = [{"name": "Maren", "last_interacted": "Day 1, 08:00"}]
+        near = mgr._mark_recent_greetings(just, "Day 1, 08:10")   # 10 min later
+        check("recently greeted -> flagged", near[0]["recently_greeted"] is True)
+
+        later = mgr._mark_recent_greetings(just, f"Day 1, 09:30")  # 90 min > cooldown
+        check("past the cooldown -> not flagged (greet again)",
+              later[0]["recently_greeted"] is False)
+        check("cooldown is a positive window", _GREET_COOLDOWN_MINUTES > 0)
+
+        never = mgr._mark_recent_greetings([{"name": "Bob"}], "Day 1, 08:10")
+        check("never interacted -> not flagged", never[0]["recently_greeted"] is False)
+
+        # A backwards clock (day restart) must not read as "recent".
+        restart = mgr._mark_recent_greetings(
+            [{"name": "Maren", "last_interacted": "Day 2, 08:00"}], "Day 1, 08:10")
+        check("clock went backwards -> not flagged", restart[0]["recently_greeted"] is False)
+
+        # Enrichment is a copy — the flag never leaks into the stored record.
+        check("source record left unmutated", "recently_greeted" not in just[0])
+
+
 def test_manager_records_interactions_on_speech():
     """When an agent speaks, it logs an interaction with each named person it
     currently perceives (the meeting is the fact; sentiment stays neutral)."""
@@ -136,6 +175,8 @@ def main():
     test_interactions_and_sentiment()
     test_ranking_and_persistence()
     test_manager_records_perceived_characters()
+    test_last_interacted_tracks_speech_only()
+    test_recently_greeted_cooldown()
     test_manager_records_interactions_on_speech()
     print("\nAll social-memory checks passed.")
 

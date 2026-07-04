@@ -41,6 +41,20 @@ def test_minute_of_day():
     check("no time -> 0 (start of day)", planner.minute_of_day("Day 1") == 0)
 
 
+def test_absolute_minute_and_delta():
+    # Absolute minute across days (origin = Day 1 00:00), for the greet cooldown (#12.1).
+    check("Day 1, 00:30 -> 30", planner.absolute_minute("Day 1, 00:30") == 30)
+    check("Day 2, 08:00 -> 1920", planner.absolute_minute("Day 2, 08:00") == 24 * 60 + 480)
+    check("missing day counts as Day 1", planner.absolute_minute("08:00") == 480)
+    check("space-separated form parses too", planner.absolute_minute("Day 1 09:00") == 540)
+
+    check("same-day forward delta", planner.minutes_between("Day 1, 08:00", "Day 1, 09:30") == 90)
+    check("delta spans a day rollover",
+          planner.minutes_between("Day 1, 23:30", "Day 2, 00:30") == 60)
+    check("a backwards clock is negative",
+          planner.minutes_between("Day 2, 08:00", "Day 1, 08:00") == -24 * 60)
+
+
 def test_normalize_drops_bad_and_sorts():
     raw = [
         {"start": "12:00", "end": "13:00", "activity": "lunch", "place": "diner"},
@@ -245,6 +259,7 @@ def test_ensure_regenerates_on_new_day():
 def main():
     test_to_minutes()
     test_minute_of_day()
+    test_absolute_minute_and_delta()
     test_normalize_drops_bad_and_sorts()
     test_normalize_blank_activity_gets_fallback()
     test_current_block_boundaries()

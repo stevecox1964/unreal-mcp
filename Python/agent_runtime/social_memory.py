@@ -117,6 +117,10 @@ class SocialMemory:
         person = self._people[key]
         person["interaction_count"] = person.get("interaction_count", 0) + 1
         person["last_seen"] = world_time
+        # When this agent last actually spoke with them — distinct from last_seen
+        # (a mere sighting). The reaction gate reads this to avoid re-greeting
+        # someone just greeted (#12.1).
+        person["last_interacted"] = world_time
         person["sentiment"] = max(
             _SENTIMENT_MIN, min(_SENTIMENT_MAX, person.get("sentiment", 0.0) + sentiment_delta)
         )
@@ -130,6 +134,11 @@ class SocialMemory:
 
     def knows(self, name: str) -> bool:
         return _norm(name) in self._people
+
+    def last_interacted(self, name: str) -> str | None:
+        """World-time this agent last spoke with ``name``, or None if never."""
+        p = self._people.get(_norm(name))
+        return p.get("last_interacted") if p else None
 
     def known_names(self) -> list[str]:
         """Display names of everyone this agent has met, most-met first."""

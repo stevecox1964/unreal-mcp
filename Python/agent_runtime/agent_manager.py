@@ -84,6 +84,12 @@ _MOBILE_BLOCKERS = {"person", "animal", "vehicle"}
 # roughly where a whole person fills the first-person camera frame.
 _STANDOFF_CM = 300.0
 
+# Don't re-greet (#12.1): once an agent has spoken with someone, suppress the
+# "you may greet a known person" interrupt for this many sim-minutes so they
+# don't say hi every tick the person stays in view. A fresh encounter after the
+# cooldown (or a new sim-day) greets again.
+_GREET_COOLDOWN_MINUTES = 60
+
 # Semantic classifier for forward-trace hits.
 # Maps engine actor names/classes → generic categories the LLM can reason about.
 # The lizard brain translates engine noise; it does NOT infer meaning or advise action.
@@ -955,9 +961,12 @@ class AgentManager:
             self._record_sightings(agent_id, observation)
 
         # Surface known people for recall so the decision layer can reason about
-        # who this agent has met (e.g. greet someone, seek out a friend).
+        # who this agent has met (e.g. greet someone, seek out a friend). Tag each
+        # with recently_greeted (#12.1) so the reaction gate won't re-greet someone
+        # just spoken with.
         acquaintances = self._social(agent_id).acquaintances()
-        observation["acquaintances"] = acquaintances
+        observation["acquaintances"] = self._mark_recent_greetings(
+            acquaintances, observation.get("world_time"))
         # Surface the named-place map (nearest first) so the agent can pick a
         # destination by name — walk_to then resolves it to a location (#1).
         observation["known_places"] = self.known_places(observation.get("location"))[:8]
@@ -1270,6 +1279,23 @@ class AgentManager:
                 changed = True
         if changed:
             social.save(self._agents_dir / agent_id / "social.json")
+
+    def _mark_recent_greetings(self, acquaintances: list, world_time) -> list:
+        """Copy each acquaintance with a ``recently_greeted`` flag (#12.1): True
+        when this agent spoke with them within ``_GREET_COOLDOWN_MINUTES`` of now
+        (sim-time). Copies rather than mutates so the derived flag never leaks
+        into the persisted social store. A backwards clock (day restart) reads as
+        not-recent, so greetings resume after a fresh day.
+        """
+        out = []
+        for a in acquaintances:
+            li = a.get("last_interacted")
+            recent = False
+            if li and world_time:
+                elapsed = planner.minutes_between(li, world_time)
+                recent = 0 <= elapsed < _GREET_COOLDOWN_MINUTES
+            out.append({**a, "recently_greeted": recent})
+        return out
 
     def _sweep_step(self, agent_id: str, observation: dict, start: bool = True) -> dict | None:
         """One step of the shared sweep capability (#11.1).
