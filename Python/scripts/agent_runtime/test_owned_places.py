@@ -47,7 +47,7 @@ def test_owned_place_crud():
         in_cell = db.owned_places_in_cell(5, 5)
         check("upsert kept one row", len(in_cell) == 1)
         check("upsert refreshed offset", in_cell[0]["dx"] == 10.0 and in_cell[0]["dy"] == 20.0)
-        check("default extent is 3m", in_cell[0]["extent_cm"] == 300.0)
+        check("default extent is 9m", in_cell[0]["extent_cm"] == 900.0)
 
         # Two owners can hold the same name in the same cell.
         check("second owner, same name", db.add_owned_place("dufus", 5, 5, "My Home", dx=-50.0, dy=0.0))
@@ -168,7 +168,7 @@ def test_record_place_owned_write_path():
 def test_reset_clears_owned_places():
     # Owned places are keyed by grid (col,row) too, so a world reset (e.g. after
     # regridding to a new cell_size) must wipe them along with community cells —
-    # otherwise stale 3 m boxes survive at grid coordinates that no longer mean
+    # otherwise stale owned boxes survive at grid coordinates that no longer mean
     # the same place.
     with tempfile.TemporaryDirectory() as tmp:
         db = PlaceDB(Path(tmp) / "world_places.db")

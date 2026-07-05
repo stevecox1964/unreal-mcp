@@ -53,9 +53,9 @@ CREATE TABLE IF NOT EXISTS agent_visits (
     PRIMARY KEY (agent_id, col, row)
 );
 
--- APC-owned place cells: a named ~3m box inside a grid cell, positioned as an
--- XY offset (cm) from the cell's community anchor (the cell center). Owned by
--- one APC but readable/reusable by all (#11.2).
+-- APC-owned place cells: a named 9x9 m box inside a grid cell, positioned as
+-- an XY offset (cm) from the cell's community anchor (the cell center). Owned
+-- by one APC but readable/reusable by all (#11.2).
 CREATE TABLE IF NOT EXISTS owned_place_cells (
     col        INTEGER NOT NULL,
     row        INTEGER NOT NULL,
@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS owned_place_cells (
     name       TEXT    NOT NULL,
     dx         REAL    NOT NULL DEFAULT 0,   -- cm east of the community anchor
     dy         REAL    NOT NULL DEFAULT 0,   -- cm south of the community anchor
-    extent_cm  REAL    NOT NULL DEFAULT 300,
+    extent_cm  REAL    NOT NULL DEFAULT 900,
     created_at TEXT,
     updated_at TEXT,
     PRIMARY KEY (col, row, owner, name)
@@ -72,6 +72,11 @@ CREATE TABLE IF NOT EXISTS owned_place_cells (
 
 _MAX_LABELS_PER_DIRECTION = 5
 _CONFIDENCE_FLOOR = 0.8
+
+# Owned place cells are a square box this wide around their anchor point —
+# 9x9 m around the APC (user, 2026-07-05). Grid cells (30 m districts) hold
+# several of these; keep the two sizes an order of magnitude apart.
+PLACE_EXTENT_CM = 900.0
 
 
 def _iso_now() -> str:
@@ -150,7 +155,7 @@ class PlaceDB:
         """Wipe all geographic knowledge — start the world map from scratch.
 
         Clears place_cells (names), place_observations (landmarks), agent_visits
-        (per-agent history), and owned_place_cells (APC-owned ~3 m spots). The
+        (per-agent history), and owned_place_cells (APC-owned 9 m spots). The
         schema is preserved; only rows are deleted. Returns the row count removed
         from each table. All of these are keyed by grid (col, row), so a change
         in the grid's cell_size invalidates every row — reset after regridding.
@@ -426,8 +431,8 @@ class PlaceDB:
         return True
 
     def add_owned_place(self, agent_id: str, col: int, row: int, name: str,
-                        dx: float, dy: float, extent_cm: float = 300.0) -> bool:
-        """Store an APC-owned place cell: a named ~3m box inside a grid cell.
+                        dx: float, dy: float, extent_cm: float = PLACE_EXTENT_CM) -> bool:
+        """Store an APC-owned place cell: a named 9x9 m box inside a grid cell.
 
         Position is an XY offset (cm) from the cell's community anchor (the
         cell center), so world position stays derivable. An owner may re-place

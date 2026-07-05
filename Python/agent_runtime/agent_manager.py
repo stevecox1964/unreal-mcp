@@ -18,7 +18,7 @@ from . import planner
 from . import route_map
 from . import sim_run
 from .episodic_memory import EpisodicLog
-from .place_db import PlaceDB, yaw_to_compass
+from .place_db import PLACE_EXTENT_CM, PlaceDB, yaw_to_compass
 from .social_memory import SocialMemory, is_anonymous
 from .spatial_memory import SpatialMap
 from .world_clock import WorldClock
@@ -183,6 +183,11 @@ class AgentManager:
         # the bridge (observation filenames) + memory (decision log) for attribution.
         self.sim_run_id: str = "SR0"
 
+        # Agents whose first schedule step of this run has passed. Only that
+        # first step may seed a missing scheduled place as the agent's own
+        # place cell (wake-time initialization) — cleared per run.
+        self._wake_stepped: set[str] = set()
+
     # Lifecycle
 
     async def start_simulation(
@@ -228,6 +233,9 @@ class AgentManager:
             self.bridge.sim_run_id = self.sim_run_id
             self.memory.sim_run_id = self.sim_run_id
             logger.info(f"Sim run {self.sim_run_id} — observations + decision log tagged")
+
+        # New run = a fresh wake for every agent (wake-time place seeding rearms).
+        self._wake_stepped.clear()
 
         active = [a for a in self.agents.values() if a.is_active and a.has_unreal_binding]
         if not active:
@@ -1019,13 +1027,75 @@ class AgentManager:
             pc = observation.get("place_context") or {}
             place_list = observation.get("place") or []
             current_place = pc.get("name") or (place_list[0] if place_list else None)
+            minute = planner.minute_of_day(world_time)
+            # Geometric "am I already there?" beats name matching: on a fresh
+            # world nothing is named yet, and the old name-only check sent an
+            # agent hunting for the place it was standing at (Maren's wake bug).
+            wake = agent.agent_id not in self._wake_stepped
+            self._wake_stepped.add(agent.agent_id)
+            at_place = self._at_scheduled_place(
+                agent.agent_id, planner.current_block(schedule, minute),
+                observation, seed_if_unknown=wake,
+            )
             observation["schedule"] = planner.step(
-                schedule, planner.minute_of_day(world_time),
+                schedule, minute,
                 current_place=current_place, prev_activity=agent.last_activity,
+                at_place=at_place,
             )
         except Exception as e:
             logger.warning(f"[{agent.agent_id}] schedule step failed: {e}")
             observation["schedule"] = None
+
+    def _at_scheduled_place(self, agent_id: str, block: dict | None,
+                            observation: dict, seed_if_unknown: bool = False) -> bool | None:
+        """Is the agent physically at the active block's place? (None = unknown.)
+
+        Resolves the place through the same chain as walk_to: a community-named
+        cell means "there" = standing in that grid cell (a 30 m district); an
+        owned place cell means "there" = inside its extent box (9x9 m around
+        the anchor+offset point, #11.2).
+
+        ``seed_if_unknown`` (the agent's first schedule step of a run — wake):
+        if the place resolves to nothing at all, it is created as the agent's
+        own place cell centered where the agent stands. The editor placement
+        is the agent's day-start spot by convention, so "wake at your stall"
+        works on a fresh world instead of sending the agent off hunting for a
+        name no one has recorded yet (first-time place-cell initialization).
+        """
+        name = str((block or {}).get("place") or "").strip()
+        if not name or self.place_db is None:
+            return None
+        xyz = _loc_xyz(observation.get("location"))
+        col, row = self._cell_col_row(observation.get("grid"))
+        if xyz is None or col is None:
+            return None
+
+        cell = self.place_db.find_named_cell(name)
+        if cell is not None:
+            return (col, row) == cell
+
+        owned = self.place_db.find_owned_place(name, preferred_owner=agent_id)
+        if owned is None:
+            if not seed_if_unknown:
+                return None
+            center = self.world_grid.cell_center(col, row)
+            if center is None:
+                return None
+            if self.place_db.add_owned_place(agent_id, col, row, name,
+                                             dx=xyz[0] - center[0],
+                                             dy=xyz[1] - center[1]):
+                logger.info(f"[{agent_id}] wake: seeded own place cell '{name}' "
+                            f"({PLACE_EXTENT_CM / 100:.0f} m box) at current spot "
+                            f"({col},{row})")
+                return True
+            return None
+
+        center = self.world_grid.cell_center(owned["col"], owned["row"])
+        if center is None:
+            return None
+        half = float(owned.get("extent_cm") or PLACE_EXTENT_CM) / 2.0
+        return (abs(xyz[0] - (center[0] + owned["dx"])) <= half
+                and abs(xyz[1] - (center[1] + owned["dy"])) <= half)
 
     def _act_agent(self, agent: Agent, decision, observation: dict | None) -> dict:
         """Phase 3: validate decision, execute in Unreal, persist memory."""
@@ -1053,8 +1123,12 @@ class AgentManager:
         # Sweep interrupt (#11.1): an APC staying in an unexplored cell maps it
         # before acting — the sweep's first step replaces this tick's LLM action;
         # the following steps run LLM-free via _pulse_sweep until the breadcrumb
-        # drops, then the sequencer resumes the routine.
-        if self._should_sweep_here(observation):
+        # drops, then the sequencer resumes the routine. A scheduled "act" tick
+        # is exempt: the agent is AT its place doing its job (e.g. Maren waking
+        # at her stall) — walking off to the cell center to survey the district
+        # would abandon the routine; the cell gets swept on a travel/idle tick.
+        sched_status = (observation.get("schedule") or {}).get("status")
+        if sched_status != "act" and self._should_sweep_here(observation):
             sweep_action = self._sweep_step(agent_id, observation, start=True)
             if sweep_action is not None:
                 action = sweep_action
@@ -1440,7 +1514,7 @@ class AgentManager:
                     logger.info(f"[{agent_id}] place named: '{name}' at {grid.get('key')}")
                 else:
                     # Cell already community-named (first name wins). A *different*
-                    # name becomes an APC-owned place cell — a named ~3m box at an
+                    # name becomes an APC-owned place cell — a named 9x9 m box at an
                     # XY offset from the community anchor (#11.2) — instead of
                     # being silently dropped ("My Home" inside "village square").
                     existing = self.place_db.get_place(col, row)
@@ -1930,7 +2004,7 @@ class AgentManager:
         (the bridge's sole owner) can serve it over HTTP.
 
         ``cell_size`` default is 3000 cm (30 m) — a grid cell is a *district*
-        that holds several ~3 m place cells, not a place-sized tile (the 4 m
+        that holds several ~9 m place cells, not a place-sized tile (the 4 m
         default made grid cells ≈ place cells, collapsing the hierarchy).
         """
         level = self.bridge.get_current_level()

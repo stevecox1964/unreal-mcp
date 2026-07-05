@@ -187,10 +187,11 @@ def test_sweep_step_runs_then_drops_breadcrumb():
 def test_should_sweep_here_gate():
     # Sweep-on-entry (user, 2026-07-03): any un-swept cell the agent is in gets
     # mapped — traveling OR stopped, with or without a schedule. Only an already-
-    # explored cell (or no grid/PlaceDB) is skipped.
+    # explored cell (or no grid/PlaceDB) is skipped. (_should_sweep_here itself
+    # ignores the schedule — the "act tick" exemption is applied in _act_agent.)
     with tempfile.TemporaryDirectory() as tmp:
         mgr = _manager(tmp)   # cell (5,5) unexplored
-        check("act in an unexplored cell -> sweep",
+        check("raw gate ignores schedule status (act)",
               mgr._should_sweep_here(_obs(200.0, 200.0, schedule={"status": "act"})))
         check("idle in an unexplored cell -> sweep",
               mgr._should_sweep_here(_obs(200.0, 200.0, schedule={"status": "idle"})))
@@ -287,7 +288,7 @@ def _idle_decision(agent_id):
 
 
 def test_act_agent_starts_sweep_interrupt():
-    """An APC staying (act) in an unexplored cell has its LLM action replaced by
+    """An APC idling in an unexplored cell has its LLM action replaced by
     the sweep's first step; the sweep goes active for the next ticks."""
     with tempfile.TemporaryDirectory() as tmp:
         bridge = _StubBridge({"x": 1500.0, "y": 1500.0, "z": 90.0})
@@ -296,7 +297,7 @@ def test_act_agent_starts_sweep_interrupt():
         agent = _StubAgent("dufus")
         mgr.agents = {"dufus": agent}
 
-        obs = _obs(1500.0, 1500.0, schedule={"status": "act", "activity": "hang out"})
+        obs = _obs(1500.0, 1500.0, schedule={"status": "idle"})
         result = mgr._act_agent(agent, _idle_decision("dufus"), obs)
         check("LLM action was replaced by the sweep step",
               bridge.actions and bridge.actions[-1]["type"] == "walk_to")
@@ -305,6 +306,25 @@ def test_act_agent_starts_sweep_interrupt():
         check("sweep is now active", "dufus" in mgr._cell_sweeps)
         check("tick was recorded", agent.ticked == 1)
         check("result reports the sweep action", result["action"].get("_sweep_interrupt") is True)
+
+
+def test_act_agent_act_tick_is_sweep_exempt():
+    """A scheduled "act" tick never starts a sweep (user, 2026-07-05): the agent
+    is AT its place doing its job — Maren waking at her stall must not walk off
+    to the cell center to survey the district. The cell gets swept on a later
+    travel/idle tick instead."""
+    with tempfile.TemporaryDirectory() as tmp:
+        bridge = _StubBridge({"x": 1500.0, "y": 1500.0, "z": 90.0})
+        mgr = _manager(tmp)
+        mgr.bridge = bridge
+        agent = _StubAgent("dufus")
+        mgr.agents = {"dufus": agent}
+
+        obs = _obs(1500.0, 1500.0, schedule={"status": "act", "activity": "tend the stall"})
+        mgr._act_agent(agent, _idle_decision("dufus"), obs)
+        check("act tick kept the LLM action (no sweep interrupt)",
+              bridge.actions and bridge.actions[-1]["type"] == "idle")
+        check("no sweep went active on an act tick", "dufus" not in mgr._cell_sweeps)
 
 
 def test_act_agent_travel_sweeps_on_entry():
@@ -425,6 +445,7 @@ def main():
     test_should_sweep_here_gate()
     test_explored_cells_set()
     test_act_agent_starts_sweep_interrupt()
+    test_act_agent_act_tick_is_sweep_exempt()
     test_act_agent_travel_sweeps_on_entry()
     test_pulse_routes_active_sweep_without_llm()
     test_observe_heading_direction_and_ingest()

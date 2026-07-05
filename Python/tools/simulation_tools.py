@@ -242,7 +242,7 @@ def register_simulation_tools(mcp: FastMCP, runner: RunnerClient = None) -> None
         Re-run after the level layout changes; edit the JSON to trim outliers
         (e.g. a distant skybox actor inflating the bounds).
 
-        A grid cell is a navigation *district* that holds several ~3 m place
+        A grid cell is a navigation *district* that holds several ~9 m place
         cells, so the default is 3000 cm (30 m) — not a place-sized tile.
 
         Args:

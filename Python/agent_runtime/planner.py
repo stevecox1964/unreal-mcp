@@ -144,7 +144,7 @@ def current_activity(schedule: list[dict], clock_text: str) -> dict | None:
 
 
 def step(schedule: list[dict], minute: int, current_place: str = None,
-         prev_activity: str = None) -> dict:
+         prev_activity: str = None, at_place: bool = None) -> dict:
     """Walk the schedule one tick: *what should I be doing right now?*
 
     This is the **sequencer** — the deterministic reasoning the Master Plan calls
@@ -159,6 +159,11 @@ def step(schedule: list[dict], minute: int, current_place: str = None,
         there yet".
       * ``prev_activity`` — the activity from the previous step, to detect a block
         boundary crossing. ``None`` on the first step (wake) = no transition.
+      * ``at_place`` — geometric ground truth from the caller: is the agent
+        physically inside the block's place cell? ``True``/``False`` overrides
+        the name match (position beats labels — fixes "woke up at my stall but
+        its name isn't in the DB yet, so I wandered off"); ``None`` = unknown,
+        fall back to the ``current_place`` name match.
 
     Returns a directive::
 
@@ -180,7 +185,8 @@ def step(schedule: list[dict], minute: int, current_place: str = None,
     else:
         activity = block["activity"]
         place = block.get("place", "")
-        if place and not _same_place(current_place, place):
+        here = at_place if at_place is not None else _same_place(current_place, place)
+        if place and not here:
             status = "travel"
             # Destination-first: naming the activity first ("It's time to greet
             # passers-by — head to...") makes the LLM start the activity en
