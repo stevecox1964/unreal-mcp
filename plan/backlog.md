@@ -33,6 +33,17 @@ grooming: 2026-06-26.
 > (`test_cell_sweep.py` updated). Suite **35/35**. **PIE verify:** Maren wakes at the truck and
 > stays (log line: `wake: seeded own place cell`); `/map` shows the grid registered over the town.
 >
+> **⚑ Same day, later — SR2 live run + fix:** map overlay confirmed visually (user). But Maren
+> still orbited: the per-tick seed fired **too late** — the spool-up orient LLM (no schedule
+> awareness) already decided "walk to the truck" and moved her, so the seed stamped the wrong spot.
+> **Fix:** `_wake_directive` — at spool-up, before the orient call, seed the scheduled place at the
+> **true spawn transform** and put the sequencer verdict in the wake prompt as ground truth
+> ("your position CONFIRMS you are already there"); act ticks also now forbid `walk_to`-ing the
+> place you're standing in (anti-orbit). Maren's SR2 mis-seed deleted from the live DB (re-seeds
+> next run); bindings checked — **personalities were NOT swapped** (maren→APC_Maren_BP_C_1,
+> dufus→APC_Dufus_BP_C_1). Dufus's "stuck" = directive said travel-to-'home' (his 07:00–08:30
+> block) vs persona pulling to the square — the same wake fix grounds him too. Suite **35/35**.
+>
 > **⚑ Status (2026-07-03 — user present, two items landed):** **(1) B7b personal space BUILT** —
 > lizard-brain **reflex stop**: while moving, a *mobile* blocker inside **300 cm** (`_STANDOFF_CM`
 > ≈ whole person fills the camera frame, per the user's ask) triggers an immediate bridge `stop`
