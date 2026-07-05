@@ -143,7 +143,12 @@ def test_schedule_note_weighting():
 
     act = _schedule_note({"status": "act", "place": "stall",
                           "intent": "You're at stall where you should be — sell."})
-    check("act branch unchanged", "You are where you should be" in act)
+    check("act-at-place forbids walking to it (anti-orbit, 2026-07-05)",
+          "position confirms" in act and "Do NOT walk_to" in act)
+    act_placeless = _schedule_note({"status": "act", "place": "",
+                                    "intent": "Time to sell."})
+    check("placeless act keeps the generic line",
+          "You are where you should be" in act_placeless)
     idle = _schedule_note(None)
     check("idle/None branch unchanged", "nothing fixed right now" in idle)
 

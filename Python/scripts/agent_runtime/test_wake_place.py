@@ -179,12 +179,76 @@ def test_attach_schedule_wake_flow():
         check("re-armed wake -> act at the new spot", obs3["schedule"]["status"] == "act")
 
 
+def test_wake_directive_at_spawn():
+    # Spool-up (SR2 regression): the directive is computed at the TRUE spawn
+    # before the orient LLM can move the agent — it seeds the scheduled place
+    # right there and reports "act", and consumes the once-per-run seed chance
+    # so later ticks can't stamp the place mid-walk.
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _manager(tmp)
+        maren = StubAgent("maren", [dict(b) for b in SCHED])
+        loc = {"x": 320.0, "y": 120.0, "z": 90.0}
+        grid = mgr.world_grid.locate(320.0, 120.0)
+
+        d = mgr._wake_directive(maren, loc, grid, "Day 1, 09:00")
+        check("wake directive says act at the spawn", d and d["status"] == "act")
+        check("scheduled place seeded at the spawn",
+              mgr.place_db.find_owned_place("the vegetable truck") is not None)
+        check("seed chance consumed by the spool-up", "maren" in mgr._wake_stepped)
+
+        # The agent then wanders off; a later tick with a different unknown
+        # place must not seed it (the wake already happened).
+        maren.daily_schedule_blocks[0]["place"] = "Don's Donuts"
+        obs = _obs(mgr, 1500.0, 1500.0)
+        mgr._attach_schedule(maren, obs)
+        check("post-wake ticks never seed",
+              mgr.place_db.find_owned_place("Don's Donuts") is None)
+        check("post-wake directive is travel", obs["schedule"]["status"] == "travel")
+
+
+def test_positionless_tick_keeps_seed_chance():
+    # A first tick without position data (no location/grid yet) must not burn
+    # the once-per-run seed — the next tick that has a position seeds.
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _manager(tmp)
+        maren = StubAgent("maren", [dict(b) for b in SCHED])
+
+        blind = {"place": [], "place_context": {}, "world_time": "Day 1, 09:00"}
+        mgr._attach_schedule(maren, blind)
+        check("blind tick seeded nothing", mgr.place_db.all_owned_places() == [])
+        check("blind tick kept the seed chance", "maren" not in mgr._wake_stepped)
+
+        obs = _obs(mgr, 320.0, 120.0)
+        mgr._attach_schedule(maren, obs)
+        check("first positioned tick seeds",
+              mgr.place_db.find_owned_place("the vegetable truck") is not None)
+        check("and reports act", obs["schedule"]["status"] == "act")
+
+
+def test_wake_schedule_line_rendering():
+    from agent_runtime.llm_router import _wake_schedule_line
+    act = _wake_schedule_line({"status": "act", "place": "the vegetable truck",
+                               "activity": "tend the stall"})
+    check("act verdict confirms position", "CONFIRMS" in act and "Do NOT walk" in act)
+    travel = _wake_schedule_line({"status": "travel", "place": "Don's Donuts",
+                                  "activity": "eat lunch"})
+    check("travel verdict says not there yet", "NOT there yet" in travel
+          and 'target_location "Don\'s Donuts"' in travel)
+    check("no directive -> generic guidance",
+          "No schedule verdict" in _wake_schedule_line(None))
+    check("idle -> free to choose",
+          "Nothing is scheduled" in _wake_schedule_line({"status": "idle"}))
+
+
 def main():
     test_planner_at_place_override()
     test_at_scheduled_place_geometry()
     test_at_scheduled_place_owned_box()
     test_wake_seeds_unknown_place()
     test_attach_schedule_wake_flow()
+    test_wake_directive_at_spawn()
+    test_positionless_tick_keeps_seed_chance()
+    test_wake_schedule_line_rendering()
     print("\nAll wake-place checks passed.")
 
 

@@ -167,16 +167,20 @@ Grid cell: {grid_cell}
 Place: {place}
 {known_line}
 
+## Your Schedule Right Now
+{schedule_line}
+
 ## Where You Can Go Next — neighboring grid cells (one step ~15m away)
 {next_cells_text}
 
 Get your bearings by asking yourself, in character:
 1. Where am I? Use the place label, your memories, and what you can see.
    If you have NOT been here before, name the place — it gets saved to the shared map.
-2. What time is it? Look up that time in your schedule — what location and task does it call for?
-3. Am I already at the scheduled location?
-   - If YES: stay here and do the scheduled task (idle, observe, speak to someone nearby).
-   - If NO: your first action should start getting you to the scheduled location.
+2. The schedule verdict above already says whether you are where you should be —
+   trust it over what you think you remember about the town.
+   - Already there: stay here and do the scheduled task (idle, observe, speak to
+     someone nearby). Do NOT walk anywhere.
+   - Not there yet: your first action should start getting you there.
 
 Return ONLY valid JSON: no prose, no markdown fences.
 
@@ -394,6 +398,7 @@ class LLMRouter:
             grid_cell=_grid_text(context.get("grid")),
             place=place_str,
             known_line=known_line,
+            schedule_line=_wake_schedule_line(context.get("schedule")),
             next_cells_text=_direction_lines(context.get("directions")),
             x=loc.get("x", 0),
             y=loc.get("y", 0),
@@ -767,6 +772,34 @@ def _direction_lines(directions: dict | None) -> str:
     return "\n".join(lines)
 
 
+def _wake_schedule_line(directive: dict | None) -> str:
+    """Render the spool-up sequencer verdict for the wake prompt.
+
+    The manager computed this at the agent's true spawn position (geometric,
+    with a first-time place seeded right there), so the prompt can STATE
+    whether the agent is already where the schedule wants it — the LLM must
+    not guess this from memory ("my truck is on main street somewhere...").
+    """
+    if not directive:
+        return ("(No schedule verdict available — use your goals and what "
+                "you can see.)")
+    status = directive.get("status")
+    place = directive.get("place") or ""
+    activity = directive.get("activity") or ""
+    if status == "act" and place:
+        return (f"Scheduled now: {activity} at {place}. Your position CONFIRMS "
+                f"you are already at {place} — this exact spot is it, even if "
+                f"you cannot see it in frame. Do NOT walk toward it; stay here "
+                f"and begin: {activity}.")
+    if status == "travel" and place:
+        return (f"Scheduled now: {activity} at {place}. You are NOT there yet — "
+                f"your first action should start you toward {place} "
+                f"(walk_to with target_location \"{place}\").")
+    if status == "act":
+        return f"Scheduled now: {activity} — it has no fixed place, do it here."
+    return "Nothing is scheduled right now — follow your goals."
+
+
 def _schedule_note(directive: dict | None) -> str:
     """Render the sequencer directive (planner.step) for the decision prompt.
 
@@ -783,6 +816,11 @@ def _schedule_note(directive: dict | None) -> str:
                 f"arrive. Do NOT start the scheduled activity on the way — even if "
                 f"it involves people, it happens at the destination. Only a person "
                 f"you know or someone speaking to you is worth a brief pause.")
+    if directive.get("place"):
+        return (f"{intent}\nYour position confirms you are already at "
+                f"{directive['place']} — even if you cannot see it in frame. Do "
+                f"NOT walk_to it or go looking for it; stay here and do the "
+                f"activity (idle, observe, speak to someone nearby).")
     return f"{intent}\nYou are where you should be — do this where you are."
 
 

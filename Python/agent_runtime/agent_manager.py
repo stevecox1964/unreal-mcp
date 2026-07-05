@@ -550,6 +550,13 @@ class AgentManager:
                     known_place = self.place_db.get_place(col, row)
                     familiarity = self.place_db.agent_familiarity(agent.agent_id, col, row)
 
+                # Sequencer directive at the TRUE spawn position, before any
+                # first action can move the agent: seeds a first-time scheduled
+                # place right here and tells the orient prompt, with ground
+                # truth, whether the agent is already where it should be —
+                # instead of letting the LLM guess and walk off (Maren, SR2).
+                directive = self._wake_directive(agent, loc, grid, world_time)
+
                 if known_place:
                     # Place is on the shared map — skip the expensive 180° sweep.
                     # Pass personal familiarity so the orient prompt can tell the
@@ -567,6 +574,7 @@ class AgentManager:
                         "directions": self._direction_places(agent.agent_id, loc, rot),
                         "known_place": known_place["name"],
                         "familiarity": familiarity,
+                        "schedule": directive,
                     }
                     needs_orient.append((agent, context, memories))
                     continue
@@ -595,6 +603,7 @@ class AgentManager:
                     "directions": self._direction_places(agent.agent_id, loc, rot),
                     "known_place": None,
                     "familiarity": familiarity,
+                    "schedule": directive,
                 }
                 needs_orient.append((agent, context, memories))
             except Exception as e:
@@ -1031,8 +1040,13 @@ class AgentManager:
             # Geometric "am I already there?" beats name matching: on a fresh
             # world nothing is named yet, and the old name-only check sent an
             # agent hunting for the place it was standing at (Maren's wake bug).
+            # (Normally the spool-up already consumed the wake seed at the true
+            # spawn — this is the no-spool-up fallback.) Only a step that had
+            # real position data consumes the once-per-run seed chance.
             wake = agent.agent_id not in self._wake_stepped
-            self._wake_stepped.add(agent.agent_id)
+            if (_loc_xyz(observation.get("location")) is not None
+                    and self._cell_col_row(observation.get("grid"))[0] is not None):
+                self._wake_stepped.add(agent.agent_id)
             at_place = self._at_scheduled_place(
                 agent.agent_id, planner.current_block(schedule, minute),
                 observation, seed_if_unknown=wake,
@@ -1045,6 +1059,43 @@ class AgentManager:
         except Exception as e:
             logger.warning(f"[{agent.agent_id}] schedule step failed: {e}")
             observation["schedule"] = None
+
+    def _wake_directive(self, agent: Agent, loc, grid: dict | None,
+                        world_time: str) -> dict | None:
+        """Sequencer directive for the spool-up wake, at the true spawn spot.
+
+        Runs BEFORE the orient LLM call can move the agent: generates the
+        day's schedule, seeds a first-time scheduled place at the spawn
+        position (the once-per-run ``seed_if_unknown``), and returns
+        ``planner.step``'s directive so the wake prompt can state with ground
+        truth whether the agent is already where it should be. Without this,
+        the orient prompt asked the LLM to guess — Maren guessed "walk to the
+        truck" while standing next to it, and the late per-tick seed then
+        stamped her place mid-walk (SR2). Returns None on any failure (the
+        wake prompt falls back to its generic guidance).
+        """
+        try:
+            ask = getattr(self.llm, "ask", None)
+            schedule = planner.ensure_daily_plan(
+                agent, planner.day_of(world_time),
+                ask=(lambda p: ask(agent, p)) if ask else None,
+                agents_dir=self._agents_dir,
+            )
+            minute = planner.minute_of_day(world_time)
+            obs = {"location": loc, "grid": grid}
+            seed = agent.agent_id not in self._wake_stepped
+            if (_loc_xyz(loc) is not None
+                    and self._cell_col_row(grid)[0] is not None):
+                self._wake_stepped.add(agent.agent_id)
+            at_place = self._at_scheduled_place(
+                agent.agent_id, planner.current_block(schedule, minute),
+                obs, seed_if_unknown=seed,
+            )
+            return planner.step(schedule, minute, current_place=None,
+                                prev_activity=None, at_place=at_place)
+        except Exception as e:
+            logger.warning(f"[{agent.agent_id}] wake directive failed: {e}")
+            return None
 
     def _at_scheduled_place(self, agent_id: str, block: dict | None,
                             observation: dict, seed_if_unknown: bool = False) -> bool | None:
