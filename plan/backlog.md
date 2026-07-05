@@ -534,7 +534,16 @@ that turns a pass-by into a face-to-face interaction).
 
 ## 13. World initialization + "make all the things" generation
 
-**Status:** Not started · *(user, 2026-07-03)*
+**Status:** Not started · *(user, 2026-07-03; reframed 2026-07-05 as the **downloader bootstrap**)*
+
+> **⚑ Reframed (user, 2026-07-05):** this is also the answer to "someone downloads this project —
+> how do they build out / configure the world?" The target is a **first-run bootstrap flow, all
+> web-driven, zero Unreal knowledge** ([[drag-and-drop]]): (1) pick the level → (2) generate
+> `world_grid.json` bounds (`generate_world_grid` exists) → (3) drop in one top-down capture
+> (#6c's `images/<level>.png`) → (4) click-author the named places + APC homes on the map
+> (**#16**, writing the **#15** manifest) → (5) create agents (`/create-npc` / web form) →
+> (6) press start. #15/#16 are the config artifacts + editor; this item owns the end-to-end flow
+> and the "generate what can be generated" glue.
 
 The long-term goal: **initialize a world from scratch** with **generation code that builds all the
 things** — spawns/wires the actors, child BPs, agents, grid, and place cells automatically, so a new
@@ -594,6 +603,100 @@ Loop-safe core: the run/frame indexing + the log-join are pure and offline-testa
 `TestClient` route like the other `web_ui` pages. Live value: watch a real run back frame by frame.
 
 Relates to: #9 (the tag it consumes), #6/#6b (map + route images), the `web_ui` cockpit (`/sim`).
+
+---
+
+## 15. Authored places manifest — the world's root configuration
+
+**Status:** Not started · **Source:** user, 2026-07-05 ("the APCs don't have a root configuration —
+my house is over here, my vegetable truck is over here") · **Independence:** self-contained
+(loop-safe); #16/#17 build on it · **Priority: build before #16/#17.**
+
+Today places only exist if an LLM *discovers* one at runtime or the wake-seed *guesses* one
+("editor placement = day-start spot" — a convention, and SR2 showed how fragile it is: the seed
+stamped the truck mid-walk). The sequencer can already answer "what time is it, where should I be"
+(`planner.step`) — what it can't do on a fresh world is resolve the *where* to a real position.
+The fix is **authored ground truth**: a per-world manifest of canonical places loaded into PlaceDB
+at world load, before any tick.
+
+Pieces:
+- **`worlds/<level>/places.json`** — the manifest. Per entry: `name`, world `x/y` (anchor),
+  `extent_cm` (default 900 = the 9×9 m place cell; bigger for buildings), optional `owner`
+  (agent_id → an owned place cell: "maren's vegetable truck", "dufus's home") and optional
+  `community: true` (also community-name the containing grid cell, e.g. "village square").
+- **Loader** — on world load (AgentManager `_load_agents` / `start_simulation`), upsert manifest
+  entries into PlaceDB (idempotent; authored entries win over runtime discoveries of the same
+  name — re-running never duplicates). Grid (col,row) + dx/dy are *derived* from x/y via
+  `WorldGrid`, never hand-authored.
+- **Schedule validation (fail loud)** — after `generate_daily_plan`, log a warning for any block
+  whose `place` resolves to nothing (manifest, community, or owned): the agent will be told to
+  travel somewhere unreachable. Surfaces the "hunting for a place nobody recorded" class of bug at
+  plan time instead of tick 40.
+- **Wake-seed demoted to fallback** — with a manifest present, `_wake_directive` resolves
+  authored places and only seeds when the world is genuinely unauthored (keep the mechanism,
+  document the priority: authored > discovered > wake-seeded).
+- **Offline tests:** loader idempotency, owner vs community writes, derived col/row round-trip,
+  schedule-validation warning.
+
+Relates to: #11.2 (owned place cells — the storage this fills), #13 (bootstrap flow — the manifest
+is its config artifact), #16 (the editor that writes this file), [[grid-place-cell-sizes]],
+`feedback_drag_and_drop`.
+
+---
+
+## 16. Click-to-author places on the /map — the no-Unreal place editor
+
+**Status:** Not started · **Source:** user, 2026-07-05 · **Depends on:** #15 (manifest), #6c (the
+registered map) · **Independence:** web-only (loop-safe via TestClient)
+
+The #6c map is registered world↔pixel in both directions, which makes it the natural authoring
+surface: **click a spot on the real top-down map → name it → optionally assign an owner/extent →
+saved to `places.json` + PlaceDB.** This is the [[drag-and-drop]] answer to "how does a user say
+'Maren's truck is here' without opening Unreal": they don't touch the engine at all — one
+screenshot, then everything is clicks in the browser.
+
+Pieces:
+- **Pixel→world inverse** on the map page (the overlay already does world→pixel; the inverse is
+  the same linear map) — click yields world (x, y), display the target cell + snap preview.
+- **An "author" mode toggle** on `/map`: click → small form (name, owner dropdown from the world's
+  agents or "community", extent) → `POST /api/places` → validates, writes `places.json`, upserts
+  PlaceDB, map refreshes (the new box appears immediately).
+- **Edit/delete** for authored entries (click an existing authored box) — runtime-discovered
+  places stay read-only here.
+- **Offline tests:** the POST round-trip (TestClient + temp world), pixel↔world inverse math,
+  authored-vs-discovered edit guard.
+
+Relates to: #15 (writes its manifest), #6c (the map surface), #2 (web app), #13 (bootstrap step 3).
+
+---
+
+## 17. Grid-first navigation — multi-leg routing between grid cells
+
+**Status:** Not started (decision locked 2026-07-01: "navigation is grid-first — route grid→grid,
+then fine-approach the place cell") · **Source:** user, 2026-07-05 ("we don't really have a
+navigation system") · **Depends on:** #15 (trustworthy endpoints); consumes #6b's corridor work
+
+What exists: name→position resolution, the engine navmesh for *local* walking, lizard-brain
+blocker facts + the B7b standoff, and the #6b route-map PNG on travel ticks. What's missing is the
+**mid-scale**: agents travel greedily by vision, so when the destination isn't in frame they orbit
+(Maren, SR2). A destination several districts away should become a *plan*: a sequence of grid-cell
+legs, each leg a short navmesh walk the engine can actually do.
+
+Pieces:
+- **Route planner (pure, loop-safe):** grid A → grid B as a cell path (starts as a straight-line
+  cell walk; obstacles/no-go cells can come later from sweep data) → waypoint list of cell centers,
+  ending with a fine-approach to the place-cell anchor (stop at the 9×9 m box edge, B7b-style).
+- **Leg executor:** a travel tick walks the *current leg's* waypoint (not the final destination),
+  advancing legs on arrival; a blocked leg re-plans rather than wedging (re-uses the stuck/blocker
+  facts — the cognitive loop stays the obstacle-solver per
+  [[architecture-engine-agnostic-navigation]]; no engine patches).
+- **Prompt surface:** the travel directive names the leg ("heading N toward cell (6,4) — 2 legs to
+  the vegetable truck") so decisions and the decision log stay legible; the #6b route map draws the
+  planned corridor instead of just the straight line.
+- **Offline tests:** path generation, leg advance/replan state machine, arrival at box edge.
+
+Relates to: #11.2 (grid-first decision + fine-approach), #6b (route map = the visualization of this
+plan), #1 (resolution), B7b (standoff at arrival), `architecture_engine_agnostic_navigation`.
 
 ---
 
