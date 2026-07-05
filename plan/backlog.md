@@ -17,6 +17,22 @@ grooming: 2026-06-26.
 > **#3** factory ✓. The remaining MVP gap is **#3's standalone runner** (the "runs overnight
 > independent of Claude" long pole — nothing built but the factory).
 
+> **⚑ Status (2026-07-05 — user present, three items landed):** **(1) Maren wake bug FIXED** —
+> the sequencer's "am I already there?" was a name-only match vs the community cell name, so on a
+> fresh DB an agent standing at its scheduled place was told to travel (Maren woke at her stall and
+> wandered off). Now geometric: `_at_scheduled_place` resolves the block's place (community cell =
+> same grid cell; owned place = inside its extent box) and overrides the name match
+> (`planner.step(at_place=...)`). **First-wake initialization:** an agent's first schedule step of a
+> run seeds an unresolvable scheduled place as the agent's own place cell centered where it stands
+> (editor placement = day-start spot by convention) — `test_wake_place.py`. **(2) Place cells are
+> now 9×9 m around the APC** (`PLACE_EXTENT_CM` = 900, was 300); live MCP_World DB rows widened
+> out-of-band. **(3) #6c BUILT** — real top-down capture under the web `/map` grid (see #6c).
+> **Design call to veto:** a scheduled **"act" tick is now sweep-exempt** (partially reverses
+> 2026-07-03 "sweep on entry even when acting") — Maren waking at her stall must not walk to the
+> cell center to survey the district; the cell is swept on a later travel/idle tick
+> (`test_cell_sweep.py` updated). Suite **35/35**. **PIE verify:** Maren wakes at the truck and
+> stays (log line: `wake: seeded own place cell`); `/map` shows the grid registered over the town.
+>
 > **⚑ Status (2026-07-03 — user present, two items landed):** **(1) B7b personal space BUILT** —
 > lizard-brain **reflex stop**: while moving, a *mobile* blocker inside **300 cm** (`_STANDOFF_CM`
 > ≈ whole person fills the camera frame, per the user's ask) triggers an immediate bridge `stop`
@@ -929,7 +945,22 @@ decision call (OpenAI text-only). Test: `test_route_map.py`. Suite 30/30. **Rema
 
 ## 6c. Real-world PNG map background — grid + place cells overlaid on the actual world
 
-**Status:** Not started · **Source:** user, 2026-07-03 · **Independence:** extends A1 (web `/map`) + #6b
+**Status:** BUILT (offline) 2026-07-05 · live browser verify pending · **Source:** user, 2026-07-03 ·
+**Independence:** extends A1 (web `/map`) + #6b
+
+> **⚑ Built 2026-07-05:** calibration decision made by the user ("if the actual world is m×n, we
+> carve that up into 30 m cells — calculate off that fact") = **assume-covers-bounds**: the capture
+> frames the world bounds exactly, world→pixel is linear. Orientation follows the project compass
+> convention (`place_db.py`): **+X = east = image right, +Y = south = image down, row 0 = north/top**
+> (image 1023×670 aspect 1.527 ≈ bounds 47000×30859 aspect 1.523 — confirms whole-world framing).
+> `WorldGrid.origin()` exposes the origin-anchored cell (0,0) corner (starts *outside* bounds —
+> edge cells crop at the image edge, `overflow:hidden`). `/api/map` now carries
+> `bounds/origin_x/origin_y/image_url` + owned `dx/dy/extent_cm`; `map.html` draws the capture as
+> the background with translucent world-registered cell overlays + purple 9×9 m owned-place boxes
+> (first consumer of `extent_cm`). Per-level `images/<level>.png` beats the shared
+> `world_map_view.png`; no capture → plain background at the world's aspect (same overlay engine).
+> Tests: `test_map_view.py`, `test_world_grid.py`. **Live verify:** open `/map` in a browser over
+> the real capture; re-shoot the capture if the gridlines look offset from the town.
 · **Asset in place:** `Python/web_ui/images/world_map_view.png` (1023×670, a top-down capture of the
 whole level; the user added it "for future work").
 
