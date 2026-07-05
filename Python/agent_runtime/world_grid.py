@@ -71,6 +71,20 @@ class WorldGrid:
         out["in_bounds"] = min_gx <= gx <= max_gx and min_gy <= gy <= max_gy
         return out
 
+    def origin(self) -> tuple[float, float] | None:
+        """World (x, y) of cell (0, 0)'s min corner — the grid's NW anchor.
+
+        Cells are origin-anchored (``floor(coord / cell_size)``), so the first
+        cell generally starts *outside* ``bounds`` (e.g. min_x=-24600 with
+        3000 cm cells → origin x=-27000). Overlays that draw the grid over a
+        world image need this to place cell edges in world space. ``None``
+        without bounds.
+        """
+        if not self.bounds:
+            return None
+        return (self._index(self.bounds["min_x"]) * self.cell_size,
+                self._index(self.bounds["min_y"]) * self.cell_size)
+
     def cell_center(self, col: int, row: int) -> tuple[float, float] | None:
         """Return the world (x, y) center of the cell at (col, row).
 

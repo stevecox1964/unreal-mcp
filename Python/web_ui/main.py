@@ -26,6 +26,7 @@ MAP_STALE_SECONDS = 24 * 3600   # a place cell older than this is flagged for re
 
 app = FastAPI(title="Unreal World Sim")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+app.mount("/images", StaticFiles(directory=str(BASE_DIR / "images")), name="images")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 DEFAULT_ACTIONS = [
@@ -112,6 +113,20 @@ def _resolve_level(level: str = None) -> str | None:
     return worlds[0] if worlds else None
 
 
+def _map_image_url(level: str) -> str | None:
+    """URL of the real top-down world capture drawn under the grid (#6c).
+
+    A per-level ``images/<level>.png`` wins; the shared ``world_map_view.png``
+    is the fallback. The capture must frame the whole world exactly, so
+    bounds→pixel is a plain linear map (the #6c calibration assumption:
+    +X = east = right, +Y = south = down, row 0 = north/top).
+    """
+    for name in (f"{level}.png", "world_map_view.png"):
+        if (BASE_DIR / "images" / name).exists():
+            return f"/images/{name}"
+    return None
+
+
 def build_map(level: str) -> dict:
     """Assemble the map view for a world from its grid file + shared PlaceDB.
 
@@ -119,14 +134,21 @@ def build_map(level: str) -> dict:
     (named/swept cells). Never creates the DB — a missing DB yields an empty
     map, so a GET can't spawn a blank world. Shape::
 
-        {level, cell_size, has_bounds, cols, rows, cells: [...],
-         owned: [{col,row,owner,name}], counts: {named, swept, stale, owned, total_cells}}
+        {level, cell_size, has_bounds, cols, rows, bounds, origin_x, origin_y,
+         image_url, cells: [...], owned: [{col,row,owner,name,dx,dy,extent_cm}],
+         counts: {named, swept, stale, owned, total_cells}}
+
+    ``bounds``/``origin_x``/``origin_y`` (world cm) + ``image_url`` let the page
+    draw the grid and place cells over the real top-down capture (#6c):
+    cell (c, r)'s min corner is (origin + c·cell_size) mapped linearly into the
+    bounds rectangle, which the image frames exactly.
     """
     grid = WorldGrid.load(WORLDS_DIR / level / "world_grid.json")
     cols = rows = None
     if grid.has_bounds:
         probe = grid.locate(grid.bounds["min_x"], grid.bounds["min_y"])
         cols, rows = probe["cols"], probe["rows"]
+    origin = grid.origin()
 
     db_path = WORLDS_DIR / level / "world_places.db"
     db = PlaceDB(db_path) if db_path.exists() else None
@@ -141,9 +163,14 @@ def build_map(level: str) -> dict:
         "has_bounds": grid.has_bounds,
         "cols": cols,
         "rows": rows,
+        "bounds": grid.bounds,
+        "origin_x": origin[0] if origin else None,
+        "origin_y": origin[1] if origin else None,
+        "image_url": _map_image_url(level),
         "stale_after_hours": MAP_STALE_SECONDS // 3600,
         "cells": cells,
-        "owned": [{"col": o["col"], "row": o["row"], "owner": o["owner"], "name": o["name"]}
+        "owned": [{"col": o["col"], "row": o["row"], "owner": o["owner"], "name": o["name"],
+                   "dx": o["dx"], "dy": o["dy"], "extent_cm": o["extent_cm"]}
                   for o in owned],
         "counts": {"named": named, "swept": swept, "stale": stale, "owned": len(owned),
                    "total_cells": (cols or 0) * (rows or 0)},

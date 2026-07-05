@@ -25,63 +25,96 @@
   <p class="breadcrumb">
     <strong>{{ level }}</strong> · {{ map.cols }}×{{ map.rows }} cells · {{ map.cell_size|int }}cm each ·
     row 0 = north (top)
+    {% if not map.image_url %} · <em>no world capture found (images/world_map_view.png)</em>{% endif %}
   </p>
 
   <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap; margin-bottom:.75rem;">
-    <span><span class="swatch" style="background:#2d6a4f"></span> named <b id="n-named">0</b></span>
-    <span><span class="swatch" style="background:#e9c46a"></span> swept <b id="n-swept">0</b></span>
-    <span><span class="swatch" style="background:#f4f6f8; border:1px solid #8b95a1"></span> unexplored</span>
-    <span><span class="swatch" style="background:#fff; box-shadow:inset 0 0 0 2px #c0392b"></span> stale <b id="n-stale">0</b></span>
-    <span><span class="swatch" style="background:radial-gradient(circle, #6f42c1 0 32%, #e9ecef 36%)"></span> owned place <b id="n-owned">0</b></span>
+    <span><span class="swatch" style="background:rgba(45,106,79,.55)"></span> named <b id="n-named">0</b></span>
+    <span><span class="swatch" style="background:rgba(233,196,106,.6)"></span> swept <b id="n-swept">0</b></span>
+    <span><span class="swatch" style="border:1px solid #8b95a1"></span> unexplored</span>
+    <span><span class="swatch" style="box-shadow:inset 0 0 0 2px #c0392b"></span> stale <b id="n-stale">0</b></span>
+    <span><span class="swatch" style="border:2px solid #6f42c1; background:rgba(111,66,193,.3)"></span> owned place <b id="n-owned">0</b></span>
     <span id="pct" style="color:#666"></span>
   </div>
   <p class="breadcrumb" style="margin-top:-.25rem;">stale = not re-observed in over {{ map.stale_after_hours }}h (real time)</p>
 
-  <div id="grid" data-level="{{ level }}" data-cols="{{ map.cols }}" data-rows="{{ map.rows }}"
-       style="display:grid; gap:1px; background:#8b95a1; padding:1px; width:max-content; max-width:100%; overflow:auto;">
+  {# The real top-down capture frames the whole world (bounds), so world→pixel
+     is linear: +X = east = right, +Y = south = down, row 0 = north (#6c).
+     Grid cells are origin-anchored (floor(x / cell_size)) so edge cells start
+     outside the bounds — overflow:hidden crops them like the world does. #}
+  <div id="wrap" data-level="{{ level }}"
+       style="position:relative; overflow:hidden; max-width:1024px; border:1px solid #8b95a1;">
+    {% if map.image_url %}
+      <img id="bg" src="{{ map.image_url }}" alt="top-down world capture"
+           style="display:block; width:100%;">
+    {% else %}
+      <div id="bg" style="width:100%; background:#f4f6f8;"></div>
+    {% endif %}
+    <div id="cells" style="position:absolute; inset:0;"></div>
+    <div id="places" style="position:absolute; inset:0; pointer-events:none;"></div>
   </div>
   <p id="tip" style="color:#666; min-height:1.4em; margin-top:.5rem;">Hover a cell for details.</p>
 
   <style>
     .swatch { display:inline-block; width:14px; height:14px; border-radius:2px; vertical-align:middle; margin-right:.25rem; }
-    #grid .cell { width:100%; height:100%; background:#f4f6f8; }
-    #grid .cell.named { background:#2d6a4f; }
-    #grid .cell.swept { background:#e9c46a; }
-    #grid .cell.stale { box-shadow:inset 0 0 0 2px #c0392b; }
-    /* Owned-place dot overlays the state color (keep after .named/.swept so the
-       background-image survives their background shorthand). */
-    #grid .cell.owned-mark { background-image:radial-gradient(circle, #6f42c1 0 32%, transparent 36%); }
+    #cells .cell { position:absolute; box-sizing:border-box; border:1px solid rgba(60,70,80,.35); }
+    #cells .cell.named { background:rgba(45,106,79,.45); }
+    #cells .cell.swept { background:rgba(233,196,106,.5); }
+    #cells .cell.stale { box-shadow:inset 0 0 0 2px #c0392b; }
+    /* APC-owned place cells (#11.2): a 9x9 m box at anchor + offset. */
+    #places .owned-mark { position:absolute; box-sizing:border-box; pointer-events:auto;
+                          border:2px solid #6f42c1; background:rgba(111,66,193,.3); border-radius:2px; }
   </style>
 
   <script>
-    const gridEl = document.getElementById("grid");
-    const cols = parseInt(gridEl.dataset.cols, 10);
-    const rows = parseInt(gridEl.dataset.rows, 10);
-    const level = gridEl.dataset.level;
-    const cellPx = Math.max(6, Math.min(16, Math.floor(900 / cols)));
+    const wrap = document.getElementById("wrap");
+    const cellsEl = document.getElementById("cells");
+    const placesEl = document.getElementById("places");
+    const level = wrap.dataset.level;
+    const tip = document.getElementById("tip");
+    let geo = null;   // {bounds} once the first payload arrives; cells built then
 
-    // Build the empty grid once (row 0 at top). Cell id = "c-<col>-<row>".
-    gridEl.style.gridTemplateColumns = `repeat(${cols}, ${cellPx}px)`;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const d = document.createElement("div");
-        d.className = "cell";
-        d.id = `c-${c}-${r}`;
-        d.style.height = cellPx + "px";
-        gridEl.appendChild(d);
-      }
+    // World-space rect (cm) -> % styles inside the bounds rectangle.
+    function placeRect(el, x0, y0, w, h) {
+      const b = geo.bounds, W = b.max_x - b.min_x, H = b.max_y - b.min_y;
+      el.style.left = (100 * (x0 - b.min_x) / W) + "%";
+      el.style.top = (100 * (y0 - b.min_y) / H) + "%";
+      el.style.width = (100 * w / W) + "%";
+      el.style.height = (100 * h / H) + "%";
     }
 
-    const tip = document.getElementById("tip");
+    function buildCells(data) {
+      geo = { bounds: data.bounds };
+      const bg = document.getElementById("bg");
+      if (bg.tagName !== "IMG") {  // no capture: match the world's aspect ratio
+        bg.style.aspectRatio = `${data.bounds.max_x - data.bounds.min_x} / ${data.bounds.max_y - data.bounds.min_y}`;
+      }
+      for (let r = 0; r < data.rows; r++) {
+        for (let c = 0; c < data.cols; c++) {
+          const d = document.createElement("div");
+          d.className = "cell";
+          d.id = `c-${c}-${r}`;
+          placeRect(d, data.origin_x + c * data.cell_size, data.origin_y + r * data.cell_size,
+                    data.cell_size, data.cell_size);
+          cellsEl.appendChild(d);
+        }
+      }
+    }
 
     async function refresh() {
       let data;
       try {
         data = await (await fetch(`/api/map?level=${encodeURIComponent(level)}`)).json();
       } catch (e) { return; }
-      // Reset styling, then paint stateful cells.
-      gridEl.querySelectorAll(".cell.named, .cell.swept, .cell.stale, .cell.owned-mark")
-            .forEach(el => el.className = "cell");
+      if (!data.bounds || data.origin_x === null) return;
+      if (!geo) buildCells(data);
+
+      // Reset every cell, then paint the stateful ones.
+      cellsEl.querySelectorAll(".cell").forEach(el => {
+        el.className = "cell";
+        const [c, r] = el.id.split("-").slice(1);
+        el.dataset.tip = `(${c}, ${r}) — unexplored`;
+      });
       for (const cell of data.cells) {
         const el = document.getElementById(`c-${cell.col}-${cell.row}`);
         if (!el) continue;
@@ -90,26 +123,32 @@
         const age = cell.stale ? " · STALE (needs re-observation)" : "";
         el.dataset.tip = `(${cell.col}, ${cell.row}) — ${who} · ${cell.landmarks} landmark(s)${age}`;
       }
-      // APC-owned place cells (#11.2): a dot on the cell + names in the tooltip.
+
+      // APC-owned place cells (#11.2): extent-sized boxes at anchor + offset.
+      placesEl.innerHTML = "";
       for (const o of data.owned || []) {
-        const el = document.getElementById(`c-${o.col}-${o.row}`);
-        if (!el) continue;
-        el.classList.add("owned-mark");
-        const tag = `owned: "${o.name}" (${o.owner})`;
-        el.dataset.tip = el.dataset.tip ? `${el.dataset.tip} · ${tag}`
-                                        : `(${o.col}, ${o.row}) — ${tag}`;
+        const e = o.extent_cm || 900;
+        const cx = data.origin_x + (o.col + 0.5) * data.cell_size + (o.dx || 0);
+        const cy = data.origin_y + (o.row + 0.5) * data.cell_size + (o.dy || 0);
+        const d = document.createElement("div");
+        d.className = "owned-mark";
+        placeRect(d, cx - e / 2, cy - e / 2, e, e);
+        d.dataset.tip = `owned: "${o.name}" (${o.owner}) — ` +
+                        `${(e / 100).toFixed(0)}×${(e / 100).toFixed(0)} m in cell (${o.col}, ${o.row})`;
+        placesEl.appendChild(d);
       }
+
       document.getElementById("n-named").textContent = data.counts.named;
       document.getElementById("n-swept").textContent = data.counts.swept;
       document.getElementById("n-stale").textContent = data.counts.stale;
       document.getElementById("n-owned").textContent = data.counts.owned || 0;
       const built = data.counts.named + data.counts.swept;
-      const total = data.counts.total_cells || (cols * rows);
+      const total = data.counts.total_cells || 1;
       document.getElementById("pct").textContent =
         `${built}/${total} cells built out (${(100 * built / total).toFixed(1)}%)`;
     }
 
-    gridEl.addEventListener("mouseover", e => {
+    wrap.addEventListener("mouseover", e => {
       if (e.target.dataset && e.target.dataset.tip) tip.textContent = e.target.dataset.tip;
     });
 

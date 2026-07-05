@@ -45,6 +45,16 @@ def test_grid_math():
     check("grid keys align with spatial map cells",
           g.locate(-777, 123)["key"] == smap.cell_key(-777, 123))
 
+    # origin(): cell (0,0)'s min corner, generally outside bounds (#6c overlay).
+    check("unbounded grid has no origin", WorldGrid().origin() is None)
+    check("aligned bounds -> origin at the min corner", g.origin() == (-2000.0, -800.0))
+    mcp = WorldGrid(cell_size=3000.0, bounds={"min_x": -24600.0, "min_y": -15158.6,
+                                              "max_x": 22400.0, "max_y": 15700.0})
+    check("unaligned bounds -> origin floored outside them",
+          mcp.origin() == (-27000.0, -18000.0))
+    check("origin is cell (0,0)",
+          mcp.locate(-26999.0, -17999.0)["col"] == 0 and mcp.locate(-26999.0, -17999.0)["row"] == 0)
+
 
 def test_place_labels():
     smap = SpatialMap(cell_size=400.0)

@@ -119,9 +119,16 @@ def test_api_map_returns_grid_and_cells():
             check("api reports cell_size", data["cell_size"] == 400.0)
             check("api returns both place cells", len(data["cells"]) == 2)
             check("api counts named + swept", data["counts"]["named"] == 1 and data["counts"]["swept"] == 1)
-            check("api carries owned places (#11.2)",
-                  data["owned"] == [{"col": 3, "row": 4, "owner": "maren", "name": "My Home"}])
+            check("api carries owned places with geometry (#11.2/#6c)",
+                  data["owned"] == [{"col": 3, "row": 4, "owner": "maren", "name": "My Home",
+                                     "dx": 120.0, "dy": -80.0, "extent_cm": 900.0}])
             check("api counts owned places", data["counts"]["owned"] == 1)
+            # #6c overlay geometry: bounds + the grid's origin-anchored (0,0) corner.
+            check("api carries world bounds", data["bounds"]["min_x"] == -2000)
+            check("api carries the grid origin",
+                  (data["origin_x"], data["origin_y"]) == (-2000.0, -2000.0))
+            check("api falls back to the shared world capture",
+                  data["image_url"] == "/images/world_map_view.png")
         _with_worlds(tmp, body)
 
 
@@ -155,6 +162,22 @@ def test_map_page_renders_with_legend_and_polls_api():
             check("grid lines are visible (not the near-invisible pale gap)",
                   "#8b95a1" in text and "background:#ddd" not in text)
             check("map page fetches /api/map to build out live", "/api/map" in text)
+            # #6c: the real capture is the map background; the grid overlays it.
+            check("map page embeds the world capture",
+                  '<img id="bg" src="/images/world_map_view.png"' in text)
+            check("map page draws cells from world coords (origin-anchored)",
+                  "origin_x" in text and "placeRect" in text)
+        _with_worlds(tmp, body)
+
+
+def test_map_image_is_served():
+    with tempfile.TemporaryDirectory() as tmp:
+        _world(tmp)
+
+        def body(client):
+            resp = client.get("/images/world_map_view.png")
+            check("shared world capture is served", resp.status_code == 200)
+            check("capture is a PNG", resp.content[:4] == b"\x89PNG")
         _with_worlds(tmp, body)
 
 
@@ -165,6 +188,7 @@ def main():
     test_api_map_returns_grid_and_cells()
     test_api_map_missing_db_is_empty_not_error()
     test_map_page_renders_with_legend_and_polls_api()
+    test_map_image_is_served()
     print("\nAll map-view checks passed.")
 
 
