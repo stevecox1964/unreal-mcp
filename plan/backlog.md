@@ -17,6 +17,30 @@ grooming: 2026-06-26.
 > **#3** factory ✓. The remaining MVP gap is **#3's standalone runner** (the "runs overnight
 > independent of Claude" long pole — nothing built but the factory).
 
+> **⚑ Status (2026-07-06, later — user moved the actors; four new items #18–#21, queue re-ranked):**
+> User rearranged the level in PIE: **Maren + the vegetable truck now at (-8950, 160), Dufus's home
+> at (-10460, -800)** — intending all three in one district. **Facts from the grid math:** Maren is
+> in cell **(6,6)** (50 cm from its west edge) and Dufus in **(5,5)** — *adjacent diagonals
+> straddling the cell corner at world (-9000, 0), not the same cell.* The "(2,6)" the user read off
+> the map is the ~4-cell skew — placement decisions were being made against a mis-registered map.
+> **Maren wandering again = stale wake seeds**, not the wake fix regressing: her owned "the
+> vegetable truck" rows still anchored at the OLD spot (~9 m east of the new one), so the geometric
+> verdict was honestly "not there yet" and she traveled. **Live DB cleaned (out-of-band):** 6 stale
+> owned rows deleted (maren: "the vegetable truck", "vegetable truck"; dufus: "home", "farm road",
+> "village square", "main street" — all four seeded at his old day-start spot); both agents re-seed
+> at their new spawns on next wake. **The manual /map png is now stale too (user: "my bad — bad
+> idea")** — superseded by **#18 live registered top-down camera**. New items: **#18** (real-time
+> registered map), **#19** (keep APCs on sidewalks/roads — Maren cuts through the corn field and
+> back yards), **#20** (Dufus slow to start moving), **#21** ("I moved things — sync the world"
+> button). **Ranked next work (before moving on):**
+> **1. #15** authored places manifest — the durable fix for the whole moved-actor/stale-seed class;
+> **2. #21** sync-the-world button — the recurring editor-iteration pain, v1 slice is small;
+> **3. #18** live registered top-down camera — registration correct by construction + real-time view;
+> **4. #17** grid-first routing — structural anti-orbit for travel;
+> **5. #19** sidewalks/roads — needs #17's planner + a design call;
+> **6. #16** click-to-author places — needs #18's trustworthy map;
+> **7. #20** movement pacing — instrument during the next SRs.
+>
 > **⚑ Status (2026-07-06 — user feedback on the /map screenshot, two fixes):** **(1) Map skew
 > diagnosed** — cells render 3–4 grid cells right of the world features because the capture
 > (`web_ui/images/world_map_view.png`) is a hand-taken editor viewport screenshot (HUD/toolbar baked
@@ -713,6 +737,107 @@ Pieces:
 
 Relates to: #11.2 (grid-first decision + fine-approach), #6b (route map = the visualization of this
 plan), #1 (resolution), B7b (standoff at arrival), `architecture_engine_agnostic_navigation`.
+
+---
+
+## 18. Live registered top-down map camera — real-time /map, registration by construction
+
+**Status:** Not started · **Source:** user, 2026-07-06 ("we need to work more on the map view
+actually being registered correctly and also adding a new camera/map view component so that we can
+see in real-time what's going on") · **Supersedes:** the manual `images/<level>.png` screenshot
+(stale the moment the user moves anything — proven today) and #6c's open registration question;
+`image_bounds` (built 2026-07-06) stays as the fallback calibration for hand shots.
+
+The 2026-07-06 skew hurt twice: the overlay was wrong, *and the user placed actors against the
+wrong map* (read "(2,6)" for what is really (6,6)). A hand screenshot can never be trusted; the
+sim should shoot its own map with a camera whose frame is *defined* to be the world bounds — then
+world→pixel is exact with zero calibration.
+
+Pieces:
+- **Engine-side capture:** an orthographic top-down capture (SceneCapture2D or equivalent bridge
+  command) centered on the bounds rect, ortho width = bounds width, output aspect = bounds aspect
+  → written to `images/<level>.png` on demand. No HUD, no toolbar, no guessing.
+- **Bridge + runner surface:** `capture_world_map` callable from the web UI (a "re-shoot map"
+  button — pairs with #21's sync) and optionally on a timer while the sim runs.
+- **Real-time layer (loop-safe):** `/api/map` gains live agent positions from the runner
+  (`get_character_transform` already exists); `map.html` draws moving agent dots + facing + name
+  labels over the registered image, polling with the existing 3 s refresh. The *terrain* image
+  refreshes on capture; the *agents* move every poll — that's the "see what's going on" view.
+- **Offline tests:** agent-marker payload + rendering (TestClient); the capture itself is
+  live-verify.
+
+Relates to: #6c (the overlay engine this feeds), #16 (authoring needs a trustworthy map), #21
+(same "world changed" workflow), #9 (dev-mode observability).
+
+---
+
+## 19. Keep APCs on sidewalks and roads
+
+**Status:** Not started (needs a design call) · **Source:** user, 2026-07-06 ("Maren is wandering
+into the corn field and people's back yards") · **Depends on:** #17 (the route planner is where a
+road preference lives naturally)
+
+Agents cut straight lines through anything walkable — corn fields, yards. Navmesh says "walkable";
+nothing says "socially, stay on the pavement." Options, not mutually exclusive:
+
+- **(a) Engine-side navmesh area costs** — nav-modifier volumes over roads/sidewalks (cheap cost)
+  vs everything else (expensive). Zero runtime code, immediate effect on every navmesh walk — but
+  per-level editor work, invisible to the cognitive loop, and leans against
+  [[architecture-engine-agnostic-navigation]] ("obstacles are solved by the cognitive loop, not
+  engine patches"). Cheap immediate win if the user wants it; needs their call.
+- **(b) Lizard-brain surface fact** — a ground probe reports *facts only* per the
+  [[lizard-brain-contract]]: "surface underfoot: grass/road/pavement; nearest road ~4 m north."
+  The LLM (and travel directive) get a standing rule: prefer pavement when traveling. Engine
+  primitive inside, generic semantic label out.
+- **(c) Route-planner weighting (#17)** — the grid-first planner prefers legs through cells whose
+  sweep observations look road-like (community names/landmarks: "main street", "rural town road"),
+  so multi-leg routes follow the street grid structurally instead of beelining.
+
+Likely shape: (c) for the mid-scale + (b) for the local scale; (a) only if the user wants the
+instant version. Offline tests: planner weighting (c) and the fact formatting (b) are both
+loop-safe.
+
+---
+
+## 20. Movement pacing — Dufus is slow to get going
+
+**Status:** Not started (observe first) · **Source:** user, 2026-07-06 ("Dufus takes a long time
+to move, but eventually does. Goes down street.")
+
+Might be real (tick cadence, cooldowns, walk speed, LLM latency per decision) or might be persona
++ schedule (his own plan keeps him home until 08:30 sim time — flagged 2026-07-05 as "looks
+stuck"). Don't tune blind: instrument first. Add per-agent timing to the decision log / replay
+(#14): wall-clock from wake → first `walk_to` accepted → first actual displacement, and per-tick
+latency broken into observe/LLM/act. Then decide whether the fix is pacing config, schedule
+trimming, or nothing.
+
+---
+
+## 21. "I moved things — sync the world" button
+
+**Status:** Not started · **Source:** user, 2026-07-06 ("we also need a 'I moved things, sync the
+world' button somewhere") · **Depends on:** nothing for v1; #15 for v2 · **Priority: v1 early —
+this is the recurring editor-iteration pain.**
+
+Today, moving an actor in the editor silently invalidates wake-seeded owned places (and the map
+png): Maren hunted a truck that was 9 m from where the DB said. The 2026-07-06 fix was Claude
+deleting rows out-of-band — that must become a button.
+
+Pieces:
+- **v1 (pre-#15): re-seed from reality.** A button on `/map` or `/sim`: for every bound agent,
+  read the live transform via the bridge, then delete that agent's *wake-seeded* owned rows and
+  let the next wake re-seed at the new day-start spot. Reports exactly what it deleted (fail loud,
+  per [[global-fail-loud]] — no silent "synced ✓"). Offline-testable logic + TestClient route;
+  live transform read is thin.
+- **v2 (with #15): manifest re-anchor.** Manifest entries optionally bind to an Unreal actor name
+  (the truck mesh, the house). Sync reads those actors' transforms, rewrites `places.json` x/y,
+  re-upserts PlaceDB, and re-runs schedule validation — authored places move *with* the world.
+  Community cells whose landmarks moved get flagged stale for re-observation rather than deleted.
+- **Pairs with #18's "re-shoot map" button** — one "the world changed" workflow: re-shoot +
+  re-sync.
+
+Relates to: #15 (authored ground truth), #18 (same trigger), #13 (bootstrap = the first-ever sync),
+`feedback_drag_and_drop` (config complexity is our problem, not the user's).
 
 ---
 
