@@ -37,6 +37,8 @@ guess.
 | WP3 | [WP3-sweep-capability.md](WP3-sweep-capability.md) | A4/#11.1 collapse maintenance role → sweep capability | ready | live verify stays B-side |
 | WP4 | [WP4-owned-places.md](WP4-owned-places.md) | A5/#11.2 owned place cells + grid-first resolve | **GATED — user approval required** | user said "maybe too complicated" |
 | WP5 | [WP5-apc-topdown-map.md](WP5-apc-topdown-map.md) | #6b APC top-down map (design only) | **GATED — design sign-off, do not build** | user said "do not implement yet" |
+| WP6 | [WP6-authored-places-manifest.md](WP6-authored-places-manifest.md) | #15 authored places manifest + `source` tagging | ready | none |
+| WP7 | [WP7-sync-world-button.md](WP7-sync-world-button.md) | #21 v1 "sync the world" button (purge wake seeds) | ready — after WP6 | none |
 
 ## Why these five
 
