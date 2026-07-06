@@ -24,11 +24,18 @@ class WorldGrid:
 
     Without the file (or bounds) the grid is unbounded: cell keys are still
     deterministic and reported, col/row indices are omitted.
+
+    An optional ``image_bounds`` key (same shape as ``bounds``) calibrates the
+    web /map overlay: the world rect the top-down capture *actually* frames,
+    for captures that don't frame ``bounds`` exactly (#6c). Pure passthrough —
+    navigation never reads it.
     """
 
-    def __init__(self, cell_size: float = 400.0, bounds: dict | None = None):
+    def __init__(self, cell_size: float = 400.0, bounds: dict | None = None,
+                 image_bounds: dict | None = None):
         self.cell_size = float(cell_size)
         self.bounds = bounds or None
+        self.image_bounds = image_bounds or None
 
     @classmethod
     def load(cls, path: Path) -> "WorldGrid":
@@ -36,7 +43,8 @@ class WorldGrid:
             return cls()
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            return cls(cell_size=data.get("cell_size", 400.0), bounds=data.get("bounds"))
+            return cls(cell_size=data.get("cell_size", 400.0), bounds=data.get("bounds"),
+                       image_bounds=data.get("image_bounds"))
         except Exception as e:
             logger.error(f"Bad world grid file {path}: {e} — using unbounded default")
             return cls()

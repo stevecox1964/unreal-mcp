@@ -38,8 +38,9 @@
   </div>
   <p class="breadcrumb" style="margin-top:-.25rem;">stale = not re-observed in over {{ map.stale_after_hours }}h (real time)</p>
 
-  {# The real top-down capture frames the whole world (bounds), so world→pixel
-     is linear: +X = east = right, +Y = south = down, row 0 = north (#6c).
+  {# The real top-down capture frames a known world rect — image_bounds when
+     the grid file calibrates one, else bounds — so world→pixel is linear:
+     +X = east = right, +Y = south = down, row 0 = north (#6c).
      Grid cells are origin-anchored (floor(x / cell_size)) so edge cells start
      outside the bounds — overflow:hidden crops them like the world does. #}
   <div id="wrap" data-level="{{ level }}"
@@ -54,6 +55,7 @@
     <div id="places" style="position:absolute; inset:0; pointer-events:none;"></div>
   </div>
   <p id="tip" style="color:#666; min-height:1.4em; margin-top:.5rem;">Hover a cell for details.</p>
+  <p id="coords" style="color:#666; min-height:1.4em; margin-top:-.5rem; font-family:monospace;"></p>
 
   <style>
     .swatch { display:inline-block; width:14px; height:14px; border-radius:2px; vertical-align:middle; margin-right:.25rem; }
@@ -72,11 +74,12 @@
     const placesEl = document.getElementById("places");
     const level = wrap.dataset.level;
     const tip = document.getElementById("tip");
-    let geo = null;   // {bounds} once the first payload arrives; cells built then
+    let geo = null;   // {frame, origin, cell} once the first payload arrives; cells built then
 
-    // World-space rect (cm) -> % styles inside the bounds rectangle.
+    // World-space rect (cm) -> % styles inside the frame the image covers
+    // (image_bounds calibration when present, else the world bounds).
     function placeRect(el, x0, y0, w, h) {
-      const b = geo.bounds, W = b.max_x - b.min_x, H = b.max_y - b.min_y;
+      const b = geo.frame, W = b.max_x - b.min_x, H = b.max_y - b.min_y;
       el.style.left = (100 * (x0 - b.min_x) / W) + "%";
       el.style.top = (100 * (y0 - b.min_y) / H) + "%";
       el.style.width = (100 * w / W) + "%";
@@ -84,7 +87,8 @@
     }
 
     function buildCells(data) {
-      geo = { bounds: data.bounds };
+      geo = { frame: data.image_bounds || data.bounds,
+              origin_x: data.origin_x, origin_y: data.origin_y, cell: data.cell_size };
       const bg = document.getElementById("bg");
       if (bg.tagName !== "IMG") {  // no capture: match the world's aspect ratio
         bg.style.aspectRatio = `${data.bounds.max_x - data.bounds.min_x} / ${data.bounds.max_y - data.bounds.min_y}`;
@@ -150,6 +154,21 @@
 
     wrap.addEventListener("mouseover", e => {
       if (e.target.dataset && e.target.dataset.tip) tip.textContent = e.target.dataset.tip;
+    });
+
+    // Registration check (#6c): live world-coordinate readout under the cursor.
+    // Hover a landmark whose world position you know (an APC spawn) — if the
+    // readout disagrees, the capture's frame is off; calibrate image_bounds
+    // in world_grid.json until it matches.
+    wrap.addEventListener("mousemove", e => {
+      if (!geo) return;
+      const r = wrap.getBoundingClientRect(), f = geo.frame;
+      const wx = f.min_x + (e.clientX - r.left) / r.width * (f.max_x - f.min_x);
+      const wy = f.min_y + (e.clientY - r.top) / r.height * (f.max_y - f.min_y);
+      const col = Math.floor((wx - geo.origin_x) / geo.cell);
+      const row = Math.floor((wy - geo.origin_y) / geo.cell);
+      document.getElementById("coords").textContent =
+        `cursor: world (${wx.toFixed(0)}, ${wy.toFixed(0)}) cm — cell (${col}, ${row})`;
     });
 
     refresh();

@@ -141,7 +141,8 @@ def build_map(level: str) -> dict:
     ``bounds``/``origin_x``/``origin_y`` (world cm) + ``image_url`` let the page
     draw the grid and place cells over the real top-down capture (#6c):
     cell (c, r)'s min corner is (origin + c·cell_size) mapped linearly into the
-    bounds rectangle, which the image frames exactly.
+    rectangle the image frames — ``image_bounds`` when the grid file calibrates
+    one (a capture that doesn't frame ``bounds`` exactly), else ``bounds``.
     """
     grid = WorldGrid.load(WORLDS_DIR / level / "world_grid.json")
     cols = rows = None
@@ -164,6 +165,7 @@ def build_map(level: str) -> dict:
         "cols": cols,
         "rows": rows,
         "bounds": grid.bounds,
+        "image_bounds": grid.image_bounds,
         "origin_x": origin[0] if origin else None,
         "origin_y": origin[1] if origin else None,
         "image_url": _map_image_url(level),

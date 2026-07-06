@@ -225,6 +225,36 @@ def test_positionless_tick_keeps_seed_chance():
         check("and reports act", obs["schedule"]["status"] == "act")
 
 
+def test_wake_sweep_drops_community_breadcrumb():
+    # User, 2026-07-06: every explored district should get a community place
+    # cell — the wake look-around counts as the cell's sweep. Act ticks are
+    # sweep-exempt, so an agent working its own cell (Dufus at home) would
+    # otherwise never put its district on the map.
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _manager(tmp)
+        views = [{"direction": "forward", "yaw": 0.0,
+                  "landmarks": [{"label": "farmhouse", "confidence": 0.9}]},
+                 {"direction": "left", "yaw": -90.0, "landmarks": []}]
+
+        mgr._ingest_wake_views("dufus", 5, 5, views, "Day 1, 07:00")
+        swept = mgr.place_db.get_swept(5, 5)
+        check("wake sweep drops the community breadcrumb",
+              swept is not None and swept["swept_by"] == "dufus")
+        cells = mgr.place_db.map_cells()
+        check("the district shows on the map as swept",
+              len(cells) == 1 and cells[0]["state"] == "swept")
+        check("landmarks were ingested", cells[0]["landmarks"] == 1)
+
+        # Idempotent: a second wake in the same cell keeps the first sweep.
+        mgr._ingest_wake_views("maren", 5, 5, views, "Day 2, 07:00")
+        check("first sweep wins", mgr.place_db.get_swept(5, 5)["swept_by"] == "dufus")
+
+        # An empty sweep (no transform / all headings failed) records nothing.
+        mgr._ingest_wake_views("dufus", 6, 6, [], "Day 1, 07:00")
+        check("empty wake sweep leaves the cell unexplored",
+              mgr.place_db.get_swept(6, 6) is None)
+
+
 def test_wake_schedule_line_rendering():
     from agent_runtime.llm_router import _wake_schedule_line
     act = _wake_schedule_line({"status": "act", "place": "the vegetable truck",
@@ -248,6 +278,7 @@ def main():
     test_attach_schedule_wake_flow()
     test_wake_directive_at_spawn()
     test_positionless_tick_keeps_seed_chance()
+    test_wake_sweep_drops_community_breadcrumb()
     test_wake_schedule_line_rendering()
     print("\nAll wake-place checks passed.")
 

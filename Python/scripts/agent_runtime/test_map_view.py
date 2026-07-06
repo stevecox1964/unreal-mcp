@@ -129,6 +129,27 @@ def test_api_map_returns_grid_and_cells():
                   (data["origin_x"], data["origin_y"]) == (-2000.0, -2000.0))
             check("api falls back to the shared world capture",
                   data["image_url"] == "/images/world_map_view.png")
+            check("no calibration -> image_bounds is null", data["image_bounds"] is None)
+        _with_worlds(tmp, body)
+
+
+def test_api_map_carries_image_bounds_calibration():
+    # #6c registration fix: a capture that doesn't frame the world bounds
+    # exactly gets an image_bounds calibration in world_grid.json; the overlay
+    # maps world->pixel through it instead of assuming bounds.
+    with tempfile.TemporaryDirectory() as tmp:
+        world = _world(tmp, level="Calib")
+        grid = json.loads((world / "world_grid.json").read_text(encoding="utf-8"))
+        grid["image_bounds"] = {"min_x": -1500, "min_y": -1800, "max_x": 2500, "max_y": 2200}
+        (world / "world_grid.json").write_text(json.dumps(grid), encoding="utf-8")
+
+        def body(client):
+            data = client.get("/api/map?level=Calib").json()
+            check("api passes the image_bounds calibration through",
+                  data["image_bounds"] == {"min_x": -1500, "min_y": -1800,
+                                           "max_x": 2500, "max_y": 2200})
+            check("world bounds are untouched by calibration",
+                  data["bounds"]["min_x"] == -2000)
         _with_worlds(tmp, body)
 
 
@@ -167,6 +188,8 @@ def test_map_page_renders_with_legend_and_polls_api():
                   '<img id="bg" src="/images/world_map_view.png"' in text)
             check("map page draws cells from world coords (origin-anchored)",
                   "origin_x" in text and "placeRect" in text)
+            check("map page maps through the calibrated frame + shows a coord readout",
+                  "image_bounds" in text and 'id="coords"' in text)
         _with_worlds(tmp, body)
 
 
@@ -186,6 +209,7 @@ def main():
     test_is_stale_by_wall_clock()
     test_map_cells_surfaces_stale_flag_when_asked()
     test_api_map_returns_grid_and_cells()
+    test_api_map_carries_image_bounds_calibration()
     test_api_map_missing_db_is_empty_not_error()
     test_map_page_renders_with_legend_and_polls_api()
     test_map_image_is_served()

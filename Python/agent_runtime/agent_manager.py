@@ -585,16 +585,7 @@ class AgentManager:
                     if a.agent_id != agent.agent_id and a.has_unreal_binding
                 ]
                 views = self._wake_sweep(agent, loc, rot, known_chars)
-
-                # Ingest each sweep view into PlaceDB with its compass direction.
-                if self.place_db and col is not None:
-                    for v in views:
-                        if v.get("landmarks"):
-                            self.place_db.ingest_compass(
-                                agent.agent_id, col, row,
-                                yaw_to_compass(v["yaw"]),
-                                v["landmarks"],
-                            )
+                self._ingest_wake_views(agent.agent_id, col, row, views, world_time)
 
                 memories = self.memory.get_relevant_memories(agent.agent_id)
                 context = {
@@ -674,6 +665,32 @@ class AgentManager:
                 )
             except Exception as e:
                 logger.error(f"[{agent.agent_id}] Wake orientation failed: {e} — keeping authored goal")
+
+    def _ingest_wake_views(self, agent_id: str, col, row,
+                           views: list[dict], world_time: str) -> None:
+        """Record a wake sweep's views in the shared PlaceDB.
+
+        Each view's landmarks feed the cell's compass-observation table, and a
+        non-empty sweep drops the community breadcrumb (``mark_swept``): the
+        wake look-around observed five headings from inside the cell, which
+        counts as the district's community sweep (user, 2026-07-06). Scheduled
+        "act" ticks are sweep-exempt, so without this an agent working its own
+        cell (Dufus at home) would leave its district unexplored on the map
+        forever. No-op without a PlaceDB or grid indices; an empty sweep
+        (no transform / every heading failed) records nothing.
+        """
+        if not self.place_db or col is None:
+            return
+        for v in views:
+            if v.get("landmarks"):
+                self.place_db.ingest_compass(
+                    agent_id, col, row, yaw_to_compass(v["yaw"]), v["landmarks"]
+                )
+        if views and self.place_db.mark_swept(agent_id, col, row, world_time):
+            logger.info(
+                f"[{agent_id}] wake: community place cell swept at ({col},{row}) "
+                f"— breadcrumb dropped"
+            )
 
     def _wake_sweep(self, agent: Agent, loc, rot, known_characters: list[str]) -> list[dict]:
         """The 180-degree look-around: turn in place through five headings

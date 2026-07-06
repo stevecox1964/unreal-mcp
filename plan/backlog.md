@@ -17,6 +17,22 @@ grooming: 2026-06-26.
 > **#3** factory ✓. The remaining MVP gap is **#3's standalone runner** (the "runs overnight
 > independent of Claude" long pole — nothing built but the factory).
 
+> **⚑ Status (2026-07-06 — user feedback on the /map screenshot, two fixes):** **(1) Map skew
+> diagnosed** — cells render 3–4 grid cells right of the world features because the capture
+> (`web_ui/images/world_map_view.png`) is a hand-taken editor viewport screenshot (HUD/toolbar baked
+> in), so #6c's "assume-covers-bounds" doesn't hold; the overlay math itself checks out (17×12=204,
+> Maren (-8400,150)→(6,6)). **Fix:** optional `image_bounds` in `world_grid.json` = the world rect
+> the capture *actually* frames; `/api/map` passes it through and `map.html` maps world→pixel
+> through it. `/map` also gained a **cursor world-coord + cell readout** to measure the offset
+> (hover a known landmark, e.g. Maren's spawn (-8400, 150) — the delta is the calibration).
+> MCP_World numbers still to be measured, or re-shoot the capture framed exactly to bounds.
+> **(2) Community place cell at wake** — user expects every explored district to get a community
+> cell; Dufus never made one (wake sweep ingested observations but dropped no breadcrumb + act
+> ticks are sweep-exempt, and he *acts* at home all morning). **Fix:** `_ingest_wake_views` drops
+> `mark_swept` after a non-empty wake sweep — the 180° look-around counts as the district's sweep.
+> Suite **35/35**. Known gap: an agent that *travels* into an unexplored cell and starts a
+> scheduled act block there still won't sweep it until a travel/idle tick.
+>
 > **⚑ Status (2026-07-05 — user present, three items landed):** **(1) Maren wake bug FIXED** —
 > the sequencer's "am I already there?" was a name-only match vs the community cell name, so on a
 > fresh DB an agent standing at its scheduled place was told to travel (Maren woke at her stall and
