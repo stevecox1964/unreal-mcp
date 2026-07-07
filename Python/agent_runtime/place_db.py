@@ -508,6 +508,25 @@ class PlaceDB:
             )
         return True
 
+    def purge_wake_seeds(self) -> list[dict]:
+        """Delete every wake-seeded owned place cell — the "sync the world" op
+        (#21 v1). When the user moves actors in the editor, wake seeds go stale
+        and send agents hunting old spots; purging them is safe because the
+        next run re-seeds at the new day-start positions. Authored rows
+        (ground truth) and runtime rows (agent memories) are never touched —
+        including pre-WP6 legacy rows tagged 'runtime' that may really have
+        been seeds; never guess. Returns the deleted rows
+        ``{col,row,owner,name,dx,dy}`` so callers can report, ``[]`` when
+        nothing matched.
+        """
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                "SELECT col, row, owner, name, dx, dy FROM owned_place_cells "
+                "WHERE source='wake-seed' ORDER BY col, row, owner, name"
+            ).fetchall()
+            conn.execute("DELETE FROM owned_place_cells WHERE source='wake-seed'")
+        return [dict(r) for r in rows]
+
     def find_owned_place(self, name: str, preferred_owner: str = None) -> dict | None:
         """Resolve a name to an APC-owned place cell, or None if unknown.
 

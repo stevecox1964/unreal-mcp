@@ -820,9 +820,13 @@ trimming, or nothing.
 
 ## 21. "I moved things — sync the world" button
 
-**Status:** Not started · **Source:** user, 2026-07-06 ("we also need a 'I moved things, sync the
-world' button somewhere") · **Depends on:** nothing for v1; #15 for v2 · **Priority: v1 early —
-this is the recurring editor-iteration pain.**
+**Status:** ✅ **v1 DONE 2026-07-07** (built per `plan/specs/WP7-sync-world-button.md`; suite
+37/37). `PlaceDB.purge_wake_seeds()` + `POST /api/world/sync` + a "Sync world" button on `/map`
+that reports exactly what was deleted into the tip line and redraws. Deletes only
+`source='wake-seed'` rows — authored (ground truth) and runtime (agent memories) rows survive;
+legacy pre-WP6 rows are never guessed at. **v2 (manifest re-anchor from `actor` transforms) still
+open — live-gated.** · **Source:** user, 2026-07-06 ("we also need a 'I moved things, sync the
+world' button somewhere") · **Depends on:** nothing for v1; #15 for v2
 
 Today, moving an actor in the editor silently invalidates wake-seeded owned places (and the map
 png): Maren hunted a truck that was 9 m from where the DB said. The 2026-07-06 fix was Claude

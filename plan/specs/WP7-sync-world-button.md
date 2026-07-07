@@ -70,10 +70,13 @@ purged seeds disappear on that refresh.
 
 ## Acceptance
 
-- [ ] `python scripts/run_tests.py` green.
-- [ ] Changes confined to: `place_db.py`, `web_ui/main.py`,
+- [x] `python scripts/run_tests.py` green (37/37, 2026-07-07).
+- [x] Changes confined to: `place_db.py`, `web_ui/main.py`,
       `web_ui/templates/map.html`, tests, `plan/backlog.md` #21 status.
 
 ## Executor notes
 
-_(empty)_
+Built 2026-07-07 (in-session, user's call), new `test_world_sync.py` as the
+spec preferred. The /map button renders only for a bounded world (it lives in
+the level-selector form but its handler is in the map script block, which an
+unbounded world doesn't render).

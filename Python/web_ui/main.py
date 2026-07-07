@@ -217,6 +217,27 @@ async def api_map(level: str = None):
     return JSONResponse(build_map(level))
 
 
+@app.post("/api/world/sync")
+async def api_world_sync(level: str = None):
+    """"I moved things — sync the world" (#21 v1): purge wake-seeded places.
+
+    Editor moves make wake seeds stale (agents hunt the old spots); deleting
+    them is self-healing — the next run re-seeds at the new day-start
+    positions. Authored (places.json) and runtime (agent-discovered) rows are
+    never touched. Never creates the DB; reports exactly what was deleted —
+    count 0 is an honest "nothing to sync".
+    """
+    level = _resolve_level(level)
+    if not level:
+        return JSONResponse({"level": None, "deleted": [], "count": 0})
+    db_path = WORLDS_DIR / level / "world_places.db"
+    if not db_path.exists():
+        return JSONResponse({"level": level, "deleted": [], "count": 0})
+    deleted = [{"owner": r["owner"], "name": r["name"], "col": r["col"], "row": r["row"]}
+               for r in PlaceDB(db_path).purge_wake_seeds()]
+    return JSONResponse({"level": level, "deleted": deleted, "count": len(deleted)})
+
+
 @app.get("/replay", response_class=HTMLResponse)
 async def replay_page(request: Request, level: str = None):
     """Run replay — single-step a sim run's observation frames next to decisions (#14)."""

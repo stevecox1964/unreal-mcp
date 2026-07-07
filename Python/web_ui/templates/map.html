@@ -12,6 +12,11 @@
       <option value="{{ w }}" {% if w == level %}selected{% endif %}>{{ w }}</option>
     {% endfor %}
   </select>
+  {% if map and map.has_bounds %}
+    {# #21 v1: "I moved things" — purge stale wake-seeded places; the next run
+       re-seeds at the new day-start spots. Wired in the map script below. #}
+    <button type="button" id="sync-btn" title="Moved actors in the editor? Purge stale wake-seeded places — the next run re-seeds them.">Sync world</button>
+  {% endif %}
 </form>
 {% endif %}
 
@@ -154,6 +159,21 @@
 
     wrap.addEventListener("mouseover", e => {
       if (e.target.dataset && e.target.dataset.tip) tip.textContent = e.target.dataset.tip;
+    });
+
+    // #21 v1: purge wake-seeded places, report what went, redraw (purged
+    // purple boxes disappear on the refresh).
+    document.getElementById("sync-btn").addEventListener("click", async () => {
+      let data;
+      try {
+        data = await (await fetch(`/api/world/sync?level=${encodeURIComponent(level)}`,
+                                  { method: "POST" })).json();
+      } catch (e) { tip.textContent = "sync failed — is the web app still running?"; return; }
+      tip.textContent = data.count
+        ? `synced: deleted ${data.count} wake seed(s) (` +
+          data.deleted.map(d => `${d.owner}: ${d.name}`).join("; ") + ")"
+        : "synced: nothing to purge";
+      refresh();
     });
 
     // Registration check (#6c): live world-coordinate readout under the cursor.
