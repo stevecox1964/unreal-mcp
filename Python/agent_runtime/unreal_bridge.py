@@ -111,6 +111,30 @@ class UnrealBridge:
         result = self._send("get_character_location", {"character_name": actor_name})
         return {"location": result.get("location"), "rotation": result.get("rotation")}
 
+    def set_actor_transform(self, actor_name: str, location=None, rotation=None) -> dict:
+        """Move/rotate a level actor (editor world). ``rotation`` is [pitch, yaw, roll].
+
+        Unlike ``teleport`` (a PIE character command) this drives any placed
+        actor — used to aim the MAP_Camera pawn for world-map captures (#18).
+        """
+        params: dict[str, Any] = {"name": actor_name}
+        if location is not None:
+            params["location"] = _xyz_list(location)
+        if rotation is not None:
+            params["rotation"] = _xyz_list(rotation)
+        return self._send("set_actor_transform", params)
+
+    def capture_camera_image(self, actor_name: str, file_path: str) -> dict:
+        """Capture a CameraCaptureActor's view to ``file_path`` (PNG, 1920x1080).
+
+        ``actor_name`` may be the capture actor itself or an actor with one
+        attached — the engine handler resolves both.
+        """
+        return self._send("capture_camera_image", {
+            "actor_name": actor_name,
+            "file_path": file_path,
+        })
+
     def teleport(self, actor_name: str, location, rotation=None) -> dict:
         """Instantly move a character (PIE world) â€” used by reset_agents, not by NPC actions."""
         params: dict[str, Any] = {

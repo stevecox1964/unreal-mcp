@@ -184,11 +184,21 @@ def test_manager_generate_world_grid_offline():
         def print_to_screen(self, message, key=-1, duration=30.0):
             pass
 
+        # #18 registration shot — this stub world has no MAP_Camera; the shot
+        # fails honestly and the grid must still generate.
+        def set_actor_transform(self, name, location=None, rotation=None):
+            return {"status": "error", "error": f"Actor not found: {name}"}
+
+        def capture_camera_image(self, actor_name, file_path):
+            return {"status": "error", "error": f"Actor not found: {actor_name}"}
+
     with tempfile.TemporaryDirectory() as tmp:
         mgr = AgentManager(worlds_dir=Path(tmp), llm_router=None,
                            unreal_bridge=GridBridge(), memory_store=None)
         out = mgr.generate_world_grid(cell_size=400.0, padding=100.0)
         check("grid generated from the actor scan", out["status"] == "generated")
+        check("missing MAP_Camera reported, grid unaffected (#18)",
+              out["map_capture"]["ok"] is False)
         check("bounds = actor extent + padding",
               out["bounds"] == {"min_x": -100.0, "min_y": -100.0,
                                 "max_x": 1100.0, "max_y": 2100.0})

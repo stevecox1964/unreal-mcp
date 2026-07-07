@@ -772,8 +772,11 @@ within ~4 m of its predicted pixel (the old hand shot was ~120 m off). MCP_World
 capture + calibration committed. **Live half DONE 2026-07-07 too:** the observe phase records each
 agent's last seen position/facing (no extra engine traffic), runner serves `GET /positions`, web UI
 proxies `/api/map/agents`, and `/map` draws red dots + facing tick + name every 3 s poll (runner
-offline = no dots, never stale ones). Suite 40/40. **Still open:** optional re-shoot-on-timer;
-PIE verify of the dots during a real run. · **Source:** user, 2026-07-06 ·
+offline = no dots, never stale ones). Suite 40/40. **Also:** `generate_world_grid` now takes the
+registration shot automatically (regrid → fresh registered map + calibration in one step; missing
+MAP_Camera reported honestly, grid unaffected) — pose math shared in `agent_runtime/map_capture.py`.
+**Still open:** optional re-shoot-on-timer; PIE verify of the dots during a real run. ·
+**Source:** user, 2026-07-06 ·
 **Supersedes:** the manual screenshot and #6c's open registration question; `image_bounds` stays
 as the calibration mechanism (now machine-written).
 

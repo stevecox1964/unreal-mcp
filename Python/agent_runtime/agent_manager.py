@@ -14,6 +14,7 @@ from .action_validator import validate
 from . import explorer
 from .perception import VisionPerceiver
 from . import cell_sweep
+from . import map_capture
 from . import places_manifest
 from . import planner
 from . import route_map
@@ -2255,11 +2256,21 @@ class AgentManager:
         }
         path = self.worlds_dir / level / "world_grid.json"
         path.parent.mkdir(parents=True, exist_ok=True)
+        # A regrid invalidates any previous image_bounds calibration — write
+        # only the new grid; the capture below re-derives the calibration.
         path.write_text(
             json.dumps({"cell_size": cell_size, "bounds": bounds}, indent=2),
             encoding="utf-8",
         )
         self.world_grid = WorldGrid(cell_size=cell_size, bounds=bounds)
+
+        # Registration shot (#18): shoot the world map from the MAP_Camera pawn
+        # framed to the fresh bounds. Best-effort — a world without the pawn
+        # still gets its grid; the failure is reported, never swallowed.
+        shot = map_capture.capture_world_map(
+            self.bridge, level, bounds, path,
+            images_dir=self.worlds_dir.parent / "web_ui" / "images",
+        )
         return {
             "status": "generated",
             "level": level,
@@ -2267,6 +2278,7 @@ class AgentManager:
             "actors_scanned": len(points),
             "bounds": bounds,
             "grid": self.world_grid.describe(),
+            "map_capture": shot,
         }
 
     # Helpers

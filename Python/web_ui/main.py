@@ -11,6 +11,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from agent_runtime.config_store import read_config, write_config, is_secret
+from agent_runtime.map_capture import (MAP_CAMERA_ACTOR, MAP_CAMERA_ROTATION,
+                                       MAP_CAPTURE_ASPECT, MAP_CAPTURE_MARGIN,
+                                       camera_pose_for_bounds)
 from agent_runtime import provider_profiles
 from agent_runtime import run_replay
 from agent_runtime.runner_client import RunnerClient, DEFAULT_BASE_URL
@@ -242,41 +245,9 @@ async def api_world_sync(level: str = None):
 
 
 # ── Map capture (#18): shoot the world map from the MAP_Camera pawn ───────────
-
-# The engine capture is fixed by CameraCaptureActor::CaptureCameraViewToFile:
-# 1920x1080 render target, and the fresh SceneCaptureComponent2D's default
-# 90-degree *horizontal* FOV. Straight down from height h that gives a ground
-# footprint of exactly h half-width east-west and h*ASPECT half-height
-# north-south — so the frame IS the calibration (#18: registration by
-# construction; no hand measuring).
-MAP_CAPTURE_ASPECT = 1080.0 / 1920.0
-MAP_CAPTURE_MARGIN = 1.02          # slack so the world edge isn't at pixel 0
-MAP_CAMERA_ACTOR = "MAP_Camera"    # the user-placed camera pawn (by label)
-# [pitch, yaw, roll]: straight down, yawed so image up = -Y = north and
-# image right = +X = east — the /map overlay's fixed convention (#6c).
-MAP_CAMERA_ROTATION = [-90.0, -90.0, 0.0]
-
-
-def camera_pose_for_bounds(bounds: dict) -> dict:
-    """Top-down camera pose framing ``bounds``, and the world rect it sees.
-
-    Pure math (offline-testable): center the camera over the bounds rect at
-    the height whose 90-degree-FOV footprint covers both axes, then report
-    that footprint as ``image_bounds`` — the exact rect the capture frames.
-    """
-    cx = (bounds["min_x"] + bounds["max_x"]) / 2.0
-    cy = (bounds["min_y"] + bounds["max_y"]) / 2.0
-    half_w = (bounds["max_x"] - bounds["min_x"]) / 2.0
-    half_h = (bounds["max_y"] - bounds["min_y"]) / 2.0
-    h = max(half_w, half_h / MAP_CAPTURE_ASPECT) * MAP_CAPTURE_MARGIN
-    return {
-        "location": [cx, cy, h],
-        "rotation": MAP_CAMERA_ROTATION,
-        "image_bounds": {
-            "min_x": cx - h, "max_x": cx + h,
-            "min_y": cy - h * MAP_CAPTURE_ASPECT, "max_y": cy + h * MAP_CAPTURE_ASPECT,
-        },
-    }
+# The pose math + engine-capture constants live in agent_runtime.map_capture
+# (shared with AgentManager.generate_world_grid's registration shot); this
+# route is the on-demand "Re-shoot map" path over the web UI's direct socket.
 
 
 @app.post("/api/map/capture")

@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]      # Python/
 sys.path.insert(0, str(ROOT))
 
 from fastapi.testclient import TestClient          # noqa: E402
+from agent_runtime.agent_manager import AgentManager  # noqa: E402
 import web_ui.main as wm                            # noqa: E402
 from web_ui import unreal_client                    # noqa: E402
 
@@ -179,11 +180,71 @@ def test_map_page_has_reshoot_button():
         _with_stub(tmp, stub, body)
 
 
+class GridStubBridge:
+    """Bridge stub for the generate_world_grid registration shot."""
+    def __init__(self, capture_ok=True):
+        self.moves, self.shots = [], []
+        self.capture_ok = capture_ok
+
+    def get_current_level(self):
+        return "TestWorld"
+
+    def get_level_actors(self):
+        return [{"location": [0.0, 0.0, 0.0]}, {"location": [4000.0, 3000.0, 0.0]}]
+
+    def set_actor_transform(self, name, location=None, rotation=None):
+        self.moves.append((name, location, rotation))
+        return {"status": "success"}
+
+    def capture_camera_image(self, actor_name, file_path):
+        self.shots.append((actor_name, file_path))
+        if self.capture_ok:
+            return {"status": "success", "success": True, "actor_name": "MAP_Camera_C_1"}
+        return {"status": "error", "error": "Actor not found: MAP_Camera"}
+
+
+def _grid_manager(tmp, bridge):
+    return AgentManager(worlds_dir=Path(tmp), llm_router=None,
+                        unreal_bridge=bridge, memory_store=None)
+
+
+def test_generate_world_grid_takes_registration_shot():
+    with tempfile.TemporaryDirectory() as tmp:
+        bridge = GridStubBridge()
+        out = _grid_manager(tmp, bridge).generate_world_grid(cell_size=400.0, padding=100.0)
+        check("grid generated", out["status"] == "generated")
+        check("registration shot fired with it", out["map_capture"]["ok"] is True)
+        check("shot aimed the MAP_Camera pawn straight down",
+              bridge.moves[0][0] == "MAP_Camera" and bridge.moves[0][2] == [-90.0, -90.0, 0.0])
+        check("image targeted web_ui/images/<level>.png",
+              bridge.shots[0][1].replace("\\", "/").endswith("web_ui/images/TestWorld.png"))
+        grid = json.loads((Path(tmp) / "TestWorld" / "world_grid.json")
+                          .read_text(encoding="utf-8"))
+        check("calibration persisted next to the fresh grid", "image_bounds" in grid)
+        check("calibration is the camera footprint",
+              grid["image_bounds"] == wm.camera_pose_for_bounds(grid["bounds"])["image_bounds"])
+
+
+def test_generate_world_grid_survives_failed_shot():
+    with tempfile.TemporaryDirectory() as tmp:
+        out = _grid_manager(tmp, GridStubBridge(capture_ok=False)).generate_world_grid(
+            cell_size=400.0, padding=100.0)
+        check("grid generation survives a failed shot", out["status"] == "generated")
+        check("shot failure reported, not swallowed",
+              out["map_capture"]["ok"] is False
+              and "Actor not found" in out["map_capture"]["error"])
+        grid = json.loads((Path(tmp) / "TestWorld" / "world_grid.json")
+                          .read_text(encoding="utf-8"))
+        check("no stale calibration written on failure", "image_bounds" not in grid)
+
+
 def main():
     test_camera_pose_math()
     test_capture_route_aims_shoots_and_calibrates()
     test_capture_route_fail_loud()
     test_map_page_has_reshoot_button()
+    test_generate_world_grid_takes_registration_shot()
+    test_generate_world_grid_survives_failed_shot()
     print("\nAll map-capture checks passed.")
 
 
