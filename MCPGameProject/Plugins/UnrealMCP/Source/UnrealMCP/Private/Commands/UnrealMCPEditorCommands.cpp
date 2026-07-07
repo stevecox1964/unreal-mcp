@@ -264,7 +264,10 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorTransform(const 
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'name' parameter"));
     }
 
-    AActor* TargetActor = FUnrealMCPCommonUtils::FindActorByNameOrLabel(GWorld, ActorName);
+    // Resolve in the same world the capture command uses (PIE-preferring):
+    // aiming the editor-world actor while capturing its PIE copy shoots with
+    // the stale level-saved rotation (#18's horizontal world map).
+    AActor* TargetActor = FUnrealMCPCommonUtils::FindActorByNameOrLabel(FUnrealMCPCommonUtils::GetGameWorld(), ActorName);
     if (!TargetActor)
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
