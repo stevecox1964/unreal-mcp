@@ -769,8 +769,11 @@ capture's 90° horizontal FOV makes the frame computable — registration by con
 calibration). "Re-shoot map" button on `/map`; image URL is mtime-versioned so a re-shoot shows
 immediately. **Verified live in the editor (no PIE needed):** Maren's truck at (−8950, 160) lands
 within ~4 m of its predicted pixel (the old hand shot was ~120 m off). MCP_World's registered
-capture + calibration committed. **Still open (the "live" half):** agent position dots + facing on
-`/map` polled from the runner, and optional re-shoot-on-timer. · **Source:** user, 2026-07-06 ·
+capture + calibration committed. **Live half DONE 2026-07-07 too:** the observe phase records each
+agent's last seen position/facing (no extra engine traffic), runner serves `GET /positions`, web UI
+proxies `/api/map/agents`, and `/map` draws red dots + facing tick + name every 3 s poll (runner
+offline = no dots, never stale ones). Suite 40/40. **Still open:** optional re-shoot-on-timer;
+PIE verify of the dots during a real run. · **Source:** user, 2026-07-06 ·
 **Supersedes:** the manual screenshot and #6c's open registration question; `image_bounds` stays
 as the calibration mechanism (now machine-written).
 

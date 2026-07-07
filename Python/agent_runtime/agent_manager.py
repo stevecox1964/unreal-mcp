@@ -172,6 +172,7 @@ class AgentManager:
         self._no_progress: dict[str, int] = {}      # agent_id -> consecutive "moving but didn't advance" ticks
         self._last_grid_place: dict[str, tuple] = {}  # agent_id -> (grid, place), reported even when LLM skipped
         self._routes: dict[str, dict] = {}          # agent_id -> cached grid-first route (#17/WP8)
+        self._live_pos: dict[str, dict] = {}        # agent_id -> {x,y,yaw} last observed (#18 live map)
 
         # Fixed per-level grid; reloaded with the level in _load_agents.
         self.world_grid = WorldGrid()
@@ -227,8 +228,8 @@ class AgentManager:
         self._scene_skips.clear()
         self._last_pos.clear()
         self._no_progress.clear()
-
         self._routes.clear()
+        self._live_pos.clear()
 
         self._load_agents(active_agents)
         if active_agents:
@@ -875,6 +876,9 @@ class AgentManager:
             if col is not None:
                 self.place_db.touch(agent_id, col, row)
                 observation["place_context"] = self.place_db.get_place(col, row)
+
+        # Live map telemetry (#18): remember where this agent was last observed.
+        self._record_live_pos(agent_id, observation)
 
         # Stuck detection: "moving" but not actually advancing (wedged on an
         # obstacle the navmesh doesn't route around). Attach to the observation so
@@ -2106,6 +2110,7 @@ class AgentManager:
         self._last_pos.clear()
         self._no_progress.clear()
         self._routes.clear()
+        self._live_pos.clear()
         self.bridge.clear_scene_cache()
 
         failures = [r["agent_id"] for r in results if not r["teleported"]]
@@ -2265,6 +2270,38 @@ class AgentManager:
         }
 
     # Helpers
+
+    def _record_live_pos(self, agent_id: str, observation: dict) -> None:
+        """Remember the agent's last observed position + facing (#18 live map).
+
+        Written on every observe tick from data already in hand — no extra
+        engine traffic. A positionless tick (no transform yet) records
+        nothing; the previous fix stays until fresher data arrives.
+        """
+        xyz = _loc_xyz(observation.get("location"))
+        if xyz is None:
+            return
+        self._live_pos[agent_id] = {
+            "x": xyz[0], "y": xyz[1],
+            "yaw": _yaw_of(observation.get("rotation")),
+        }
+
+    def agent_positions(self) -> list[dict]:
+        """Last observed position per active agent — the live /map dots (#18).
+
+        Returns ``[{agent_id, x, y, yaw, col, row}, ...]`` (col/row None on an
+        unbounded grid). Agents never observed this run are absent — the map
+        only shows what the sim has actually seen, never a guess.
+        """
+        out = []
+        for a in self.agents.values():
+            p = self._live_pos.get(a.agent_id)
+            if p is None or not a.is_active:
+                continue
+            col, row = self._cell_col_row(self.world_grid.locate(p["x"], p["y"]))
+            out.append({"agent_id": a.agent_id, "x": p["x"], "y": p["y"],
+                        "yaw": p["yaw"], "col": col, "row": row})
+        return out
 
     def _agent_summary(self, a: Agent) -> dict:
         return {

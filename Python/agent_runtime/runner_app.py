@@ -47,8 +47,8 @@ def build_control_app(manager) -> FastAPI:
             "hint": "This is the JSON control API. Open the web cockpit to drive it: "
                     "http://127.0.0.1:8765/sim",
             "endpoints": ["/health", "/status", "/events", "/start", "/stop", "/tick",
-                          "/pause", "/resume", "/agents", "/reset_day", "/reset_agents",
-                          "/reset_places", "/resync", "/world_grid"],
+                          "/pause", "/resume", "/agents", "/positions", "/reset_day",
+                          "/reset_agents", "/reset_places", "/resync", "/world_grid"],
         }
 
     @app.get("/health")
@@ -100,6 +100,11 @@ def build_control_app(manager) -> FastAPI:
     @app.get("/agents")
     def agents() -> dict:
         return {"agents": manager.list_agents()}
+
+    @app.get("/positions")
+    def positions() -> dict:
+        """Last observed position/facing per active agent — the live /map dots (#18)."""
+        return {"agents": manager.agent_positions()}
 
     @app.get("/agents/{agent_id}")
     def agent_detail(agent_id: str) -> dict:

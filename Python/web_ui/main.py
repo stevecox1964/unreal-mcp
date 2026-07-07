@@ -339,6 +339,19 @@ async def replay_page(request: Request, level: str = None):
     })
 
 
+@app.get("/api/map/agents")
+async def api_map_agents():
+    """Live agent positions for the map overlay (#18), proxied from the runner.
+
+    ``{"online": false, "agents": []}`` when no runner is reachable — the map
+    then simply shows no dots (never stale ones).
+    """
+    try:
+        return JSONResponse({"online": True, "agents": get_runner().positions()})
+    except Exception:
+        return JSONResponse({"online": False, "agents": []})
+
+
 @app.get("/api/replay/runs")
 async def api_replay_runs(level: str = None):
     """Run tags + agents available to replay for a world."""

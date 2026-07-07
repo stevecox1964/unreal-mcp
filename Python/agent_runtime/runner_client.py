@@ -67,6 +67,10 @@ class RunnerClient:
     def agents(self) -> list:
         return self._client.get("/agents").json().get("agents", [])
 
+    def positions(self) -> list:
+        """Last observed agent positions for the live map (#18)."""
+        return self._client.get("/positions").json().get("agents", [])
+
     def inspect_agent(self, agent_id: str) -> dict:
         return self._client.get(f"/agents/{agent_id}").json()
 

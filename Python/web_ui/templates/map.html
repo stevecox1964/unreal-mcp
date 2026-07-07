@@ -42,6 +42,7 @@
     <span><span class="swatch" style="border:1px solid #8b95a1"></span> unexplored</span>
     <span><span class="swatch" style="box-shadow:inset 0 0 0 2px #c0392b"></span> stale <b id="n-stale">0</b></span>
     <span><span class="swatch" style="border:2px solid #6f42c1; background:rgba(111,66,193,.3)"></span> owned place <b id="n-owned">0</b></span>
+    <span><span class="swatch" style="background:#e63946; border-radius:50%; border:2px solid #fff"></span> agent (live)</span>
     <span id="pct" style="color:#666"></span>
   </div>
   <p class="breadcrumb" style="margin-top:-.25rem;">stale = not re-observed in over {{ map.stale_after_hours }}h (real time)</p>
@@ -61,6 +62,7 @@
     {% endif %}
     <div id="cells" style="position:absolute; inset:0;"></div>
     <div id="places" style="position:absolute; inset:0; pointer-events:none;"></div>
+    <div id="agents" style="position:absolute; inset:0; pointer-events:none;"></div>
   </div>
   <p id="tip" style="color:#666; min-height:1.4em; margin-top:.5rem;">Hover a cell for details.</p>
   <p id="coords" style="color:#666; min-height:1.4em; margin-top:-.5rem; font-family:monospace;"></p>
@@ -74,6 +76,14 @@
     /* APC-owned place cells (#11.2): a 9x9 m box at anchor + offset. */
     #places .owned-mark { position:absolute; box-sizing:border-box; pointer-events:auto;
                           border:2px solid #6f42c1; background:rgba(111,66,193,.3); border-radius:2px; }
+    /* Live agents (#18): last observed position + facing, polled from the runner. */
+    #agents .agent-dot { position:absolute; width:12px; height:12px; margin:-6px 0 0 -6px;
+                         border-radius:50%; background:#e63946; border:2px solid #fff;
+                         box-shadow:0 0 3px rgba(0,0,0,.6); }
+    #agents .agent-tick { position:absolute; width:10px; height:2px; background:#fff;
+                          transform-origin:0 50%; margin-top:-1px; }
+    #agents .agent-name { position:absolute; margin:6px 0 0 8px; color:#fff; font-size:11px;
+                          font-weight:bold; text-shadow:0 0 3px #000, 0 0 3px #000; }
   </style>
 
   <script>
@@ -149,6 +159,35 @@
                         `${(e / 100).toFixed(0)}×${(e / 100).toFixed(0)} m in cell (${o.col}, ${o.row})`;
         placesEl.appendChild(d);
       }
+
+      // Live agents (#18): last observed positions from the runner; no runner
+      // (or nothing observed yet) = no dots — never a stale guess.
+      try {
+        const live = await (await fetch("/api/map/agents")).json();
+        const agentsEl = document.getElementById("agents");
+        agentsEl.innerHTML = "";
+        for (const a of live.agents || []) {
+          const f = geo.frame, W = f.max_x - f.min_x, H = f.max_y - f.min_y;
+          const left = (100 * (a.x - f.min_x) / W) + "%";
+          const top = (100 * (a.y - f.min_y) / H) + "%";
+          const dot = document.createElement("div");
+          dot.className = "agent-dot";
+          dot.style.left = left; dot.style.top = top;
+          agentsEl.appendChild(dot);
+          if (a.yaw !== null && a.yaw !== undefined) {
+            const tick = document.createElement("div");
+            tick.className = "agent-tick";
+            tick.style.left = left; tick.style.top = top;
+            tick.style.transform = `rotate(${a.yaw}deg)`;   // yaw 0 = +X = east = right
+            agentsEl.appendChild(tick);
+          }
+          const name = document.createElement("div");
+          name.className = "agent-name";
+          name.style.left = left; name.style.top = top;
+          name.textContent = a.agent_id;
+          agentsEl.appendChild(name);
+        }
+      } catch (e) { /* runner offline — no dots */ }
 
       document.getElementById("n-named").textContent = data.counts.named;
       document.getElementById("n-swept").textContent = data.counts.swept;
