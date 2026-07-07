@@ -195,11 +195,15 @@ call sites are signature-compatible (new params have defaults).
 
 ## Acceptance
 
-- [ ] `python scripts/run_tests.py` green (36+ files).
-- [ ] Changes confined to: `places_manifest.py` (new), `place_db.py`,
+- [x] `python scripts/run_tests.py` green (36/36 files, 2026-07-07).
+- [x] Changes confined to: `places_manifest.py` (new), `place_db.py`,
       `agent_manager.py`, tests, `plan/backlog.md` #15 status.
-- [ ] No `places.json` committed for MCP_World (user authors it).
+- [x] No `places.json` committed for MCP_World (user authors it).
 
 ## Executor notes
 
-_(empty)_
+Built 2026-07-07 (in-session, user's call). One deviation of note: `source` was
+added to `_SCHEMA` as well as `_migrate()` (matching how swept_at/updated_at
+are handled — fresh DBs get the column from the schema, old DBs from the
+migration). `set_name_authored` stamps `named_at="authored"` (the loader has
+no world clock; apply runs before the run's clock anchor).

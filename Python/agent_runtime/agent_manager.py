@@ -14,6 +14,7 @@ from .action_validator import validate
 from . import explorer
 from .perception import VisionPerceiver
 from . import cell_sweep
+from . import places_manifest
 from . import planner
 from . import route_map
 from . import sim_run
@@ -188,6 +189,15 @@ class AgentManager:
         # place cell (wake-time initialization) — cleared per run.
         self._wake_stepped: set[str] = set()
 
+        # True when this world has a places.json (WP6): the wake seed then
+        # warns — an unresolvable scheduled place likely means the user forgot
+        # to author it.
+        self._manifest_present = False
+
+        # (agent_id, day) pairs whose daily plan was already validated against
+        # PlaceDB (WP6 D5) — once per agent per day; cleared per run.
+        self._validated_plans: set[tuple[str, str]] = set()
+
     # Lifecycle
 
     async def start_simulation(
@@ -227,6 +237,15 @@ class AgentManager:
             db_path = self._agents_dir.parent / "world_places.db"
             self.place_db = PlaceDB(db_path)
 
+            # Authored places manifest (WP6): the user's ground truth, loaded
+            # before any tick so scheduled places resolve without wake-seeding.
+            self._manifest_present = False
+            manifest = places_manifest.load_manifest(self._agents_dir.parent / "places.json")
+            if manifest:
+                summary = places_manifest.apply_manifest(self.place_db, self.world_grid, manifest)
+                logger.info(f"places.json: {summary}")
+                self._manifest_present = True
+
             # Allocate this run's SR<n> tag (per-world) and push it everywhere the
             # run needs stamping: observation filenames + the decision log.
             self.sim_run_id = sim_run.allocate_run(self._agents_dir.parent)
@@ -236,6 +255,7 @@ class AgentManager:
 
         # New run = a fresh wake for every agent (wake-time place seeding rearms).
         self._wake_stepped.clear()
+        self._validated_plans.clear()
 
         active = [a for a in self.agents.values() if a.is_active and a.has_unreal_binding]
         if not active:
@@ -1050,6 +1070,7 @@ class AgentManager:
                 ask=(lambda p: ask(agent, p)) if ask else None,
                 agents_dir=self._agents_dir,
             )
+            self._validate_schedule(agent, schedule, planner.day_of(world_time))
             pc = observation.get("place_context") or {}
             place_list = observation.get("place") or []
             current_place = pc.get("name") or (place_list[0] if place_list else None)
@@ -1077,6 +1098,34 @@ class AgentManager:
             logger.warning(f"[{agent.agent_id}] schedule step failed: {e}")
             observation["schedule"] = None
 
+    def _validate_schedule(self, agent: Agent, schedule: list | None, day: str) -> list:
+        """Fail loud at plan time: warn for schedule blocks whose place resolves
+        to nothing in PlaceDB (WP6 D5) — the agent will hunt for it; the fix is
+        authoring it in places.json. Resolves through the same chain as
+        ``_at_scheduled_place`` (community name, else owned place). Runs at
+        most once per (agent_id, day); returns the bad blocks (for tests),
+        ``[]`` when cached or nothing to check.
+        """
+        key = (agent.agent_id, day)
+        if key in self._validated_plans or self.place_db is None:
+            return []
+        self._validated_plans.add(key)
+        bad = []
+        for block in schedule or []:
+            name = str(block.get("place") or "").strip()
+            if not name:
+                continue
+            if self.place_db.find_named_cell(name) is not None:
+                continue
+            if self.place_db.find_owned_place(name, preferred_owner=agent.agent_id) is not None:
+                continue
+            bad.append(block)
+            logger.warning(
+                f"[{agent.agent_id}] schedule {block.get('start')}-{block.get('end')} "
+                f"'{block.get('activity')}' place '{name}' resolves to NOTHING — "
+                f"agent will hunt; author it in places.json")
+        return bad
+
     def _wake_directive(self, agent: Agent, loc, grid: dict | None,
                         world_time: str) -> dict | None:
         """Sequencer directive for the spool-up wake, at the true spawn spot.
@@ -1098,6 +1147,7 @@ class AgentManager:
                 ask=(lambda p: ask(agent, p)) if ask else None,
                 agents_dir=self._agents_dir,
             )
+            self._validate_schedule(agent, schedule, planner.day_of(world_time))
             minute = planner.minute_of_day(world_time)
             obs = {"location": loc, "grid": grid}
             seed = agent.agent_id not in self._wake_stepped
@@ -1151,10 +1201,16 @@ class AgentManager:
                 return None
             if self.place_db.add_owned_place(agent_id, col, row, name,
                                              dx=xyz[0] - center[0],
-                                             dy=xyz[1] - center[1]):
-                logger.info(f"[{agent_id}] wake: seeded own place cell '{name}' "
-                            f"({PLACE_EXTENT_CM / 100:.0f} m box) at current spot "
-                            f"({col},{row})")
+                                             dy=xyz[1] - center[1],
+                                             source="wake-seed"):
+                # With a places.json the seed is a fallback that shouldn't fire:
+                # an unresolvable scheduled place likely means it wasn't authored.
+                log = logger.warning if self._manifest_present else logger.info
+                log(f"[{agent_id}] wake: seeded own place cell '{name}' "
+                    f"({PLACE_EXTENT_CM / 100:.0f} m box) at current spot "
+                    f"({col},{row})"
+                    + (" — despite places.json; place not authored?"
+                       if self._manifest_present else ""))
                 return True
             return None
 

@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS place_cells (
     swept_at TEXT,          -- when this cell was 360-swept (community breadcrumb)
     swept_by TEXT,          -- agent_id that first swept this cell
     updated_at TEXT,        -- real UTC of last name/sweep/refresh (staleness basis)
+    source   TEXT,          -- 'authored' when named by places.json; NULL = legacy/runtime
     PRIMARY KEY (col, row)
 );
 
@@ -66,6 +67,7 @@ CREATE TABLE IF NOT EXISTS owned_place_cells (
     extent_cm  REAL    NOT NULL DEFAULT 900,
     created_at TEXT,
     updated_at TEXT,
+    source     TEXT    NOT NULL DEFAULT 'runtime',  -- authored | runtime | wake-seed
     PRIMARY KEY (col, row, owner, name)
 );
 """
@@ -129,9 +131,15 @@ class PlaceDB:
         # basis for staleness. Real time, not world time: the WorldClock resets
         # every run, so sim-time can't express cross-run "how long since we last
         # looked at this cell". See is_stale.
-        for col in ("swept_at", "swept_by", "updated_at"):
+        for col in ("swept_at", "swept_by", "updated_at", "source"):
             if col not in have:
                 conn.execute(f"ALTER TABLE place_cells ADD COLUMN {col} TEXT")
+        # source: authored (places.json) / runtime (LLM-discovered) / wake-seed.
+        # Pre-WP6 rows default to 'runtime' — never guess which were wake seeds.
+        have = {r[1] for r in conn.execute("PRAGMA table_info(owned_place_cells)")}
+        if "source" not in have:
+            conn.execute("ALTER TABLE owned_place_cells "
+                         "ADD COLUMN source TEXT NOT NULL DEFAULT 'runtime'")
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
@@ -404,11 +412,14 @@ class PlaceDB:
                 (agent_id, col, row, now, now),
             )
 
-    def set_name(self, agent_id: str, col: int, row: int, name: str, world_time: str) -> bool:
+    def set_name(self, agent_id: str, col: int, row: int, name: str, world_time: str,
+                 source: str = None) -> bool:
         """Assign a canonical name to a shared place cell.
 
         Only writes if the cell has no name yet — first agent wins.
         Returns True if the name was stored, False if already named or invalid.
+        ``source`` tags where the name came from (NULL = runtime/legacy); only
+        the places.json loader passes it.
         """
         name = name.strip()
         if not name or name.lower() in ("null", "none", "unknown"):
@@ -421,25 +432,63 @@ class PlaceDB:
             if existing and existing["name"]:
                 return False
             conn.execute(
-                "INSERT INTO place_cells (col, row, name, named_at, named_by, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?) "
+                "INSERT INTO place_cells (col, row, name, named_at, named_by, updated_at, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(col, row) DO UPDATE SET "
                 "  name = excluded.name, named_at = excluded.named_at, named_by = excluded.named_by, "
-                "  updated_at = excluded.updated_at",
-                (col, row, name, world_time, agent_id, _iso_now()),
+                "  updated_at = excluded.updated_at, source = excluded.source",
+                (col, row, name, world_time, agent_id, _iso_now(), source),
             )
         return True
 
+    def set_name_authored(self, col: int, row: int, name: str, world_time: str) -> bool:
+        """Community-name a cell from the authored manifest — authored wins.
+
+        Unlike ``set_name`` (first agent wins), this overwrites any existing
+        name: places.json is ground truth. ``named_by`` becomes ``"authored"``
+        and ``source`` ``'authored'``; sweep data on the row is untouched.
+        Returns False only for blank/placeholder names.
+        """
+        name = name.strip()
+        if not name or name.lower() in ("null", "none", "unknown"):
+            return False
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                "INSERT INTO place_cells (col, row, name, named_at, named_by, updated_at, source) "
+                "VALUES (?, ?, ?, ?, 'authored', ?, 'authored') "
+                "ON CONFLICT(col, row) DO UPDATE SET "
+                "  name = excluded.name, named_at = excluded.named_at, named_by = excluded.named_by, "
+                "  updated_at = excluded.updated_at, source = excluded.source",
+                (col, row, name, world_time, _iso_now()),
+            )
+        return True
+
+    def clear_authored(self) -> None:
+        """Remove all authored state so a manifest re-apply converges.
+
+        Authored owned rows are deleted outright; authored community names are
+        blanked in place (the row may carry sweep data — never delete it).
+        """
+        with self._lock, self._connect() as conn:
+            conn.execute("DELETE FROM owned_place_cells WHERE source='authored'")
+            conn.execute(
+                "UPDATE place_cells SET name=NULL, named_by=NULL, named_at=NULL, source=NULL "
+                "WHERE source='authored'"
+            )
+
     def add_owned_place(self, agent_id: str, col: int, row: int, name: str,
-                        dx: float, dy: float, extent_cm: float = PLACE_EXTENT_CM) -> bool:
+                        dx: float, dy: float, extent_cm: float = PLACE_EXTENT_CM,
+                        source: str = "runtime") -> bool:
         """Store an APC-owned place cell: a named 9x9 m box inside a grid cell.
 
         Position is an XY offset (cm) from the cell's community anchor (the
         cell center), so world position stays derivable. An owner may re-place
         their own entry (upsert bumps ``updated_at``); different owners never
         collide. Rejects blank/placeholder names like ``set_name``. Returns
-        True when written. Example: ``add_owned_place("maren", 5, 5, "My Home",
-        dx=120.0, dy=-80.0)``.
+        True when written. ``source`` tags provenance: ``'authored'``
+        (places.json), ``'runtime'`` (LLM-discovered), or ``'wake-seed'``.
+        Example: ``add_owned_place("maren", 5, 5, "My Home", dx=120.0,
+        dy=-80.0)``.
         """
         name = name.strip()
         if not name or name.lower() in ("null", "none", "unknown"):
@@ -448,12 +497,14 @@ class PlaceDB:
         with self._lock, self._connect() as conn:
             conn.execute(
                 "INSERT INTO owned_place_cells "
-                "  (col, row, owner, name, dx, dy, extent_cm, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "  (col, row, owner, name, dx, dy, extent_cm, created_at, updated_at, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(col, row, owner, name) DO UPDATE SET "
                 "  dx = excluded.dx, dy = excluded.dy, "
-                "  extent_cm = excluded.extent_cm, updated_at = excluded.updated_at",
-                (col, row, agent_id, name, float(dx), float(dy), float(extent_cm), now, now),
+                "  extent_cm = excluded.extent_cm, updated_at = excluded.updated_at, "
+                "  source = excluded.source",
+                (col, row, agent_id, name, float(dx), float(dy), float(extent_cm), now, now,
+                 source),
             )
         return True
 

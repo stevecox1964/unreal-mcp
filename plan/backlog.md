@@ -648,9 +648,14 @@ Relates to: #9 (the tag it consumes), #6/#6b (map + route images), the `web_ui` 
 
 ## 15. Authored places manifest — the world's root configuration
 
-**Status:** Not started · **Source:** user, 2026-07-05 ("the APCs don't have a root configuration —
-my house is over here, my vegetable truck is over here") · **Independence:** self-contained
-(loop-safe); #16/#17 build on it · **Priority: build before #16/#17.**
+**Status:** ✅ **DONE 2026-07-07** (built per `plan/specs/WP6-authored-places-manifest.md`; suite
+36/36). `places_manifest.py` (load + declarative converging apply), `source` column
+(authored/runtime/wake-seed) with migration, loader call in `start_simulation`,
+`_validate_schedule` fail-loud at plan time, wake seed demoted (WARNING when a manifest exists).
+**No `places.json` authored for MCP_World — the user places things** (spec D7; 2026-07-06 facts:
+truck (-8950, 160) owner maren; dufus home (-10460, -800) owner dufus). · **Source:** user,
+2026-07-05 ("the APCs don't have a root configuration — my house is over here, my vegetable truck
+is over here") · **Independence:** self-contained (loop-safe); #16/#17 build on it
 
 Today places only exist if an LLM *discovers* one at runtime or the wake-seed *guesses* one
 ("editor placement = day-start spot" — a convention, and SR2 showed how fragile it is: the seed
