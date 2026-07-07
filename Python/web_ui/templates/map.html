@@ -16,6 +16,9 @@
     {# #21 v1: "I moved things" — purge stale wake-seeded places; the next run
        re-seeds at the new day-start spots. Wired in the map script below. #}
     <button type="button" id="sync-btn" title="Moved actors in the editor? Purge stale wake-seeded places — the next run re-seeds them.">Sync world</button>
+    {# #18: aim the MAP_Camera pawn top-down over the world bounds, capture a
+       fresh registered map image, and write its image_bounds calibration. #}
+    <button type="button" id="shoot-btn" title="Shoot a fresh top-down world capture from the MAP_Camera pawn (registered to the grid by construction).">Re-shoot map</button>
   {% endif %}
 </form>
 {% endif %}
@@ -159,6 +162,30 @@
 
     wrap.addEventListener("mouseover", e => {
       if (e.target.dataset && e.target.dataset.tip) tip.textContent = e.target.dataset.tip;
+    });
+
+    // #18: re-shoot the world map from the MAP_Camera pawn. The route aims
+    // the camera over the bounds, captures images/<level>.png, and persists
+    // the frame's image_bounds — a full reload picks up both.
+    const shootBtn = document.getElementById("shoot-btn");
+    shootBtn.addEventListener("click", async () => {
+      shootBtn.disabled = true;
+      tip.textContent = "shooting the world map…";
+      let data;
+      try {
+        data = await (await fetch(`/api/map/capture?level=${encodeURIComponent(level)}`,
+                                  { method: "POST" })).json();
+      } catch (e) {
+        tip.textContent = "map capture failed — is the web app still running?";
+        shootBtn.disabled = false;
+        return;
+      }
+      if (!data.ok) {
+        tip.textContent = `map capture failed: ${data.error}`;
+        shootBtn.disabled = false;
+        return;
+      }
+      location.reload();   // fresh image + fresh image_bounds calibration
     });
 
     // #21 v1: purge wake-seeded places, report what went, redraw (purged

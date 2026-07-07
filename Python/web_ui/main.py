@@ -122,8 +122,11 @@ def _map_image_url(level: str) -> str | None:
     +X = east = right, +Y = south = down, row 0 = north/top).
     """
     for name in (f"{level}.png", "world_map_view.png"):
-        if (BASE_DIR / "images" / name).exists():
-            return f"/images/{name}"
+        path = BASE_DIR / "images" / name
+        if path.exists():
+            # mtime cache-buster: a re-shot capture (#18) must show up on the
+            # next page load, not whenever the browser drops its cache.
+            return f"/images/{name}?v={int(path.stat().st_mtime)}"
     return None
 
 
@@ -236,6 +239,92 @@ async def api_world_sync(level: str = None):
     deleted = [{"owner": r["owner"], "name": r["name"], "col": r["col"], "row": r["row"]}
                for r in PlaceDB(db_path).purge_wake_seeds()]
     return JSONResponse({"level": level, "deleted": deleted, "count": len(deleted)})
+
+
+# ── Map capture (#18): shoot the world map from the MAP_Camera pawn ───────────
+
+# The engine capture is fixed by CameraCaptureActor::CaptureCameraViewToFile:
+# 1920x1080 render target, and the fresh SceneCaptureComponent2D's default
+# 90-degree *horizontal* FOV. Straight down from height h that gives a ground
+# footprint of exactly h half-width east-west and h*ASPECT half-height
+# north-south — so the frame IS the calibration (#18: registration by
+# construction; no hand measuring).
+MAP_CAPTURE_ASPECT = 1080.0 / 1920.0
+MAP_CAPTURE_MARGIN = 1.02          # slack so the world edge isn't at pixel 0
+MAP_CAMERA_ACTOR = "MAP_Camera"    # the user-placed camera pawn (by label)
+# [pitch, yaw, roll]: straight down, yawed so image up = -Y = north and
+# image right = +X = east — the /map overlay's fixed convention (#6c).
+MAP_CAMERA_ROTATION = [-90.0, -90.0, 0.0]
+
+
+def camera_pose_for_bounds(bounds: dict) -> dict:
+    """Top-down camera pose framing ``bounds``, and the world rect it sees.
+
+    Pure math (offline-testable): center the camera over the bounds rect at
+    the height whose 90-degree-FOV footprint covers both axes, then report
+    that footprint as ``image_bounds`` — the exact rect the capture frames.
+    """
+    cx = (bounds["min_x"] + bounds["max_x"]) / 2.0
+    cy = (bounds["min_y"] + bounds["max_y"]) / 2.0
+    half_w = (bounds["max_x"] - bounds["min_x"]) / 2.0
+    half_h = (bounds["max_y"] - bounds["min_y"]) / 2.0
+    h = max(half_w, half_h / MAP_CAPTURE_ASPECT) * MAP_CAPTURE_MARGIN
+    return {
+        "location": [cx, cy, h],
+        "rotation": MAP_CAMERA_ROTATION,
+        "image_bounds": {
+            "min_x": cx - h, "max_x": cx + h,
+            "min_y": cy - h * MAP_CAPTURE_ASPECT, "max_y": cy + h * MAP_CAPTURE_ASPECT,
+        },
+    }
+
+
+@app.post("/api/map/capture")
+async def api_map_capture(level: str = None, actor: str = None):
+    """Re-shoot the world map (#18): aim MAP_Camera top-down over the world
+    bounds, capture to ``images/<level>.png``, and write the frame's
+    ``image_bounds`` into ``world_grid.json`` — the /map overlay is then
+    registered by construction. Fails loud at every step; never guesses.
+    """
+    level = _resolve_level(level)
+    if not level:
+        return JSONResponse({"ok": False, "error": "no world selected"}, status_code=400)
+    grid_path = WORLDS_DIR / level / "world_grid.json"
+    grid = WorldGrid.load(grid_path)
+    if not grid.has_bounds:
+        return JSONResponse(
+            {"ok": False, "error": f"{level} has no world_grid.json bounds — "
+             "generate the grid first"}, status_code=400)
+
+    pose = camera_pose_for_bounds(grid.bounds)
+    actor = actor or MAP_CAMERA_ACTOR
+    moved = unreal_client.set_actor_transform(actor, pose["location"], pose["rotation"])
+    if not moved or moved.get("status") == "error":
+        return JSONResponse(
+            {"ok": False, "error": f"could not position '{actor}': "
+             f"{(moved or {}).get('error', 'Unreal not reachable')}"}, status_code=502)
+
+    image_file = BASE_DIR / "images" / f"{level}.png"
+    shot = unreal_client.capture_camera_image(actor, str(image_file))
+    inner = (shot or {}).get("result") if isinstance((shot or {}).get("result"), dict) else (shot or {})
+    if not shot or shot.get("status") == "error" or not inner.get("success"):
+        return JSONResponse(
+            {"ok": False, "error": f"capture failed on '{actor}': "
+             f"{(shot or {}).get('error', 'Unreal not reachable')}"}, status_code=502)
+
+    # The capture frames exactly pose["image_bounds"] — persist the calibration.
+    raw = json.loads(grid_path.read_text(encoding="utf-8"))
+    raw["image_bounds"] = pose["image_bounds"]
+    grid_path.write_text(json.dumps(raw, indent=2), encoding="utf-8")
+
+    return JSONResponse({
+        "ok": True,
+        "level": level,
+        "actor": inner.get("actor_name", actor),
+        "image_url": f"/images/{level}.png",
+        "camera": {"location": pose["location"], "rotation": pose["rotation"]},
+        "image_bounds": pose["image_bounds"],
+    })
 
 
 @app.get("/replay", response_class=HTMLResponse)

@@ -761,11 +761,18 @@ plan), #1 (resolution), B7b (standoff at arrival), `architecture_engine_agnostic
 
 ## 18. Live registered top-down map camera — real-time /map, registration by construction
 
-**Status:** Not started · **Source:** user, 2026-07-06 ("we need to work more on the map view
-actually being registered correctly and also adding a new camera/map view component so that we can
-see in real-time what's going on") · **Supersedes:** the manual `images/<level>.png` screenshot
-(stale the moment the user moves anything — proven today) and #6c's open registration question;
-`image_bounds` (built 2026-07-06) stays as the fallback calibration for hand shots.
+**Status:** ✅ **Capture half DONE 2026-07-07** (user placed a `MAP_Camera` pawn — a
+CameraCaptureActor subclass — and it's wired end-to-end): `POST /api/map/capture` aims the pawn
+top-down over the world bounds (pitch −90, yaw −90 = north up/east right), captures 1920×1080 to
+`web_ui/images/<level>.png`, and writes the exact camera footprint as `image_bounds` (the engine
+capture's 90° horizontal FOV makes the frame computable — registration by construction, zero hand
+calibration). "Re-shoot map" button on `/map`; image URL is mtime-versioned so a re-shoot shows
+immediately. **Verified live in the editor (no PIE needed):** Maren's truck at (−8950, 160) lands
+within ~4 m of its predicted pixel (the old hand shot was ~120 m off). MCP_World's registered
+capture + calibration committed. **Still open (the "live" half):** agent position dots + facing on
+`/map` polled from the runner, and optional re-shoot-on-timer. · **Source:** user, 2026-07-06 ·
+**Supersedes:** the manual screenshot and #6c's open registration question; `image_bounds` stays
+as the calibration mechanism (now machine-written).
 
 The 2026-07-06 skew hurt twice: the overlay was wrong, *and the user placed actors against the
 wrong map* (read "(2,6)" for what is really (6,6)). A hand screenshot can never be trusted; the

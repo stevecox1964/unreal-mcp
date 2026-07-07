@@ -127,8 +127,8 @@ def test_api_map_returns_grid_and_cells():
             check("api carries world bounds", data["bounds"]["min_x"] == -2000)
             check("api carries the grid origin",
                   (data["origin_x"], data["origin_y"]) == (-2000.0, -2000.0))
-            check("api falls back to the shared world capture",
-                  data["image_url"] == "/images/world_map_view.png")
+            check("api falls back to the shared world capture (mtime-versioned)",
+                  data["image_url"].startswith("/images/world_map_view.png?v="))
             check("no calibration -> image_bounds is null", data["image_bounds"] is None)
         _with_worlds(tmp, body)
 
@@ -185,7 +185,7 @@ def test_map_page_renders_with_legend_and_polls_api():
             check("map page fetches /api/map to build out live", "/api/map" in text)
             # #6c: the real capture is the map background; the grid overlays it.
             check("map page embeds the world capture",
-                  '<img id="bg" src="/images/world_map_view.png"' in text)
+                  '<img id="bg" src="/images/world_map_view.png' in text)
             check("map page draws cells from world coords (origin-anchored)",
                   "origin_x" in text and "placeRect" in text)
             check("map page maps through the calibrated frame + shows a coord readout",

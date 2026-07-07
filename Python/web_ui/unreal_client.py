@@ -56,3 +56,29 @@ def get_actors() -> list[dict]:
     """Return list of {name, label, class} dicts for all actors in the current level."""
     actors = _unwrap(_send("get_actors_in_level"), "actors")
     return actors if isinstance(actors, list) else []
+
+
+def set_actor_transform(name: str, location: list = None, rotation: list = None) -> dict | None:
+    """Move/rotate a level actor (editor world). ``rotation`` is [pitch, yaw, roll].
+
+    Returns the raw response dict, or None when Unreal is unreachable.
+    """
+    params: dict = {"name": name}
+    if location is not None:
+        params["location"] = location
+    if rotation is not None:
+        params["rotation"] = rotation
+    return _send("set_actor_transform", params, timeout=10.0)
+
+
+def capture_camera_image(actor_name: str, file_path: str) -> dict | None:
+    """Capture a CameraCaptureActor's view to ``file_path`` (PNG, 1920x1080).
+
+    ``actor_name`` may be the capture actor itself or an actor with one
+    attached (the engine handler resolves both). Returns the raw response
+    dict, or None when Unreal is unreachable.
+    """
+    return _send("capture_camera_image", {
+        "actor_name": actor_name,
+        "file_path": file_path,
+    }, timeout=20.0)
