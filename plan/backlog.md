@@ -17,6 +17,15 @@ grooming: 2026-06-26.
 > **#3** factory ✓. The remaining MVP gap is **#3's standalone runner** (the "runs overnight
 > independent of Claude" long pole — nothing built but the factory).
 
+> **⚑ Status (2026-07-07 — WP6 + WP7 built in-session, queue items 1–2 done):** **#15 authored
+> places manifest DONE** (`places_manifest.py`, `source` column authored/runtime/wake-seed,
+> plan-time schedule validation, wake seed demoted to a warning fallback) and **#21 v1 sync-world
+> button DONE** (`purge_wake_seeds` + `POST /api/world/sync` + /map button). Suite **37/37**,
+> pushed. **For the user:** author `worlds/MCP_World/places.json` with the real spots (2026-07-06
+> facts: truck (-8950, 160) owner maren; dufus home (-10460, -800) owner dufus) — nobody but you
+> writes world coordinates (WP6 D7). Queue continues at **#18** (live camera — live-gated) /
+> **#17** (grid-first routing).
+>
 > **⚑ Status (2026-07-06, later — user moved the actors; four new items #18–#21, queue re-ranked):**
 > User rearranged the level in PIE: **Maren + the vegetable truck now at (-8950, 160), Dufus's home
 > at (-10460, -800)** — intending all three in one district. **Facts from the grid math:** Maren is
@@ -717,9 +726,10 @@ Relates to: #15 (writes its manifest), #6c (the map surface), #2 (web app), #13 
 
 ## 17. Grid-first navigation — multi-leg routing between grid cells
 
-**Status:** Not started (decision locked 2026-07-01: "navigation is grid-first — route grid→grid,
+**Status:** Spec ready 2026-07-07 (`plan/specs/WP8-grid-first-routing.md` — design-complete,
+executor-ready; decision locked 2026-07-01: "navigation is grid-first — route grid→grid,
 then fine-approach the place cell") · **Source:** user, 2026-07-05 ("we don't really have a
-navigation system") · **Depends on:** #15 (trustworthy endpoints); consumes #6b's corridor work
+navigation system") · **Depends on:** #15 (✅ done); consumes #6b's corridor work
 
 What exists: name→position resolution, the engine navmesh for *local* walking, lizard-brain
 blocker facts + the B7b standoff, and the #6b route-map PNG on travel ticks. What's missing is the

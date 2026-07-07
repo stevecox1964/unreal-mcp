@@ -39,6 +39,7 @@ guess.
 | WP5 | [WP5-apc-topdown-map.md](WP5-apc-topdown-map.md) | #6b APC top-down map (design only) | **GATED — design sign-off, do not build** | user said "do not implement yet" |
 | WP6 | [WP6-authored-places-manifest.md](WP6-authored-places-manifest.md) | #15 authored places manifest + `source` tagging | **DONE 2026-07-07** | none |
 | WP7 | [WP7-sync-world-button.md](WP7-sync-world-button.md) | #21 v1 "sync the world" button (purge wake seeds) | **DONE 2026-07-07** | none |
+| WP8 | [WP8-grid-first-routing.md](WP8-grid-first-routing.md) | #17 grid-first routing (multi-leg travel) | ready | none |
 
 ## Why these five
 
