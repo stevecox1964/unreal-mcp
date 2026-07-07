@@ -190,6 +190,13 @@ def test_map_page_renders_with_legend_and_polls_api():
                   "origin_x" in text and "placeRect" in text)
             check("map page maps through the calibrated frame + shows a coord readout",
                   "image_bounds" in text and 'id="coords"' in text)
+            # Zoom/pan: the transform lives on #view and both coordinate
+            # readers must measure #view (the transformed element), not #wrap.
+            check("map page has the zoom/pan view layer",
+                  'id="view"' in text and "applyView" in text and '"wheel"' in text)
+            check("coordinate math reads the transformed element",
+                  "view.getBoundingClientRect()" in text
+                  and "wrap.getBoundingClientRect(), f = geo.frame" not in text)
         _with_worlds(tmp, body)
 
 

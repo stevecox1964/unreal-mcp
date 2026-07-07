@@ -56,17 +56,22 @@
      outside the bounds — overflow:hidden crops them like the world does. #}
   <div id="wrap" data-level="{{ level }}"
        style="position:relative; overflow:hidden; max-width:1024px; border:1px solid #8b95a1;">
-    {% if map.image_url %}
-      <img id="bg" src="{{ map.image_url }}" alt="top-down world capture"
-           style="display:block; width:100%;">
-    {% else %}
-      <div id="bg" style="width:100%; background:#f4f6f8;"></div>
-    {% endif %}
-    <div id="cells" style="position:absolute; inset:0;"></div>
-    <div id="places" style="position:absolute; inset:0; pointer-events:none;"></div>
-    <div id="agents" style="position:absolute; inset:0; pointer-events:none;"></div>
+    {# #view carries the zoom/pan transform; overlays stay %-positioned inside
+       it, so all world→pixel math is untouched by zooming. #}
+    <div id="view" style="position:relative; transform-origin:0 0; will-change:transform;">
+      {% if map.image_url %}
+        <img id="bg" src="{{ map.image_url }}" alt="top-down world capture"
+             style="display:block; width:100%;">
+      {% else %}
+        <div id="bg" style="width:100%; background:#f4f6f8;"></div>
+      {% endif %}
+      <div id="cells" style="position:absolute; inset:0;"></div>
+      <div id="places" style="position:absolute; inset:0; pointer-events:none;"></div>
+      <div id="agents" style="position:absolute; inset:0; pointer-events:none;"></div>
+    </div>
   </div>
-  <p id="tip" style="color:#666; min-height:1.4em; margin-top:.5rem;">Hover a cell for details.</p>
+  <p id="tip" style="color:#666; min-height:1.4em; margin-top:.5rem;">Hover a cell for details.
+     Scroll to zoom, drag to pan, double-click to reset.</p>
   <p id="coords" style="color:#666; min-height:1.4em; margin-top:-.5rem; font-family:monospace;"></p>
 
   {# #16 author panel: the no-Unreal place editor over the registered map.
@@ -107,11 +112,66 @@
 
   <script>
     const wrap = document.getElementById("wrap");
+    const view = document.getElementById("view");
     const cellsEl = document.getElementById("cells");
     const placesEl = document.getElementById("places");
     const level = wrap.dataset.level;
     const tip = document.getElementById("tip");
     let geo = null;   // {frame, origin, cell} once the first payload arrives; cells built then
+
+    // Zoom + pan (#16 follow-up): scroll to zoom toward the cursor, drag to
+    // pan, double-click to reset. The transform lives on #view; every
+    // world↔pixel conversion below reads view.getBoundingClientRect(), which
+    // already includes the transform — the math needs no zoom awareness.
+    let zoom = 1, panX = 0, panY = 0;
+    const ZOOM_MAX = 8;
+
+    function applyView() {
+      // Keep the view covering the wrap: pan is clamped to the scaled size.
+      const w = wrap.clientWidth, h = wrap.clientHeight;
+      panX = Math.min(0, Math.max(w - w * zoom, panX));
+      panY = Math.min(0, Math.max(h - h * zoom, panY));
+      view.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    }
+
+    wrap.addEventListener("wheel", e => {
+      e.preventDefault();
+      const r = wrap.getBoundingClientRect();
+      const mx = e.clientX - r.left, my = e.clientY - r.top;
+      const next = Math.min(ZOOM_MAX, Math.max(1, zoom * (e.deltaY < 0 ? 1.25 : 0.8)));
+      // Keep the point under the cursor fixed while the scale changes.
+      panX = mx - (mx - panX) * (next / zoom);
+      panY = my - (my - panY) * (next / zoom);
+      zoom = next;
+      applyView();
+    }, { passive: false });
+
+    let drag = null;      // {x, y, panX, panY, moved} while the mouse is down
+    let dragged = false;  // true suppresses the click that ends a drag
+
+    wrap.addEventListener("mousedown", e => {
+      dragged = false;   // this press decides its own click-vs-drag fate
+      drag = { x: e.clientX, y: e.clientY, panX, panY, moved: false };
+    });
+    window.addEventListener("mousemove", e => {
+      if (!drag) return;
+      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+      if (!drag.moved) return;
+      panX = drag.panX + dx;
+      panY = drag.panY + dy;
+      applyView();
+    });
+    window.addEventListener("mouseup", () => {
+      dragged = !!(drag && drag.moved);
+      drag = null;
+    });
+
+    wrap.addEventListener("dblclick", () => {
+      if (authoring) return;   // double-click while authoring must not jump the map
+      zoom = 1; panX = 0; panY = 0;
+      applyView();
+    });
 
     // World-space rect (cm) -> % styles inside the frame the image covers
     // (image_bounds calibration when present, else the world bounds).
@@ -267,7 +327,7 @@
     // in world_grid.json until it matches.
     wrap.addEventListener("mousemove", e => {
       if (!geo) return;
-      const r = wrap.getBoundingClientRect(), f = geo.frame;
+      const r = view.getBoundingClientRect(), f = geo.frame;
       const wx = f.min_x + (e.clientX - r.left) / r.width * (f.max_x - f.min_x);
       const wy = f.min_y + (e.clientY - r.top) / r.height * (f.max_y - f.min_y);
       const col = Math.floor((wx - geo.origin_x) / geo.cell);
@@ -319,10 +379,11 @@
     });
 
     wrap.addEventListener("click", async e => {
+      if (dragged) { dragged = false; return; }   // a pan is not a place click
       if (!authoring || !geo) return;
       const name = document.getElementById("place-name").value.trim();
       if (!name) { tip.textContent = "author mode: type a place name first, then click the map"; return; }
-      const r = wrap.getBoundingClientRect(), f = geo.frame;
+      const r = view.getBoundingClientRect(), f = geo.frame;
       const wx = f.min_x + (e.clientX - r.left) / r.width * (f.max_x - f.min_x);
       const wy = f.min_y + (e.clientY - r.top) / r.height * (f.max_y - f.min_y);
       const body = { level, name, x: wx, y: wy,
