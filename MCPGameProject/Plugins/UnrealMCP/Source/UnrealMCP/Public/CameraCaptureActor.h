@@ -42,7 +42,7 @@ public:
 
 private:
 	UTextureRenderTarget2D* CreateRenderTarget(int32 Width, int32 Height);
-	void SetupSceneCaptureComponent(ACameraActor* CameraActor, UTextureRenderTarget2D* RenderTarget);
+	USceneCaptureComponent2D* SetupSceneCaptureComponent(ACameraActor* CameraActor, UTextureRenderTarget2D* RenderTarget);
 	void SaveCameraToFile(UTextureRenderTarget2D* RenderTarget, const FString& FilePath);
 	void CaptureCameraViewToFile(ACameraActor* CameraActor, const FString& FilePath);
 

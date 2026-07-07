@@ -85,25 +85,31 @@ UTextureRenderTarget2D* ACameraCaptureActor::CreateRenderTarget(int32 Width, int
     return RenderTarget;
 }
 //--------------------------------------------------------------------------------------------------------------------------------------
-void ACameraCaptureActor::SetupSceneCaptureComponent(ACameraActor* CameraActor, UTextureRenderTarget2D* RenderTarget)
+USceneCaptureComponent2D* ACameraCaptureActor::SetupSceneCaptureComponent(ACameraActor* CameraActor, UTextureRenderTarget2D* RenderTarget)
 {
-    if (CameraActor && RenderTarget)
+    if (!CameraActor || !RenderTarget)
     {
-        USceneCaptureComponent2D* SceneCaptureComponent = NewObject<USceneCaptureComponent2D>(CameraActor);
-
-        SceneCaptureComponent->bCaptureEveryFrame = false;
-        SceneCaptureComponent->bCaptureOnMovement = false;
-
-        SceneCaptureComponent->SetupAttachment(CameraActor->GetRootComponent());
-        SceneCaptureComponent->SetRelativeLocation(FVector::ZeroVector);
-        SceneCaptureComponent->TextureTarget = RenderTarget;
-        SceneCaptureComponent->CaptureSource = SCS_FinalColorLDR;
-
-        SceneCaptureComponent->RegisterComponentWithWorld(CameraActor->GetWorld());
-
-        // Update the scene capture immediately
-        SceneCaptureComponent->CaptureScene();
+        return nullptr;
     }
+
+    // RF_Transient: this is a one-shot helper component — it must never be
+    // serialized into the level if a capture runs against the editor world.
+    USceneCaptureComponent2D* SceneCaptureComponent = NewObject<USceneCaptureComponent2D>(CameraActor, NAME_None, RF_Transient);
+
+    SceneCaptureComponent->bCaptureEveryFrame = false;
+    SceneCaptureComponent->bCaptureOnMovement = false;
+
+    SceneCaptureComponent->SetupAttachment(CameraActor->GetRootComponent());
+    SceneCaptureComponent->SetRelativeLocation(FVector::ZeroVector);
+    SceneCaptureComponent->TextureTarget = RenderTarget;
+    SceneCaptureComponent->CaptureSource = SCS_FinalColorLDR;
+
+    SceneCaptureComponent->RegisterComponentWithWorld(CameraActor->GetWorld());
+
+    // Update the scene capture immediately
+    SceneCaptureComponent->CaptureScene();
+
+    return SceneCaptureComponent;
 }
 //--------------------------------------------------------------------------------------------------------------------------------------
 void ACameraCaptureActor::SaveCameraToFile(UTextureRenderTarget2D* RenderTarget, const FString& FilePath)
@@ -150,7 +156,14 @@ void ACameraCaptureActor::CaptureCameraViewToFile(ACameraActor* CameraActor, con
     int32 Height = 1080;
 
     UTextureRenderTarget2D* RenderTarget = CreateRenderTarget(Width, Height);
-    SetupSceneCaptureComponent(CameraActor, RenderTarget);
+    USceneCaptureComponent2D* SceneCaptureComponent = SetupSceneCaptureComponent(CameraActor, RenderTarget);
 
     SaveCameraToFile(RenderTarget, FilePath);
+
+    // One capture, one component: leaving it attached leaked a visible
+    // "second camera" onto the actor with every shot.
+    if (SceneCaptureComponent)
+    {
+        SceneCaptureComponent->DestroyComponent();
+    }
 }
