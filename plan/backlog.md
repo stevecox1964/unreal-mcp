@@ -726,10 +726,14 @@ Relates to: #15 (writes its manifest), #6c (the map surface), #2 (web app), #13 
 
 ## 17. Grid-first navigation — multi-leg routing between grid cells
 
-**Status:** Spec ready 2026-07-07 (`plan/specs/WP8-grid-first-routing.md` — design-complete,
-executor-ready; decision locked 2026-07-01: "navigation is grid-first — route grid→grid,
-then fine-approach the place cell") · **Source:** user, 2026-07-05 ("we don't really have a
-navigation system") · **Depends on:** #15 (✅ done); consumes #6b's corridor work
+**Status:** ✅ **DONE 2026-07-07** (built per `plan/specs/WP8-grid-first-routing.md`; suite
+38/38). `route_planner.py` (pinned Bresenham cell line + leg state machine w/ skip-ahead +
+B7b box-edge fine-approach), `_execute_routed_walk` leg executor (stuck replans, arrival idles),
+en-route prompt narration, route-map path dots. LLM contract unchanged. v1 = straight-line legs;
+sweep-data/no-go weighting is the #19c seam in `line_cells`. **PIE verify pending** (watch a
+multi-district travel: no orbiting, legs advance, arrival stops at the box edge). ·
+**Source:** user, 2026-07-05 ("we don't really have a navigation system") ·
+**Depends on:** #15 (✅ done); consumed #6b's corridor work
 
 What exists: name→position resolution, the engine navmesh for *local* walking, lizard-brain
 blocker facts + the B7b standoff, and the #6b route-map PNG on travel ticks. What's missing is the

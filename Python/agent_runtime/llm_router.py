@@ -811,7 +811,15 @@ def _schedule_note(directive: dict | None) -> str:
                 "exploring unmapped cells.")
     intent = directive.get("intent", "")
     if directive.get("status") == "travel" and directive.get("place"):
-        return (f"{intent}\nThis is your priority right now: use walk_to with "
+        # Grid-first route narration (#17/WP8): legibility only — the walk_to
+        # contract below is unchanged; the manager executes it leg by leg.
+        r = directive.get("route")
+        en_route = ""
+        if r:
+            heading = f", heading {r['heading']}" if r.get("heading") else ""
+            en_route = (f"You are en route: leg {r['leg']} of {r['total']}{heading} "
+                        f"toward cell ({r['to_cell'][0]}, {r['to_cell'][1]}).\n")
+        return (f"{en_route}{intent}\nThis is your priority right now: use walk_to with "
                 f"target_location \"{directive['place']}\" and keep going until you "
                 f"arrive. Do NOT start the scheduled activity on the way — even if "
                 f"it involves people, it happens at the destination. Only a person "

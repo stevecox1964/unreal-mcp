@@ -75,7 +75,8 @@ def corridor(from_cell: tuple[int, int], to_cell: tuple[int, int],
 
 def build_route_map(place_db, world_grid,
                     from_cell: tuple[int, int], to_cell: tuple[int, int],
-                    destination_name: str = None) -> dict | None:
+                    destination_name: str = None,
+                    path: list[tuple[int, int]] = None) -> dict | None:
     """Facts an APC can chart a course from — or None on an unbounded grid.
 
     ::
@@ -86,6 +87,9 @@ def build_route_map(place_db, world_grid,
                      "name": ..., "landmarks": <count>}, ... ],   # corridor only
          "cols": [lo, hi], "rows": [lo, hi],
          "truncated": False}
+
+    ``path`` (#17/WP8): the planned leg cells when a grid-first route exists —
+    carried as ``"path": [[c, r], ...]`` and drawn as dots on the image.
     """
     if not world_grid.has_bounds:
         return None
@@ -119,7 +123,7 @@ def build_route_map(place_db, world_grid,
         k = known.get(cell)
         return k["name"] if k else None
 
-    return {
+    out = {
         "from": {"cell": list(from_cell), "name": _name_of(from_cell)},
         "to": {"cell": list(to_cell),
                "name": _name_of(to_cell) or destination_name,
@@ -129,6 +133,9 @@ def build_route_map(place_db, world_grid,
         "rows": [row_range.start, row_range[-1]],
         "truncated": truncated,
     }
+    if path:
+        out["path"] = [list(c) for c in path]
+    return out
 
 
 def render_map_image(route: dict, out_path: Path, cell_px: int = _CELL_PX) -> Path | None:
@@ -179,11 +186,27 @@ def render_map_image(route: dict, out_path: Path, cell_px: int = _CELL_PX) -> Pa
             draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=color)
             draw.text((cx - 3, cy - 6), letter, fill=_COLORS["marker_text"], font=font)
 
+        # Planned route legs (#17/WP8): a dot per intermediate path cell —
+        # the corridor shows the plan, not just the endpoints.
+        endpoints = (route["from"]["cell"], route["to"]["cell"])
+        for pc in route.get("path") or []:
+            if list(pc) in [list(e) for e in endpoints]:
+                continue
+            col, row = pc
+            if not (col_lo <= col <= col_hi and row_lo <= row <= row_hi):
+                continue
+            cx = _MARGIN_L + (col - col_lo) * cell_px + cell_px // 2
+            cy = _MARGIN_T + (row - row_lo) * cell_px + cell_px // 2
+            r = cell_px // 8
+            draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=_COLORS["from"])
+
         same_cell = route["from"]["cell"] == route["to"]["cell"]
         _marker(route["from"]["cell"], "A", _COLORS["from"], dx=-cell_px // 5 if same_cell else 0)
         _marker(route["to"]["cell"], "B", _COLORS["to"], dx=cell_px // 5 if same_cell else 0)
 
         legend = "A=you  B=destination  green=named  tan=observed  gray=unknown  N=up  edges=col,row"
+        if route.get("path"):
+            legend += "  dots=route"
         if route.get("truncated"):
             legend += "  (map truncated)"
         draw.text((4, h - _LEGEND_H + 4), legend, fill=_COLORS["text"], font=font)

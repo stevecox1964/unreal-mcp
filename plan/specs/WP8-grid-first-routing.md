@@ -212,13 +212,22 @@ trips keep their fine-approach semantics.
 
 ## Acceptance
 
-- [ ] `python scripts/run_tests.py` green (38+ files).
-- [ ] Changes confined to: `route_planner.py` (new), `agent_manager.py`,
+- [x] `python scripts/run_tests.py` green (38/38 files, 2026-07-07).
+- [x] Changes confined to: `route_planner.py` (new), `agent_manager.py`,
       `route_map.py`, `llm_router.py` (_schedule_note only), tests,
       `plan/backlog.md` #17 status.
-- [ ] The LLM action contract is unchanged (no new action types, no prompt
+- [x] The LLM action contract is unchanged (no new action types, no prompt
       contract change beyond the added en-route narration line).
 
 ## Executor notes
 
-_(empty)_
+Built 2026-07-07 in-session, same day as the spec. Notes:
+- No existing tests needed the predicted update — `test_owned_places` /
+  `test_route_map` exercise `_resolve_place_target` / `route_map_for`
+  directly, not the executor's walk target, and both are behavior-compatible.
+- The walk_to-by-name branch became `_execute_routed_walk` (early return) —
+  it can never fall through to the target_actor block, which its guard
+  already excluded.
+- Test grid caveat baked into `test_route_planner.py`: the 4 m test cells are
+  smaller than the 9 m default box (real districts are 30 m), so the
+  fine-approach case uses `extent_cm=200` to be geometrically reachable.
