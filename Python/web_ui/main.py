@@ -10,6 +10,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from agent_runtime import places_manifest
 from agent_runtime.config_store import read_config, write_config, is_secret
 from agent_runtime.map_capture import (MAP_CAMERA_ACTOR, MAP_CAMERA_ROTATION,
                                        MAP_CAPTURE_ASPECT, MAP_CAPTURE_MARGIN,
@@ -17,7 +18,7 @@ from agent_runtime.map_capture import (MAP_CAMERA_ACTOR, MAP_CAMERA_ROTATION,
 from agent_runtime import provider_profiles
 from agent_runtime import run_replay
 from agent_runtime.runner_client import RunnerClient, DEFAULT_BASE_URL
-from agent_runtime.place_db import PlaceDB
+from agent_runtime.place_db import PLACE_EXTENT_CM, PlaceDB
 from agent_runtime.world_grid import WorldGrid
 from web_ui import unreal_client
 
@@ -210,6 +211,7 @@ async def map_page(request: Request, level: str = None):
         "worlds": worlds,
         "level": level,
         "map": data,
+        "agents": list_agents(level) if level else [],   # author-mode owner dropdown (#16)
     })
 
 
@@ -308,6 +310,146 @@ async def replay_page(request: Request, level: str = None):
         "worlds": worlds,
         "level": level,
     })
+
+
+# ── Authored places editor (#16): click-to-author on the registered map ───────
+# The manifest (places.json, WP6) is the user's ground truth; this is the
+# no-Unreal way to write it — click a spot on the registered map, name it,
+# done. Every edit re-applies the whole manifest (declarative converge), so
+# moves and deletes take effect in PlaceDB immediately.
+
+def _norm_place_name(name) -> str:
+    return " ".join(str(name or "").split()).lower()
+
+
+def _places_path(level: str) -> Path:
+    return WORLDS_DIR / level / "places.json"
+
+
+def _read_places_raw(level: str) -> dict | None:
+    """The raw manifest dict, ``{"places": []}`` when absent, None when corrupt.
+
+    Corrupt is surfaced, never healed silently — rewriting a file we could
+    not parse would destroy whatever the user meant it to say.
+    """
+    path = _places_path(level)
+    if not path.exists():
+        return {"places": []}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data.get("places"), list):
+            return None
+        return data
+    except Exception:
+        return None
+
+
+def _apply_places(level: str) -> dict:
+    """Re-apply the manifest to the world's PlaceDB (authored rows converge)."""
+    grid = WorldGrid.load(WORLDS_DIR / level / "world_grid.json")
+    entries = places_manifest.load_manifest(_places_path(level))
+    db = PlaceDB(WORLDS_DIR / level / "world_places.db")
+    return places_manifest.apply_manifest(db, grid, entries)
+
+
+@app.get("/api/places")
+async def api_places_list(level: str = None):
+    """The raw authored manifest — what the author panel lists and edits."""
+    level = _resolve_level(level)
+    if not level:
+        return JSONResponse({"level": None, "places": []})
+    raw = _read_places_raw(level)
+    if raw is None:
+        return JSONResponse({"ok": False, "error": "places.json is unparseable — "
+                             "fix it by hand before authoring here"}, status_code=500)
+    return JSONResponse({"level": level, "places": raw["places"]})
+
+
+@app.post("/api/places")
+async def api_places_upsert(request: Request):
+    """Create or move/edit one authored place (same name = same place).
+
+    Body: ``{level, name, x, y, owner?, community?, extent_cm?}`` — x/y in
+    world cm (the map click). Validates like the manifest loader (fail loud),
+    writes places.json, and re-applies it to PlaceDB immediately.
+    """
+    body = await _maybe_json(request)
+    level = _resolve_level(body.get("level"))
+    if not level:
+        return JSONResponse({"ok": False, "error": "no world selected"}, status_code=400)
+
+    name = str(body.get("name") or "").strip()
+    if not name or name.lower() in ("null", "none", "unknown"):
+        return JSONResponse({"ok": False, "error": "a place needs a usable name"},
+                            status_code=400)
+    try:
+        x, y = float(body["x"]), float(body["y"])
+    except (KeyError, TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "numeric x and y are required"},
+                            status_code=400)
+    grid = WorldGrid.load(WORLDS_DIR / level / "world_grid.json")
+    if not grid.has_bounds:
+        return JSONResponse({"ok": False, "error": f"{level} has no world_grid.json "
+                             "bounds — generate the grid first"}, status_code=400)
+    if not grid.locate(x, y).get("in_bounds"):
+        return JSONResponse({"ok": False, "error": f"({x:.0f}, {y:.0f}) is outside "
+                             "the world bounds"}, status_code=400)
+    try:
+        extent = float(body.get("extent_cm") or PLACE_EXTENT_CM)
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "extent_cm must be numeric"},
+                            status_code=400)
+
+    entry: dict = {"name": name, "x": x, "y": y}
+    owner = str(body["owner"]).strip() if body.get("owner") else None
+    if owner:
+        entry["owner"] = owner
+    if body.get("community") is not None:
+        entry["community"] = bool(body["community"])
+    if extent != PLACE_EXTENT_CM:
+        entry["extent_cm"] = extent
+
+    raw = _read_places_raw(level)
+    if raw is None:
+        return JSONResponse({"ok": False, "error": "places.json is unparseable — "
+                             "fix it by hand before authoring here"}, status_code=500)
+    needle = _norm_place_name(name)
+    places = raw["places"]
+    replaced = False
+    for i, p in enumerate(places):
+        if isinstance(p, dict) and _norm_place_name(p.get("name")) == needle:
+            places[i] = entry
+            replaced = True
+            break
+    if not replaced:
+        places.append(entry)
+    _places_path(level).write_text(json.dumps(raw, indent=2), encoding="utf-8")
+
+    return JSONResponse({"ok": True, "level": level, "entry": entry,
+                         "replaced": replaced, "applied": _apply_places(level)})
+
+
+@app.delete("/api/places")
+async def api_places_delete(level: str = None, name: str = ""):
+    """Remove one authored place by name; the re-apply drops its PlaceDB rows."""
+    level = _resolve_level(level)
+    if not level:
+        return JSONResponse({"ok": False, "error": "no world selected"}, status_code=400)
+    raw = _read_places_raw(level)
+    if raw is None:
+        return JSONResponse({"ok": False, "error": "places.json is unparseable — "
+                             "fix it by hand before authoring here"}, status_code=500)
+    needle = _norm_place_name(name)
+    keep = [p for p in raw["places"]
+            if not (isinstance(p, dict) and _norm_place_name(p.get("name")) == needle)]
+    if len(keep) == len(raw["places"]):
+        return JSONResponse({"ok": False, "error": f"no authored place named '{name}'"},
+                            status_code=404)
+    removed = len(raw["places"]) - len(keep)
+    raw["places"] = keep
+    _places_path(level).write_text(json.dumps(raw, indent=2), encoding="utf-8")
+    return JSONResponse({"ok": True, "level": level, "removed": removed,
+                         "applied": _apply_places(level)})
 
 
 @app.get("/api/map/agents")

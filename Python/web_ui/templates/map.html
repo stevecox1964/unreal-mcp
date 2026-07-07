@@ -19,6 +19,8 @@
     {# #18: aim the MAP_Camera pawn top-down over the world bounds, capture a
        fresh registered map image, and write its image_bounds calibration. #}
     <button type="button" id="shoot-btn" title="Shoot a fresh top-down world capture from the MAP_Camera pawn (registered to the grid by construction).">Re-shoot map</button>
+    {# #16: click-to-author places — write places.json without touching Unreal. #}
+    <button type="button" id="author-btn" title="Author places: fill the form, then click the map to place. Same name = move/edit.">Author places</button>
   {% endif %}
 </form>
 {% endif %}
@@ -66,6 +68,23 @@
   </div>
   <p id="tip" style="color:#666; min-height:1.4em; margin-top:.5rem;">Hover a cell for details.</p>
   <p id="coords" style="color:#666; min-height:1.4em; margin-top:-.5rem; font-family:monospace;"></p>
+
+  {# #16 author panel: the no-Unreal place editor over the registered map.
+     places.json is the world's root configuration (WP6) — this writes it. #}
+  <div id="author-panel" style="display:none; border:1px solid #8b95a1; border-radius:4px;
+       padding: .75rem; margin-top:.5rem; max-width:1024px;">
+    <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap;">
+      <input id="place-name" placeholder="place name (e.g. the vegetable truck)" style="min-width:16rem;">
+      <select id="place-owner">
+        <option value="">community</option>
+        {% for a in agents %}<option value="{{ a }}">{{ a }}</option>{% endfor %}
+      </select>
+      <input id="place-extent" type="number" value="900" min="100" step="100"
+             title="box size in cm (900 = the 9x9 m place cell)" style="width:6rem;">
+      <span style="color:#666;">← fill in, then <b>click the map</b> to place. Same name = move/edit.</span>
+    </div>
+    <ul id="author-list" style="margin:.75rem 0 0; padding-left:1.25rem;"></ul>
+  </div>
 
   <style>
     .swatch { display:inline-block; width:14px; height:14px; border-radius:2px; vertical-align:middle; margin-right:.25rem; }
@@ -255,6 +274,71 @@
       const row = Math.floor((wy - geo.origin_y) / geo.cell);
       document.getElementById("coords").textContent =
         `cursor: world (${wx.toFixed(0)}, ${wy.toFixed(0)}) cm — cell (${col}, ${row})`;
+    });
+
+    // #16 author mode: fill the form, click the map, places.json is written
+    // and re-applied to PlaceDB (declarative — same name moves the place).
+    const authorBtn = document.getElementById("author-btn");
+    const panel = document.getElementById("author-panel");
+    let authoring = false;
+
+    async function loadAuthored() {
+      let data;
+      try {
+        data = await (await fetch(`/api/places?level=${encodeURIComponent(level)}`)).json();
+      } catch (e) { return; }
+      const ul = document.getElementById("author-list");
+      ul.innerHTML = "";
+      for (const p of data.places || []) {
+        const li = document.createElement("li");
+        li.textContent = `${p.name} (${p.owner || "community"}) @ (${Math.round(p.x)}, ${Math.round(p.y)}) `;
+        const del = document.createElement("button");
+        del.type = "button";
+        del.textContent = "✕";
+        del.title = `remove '${p.name}' from places.json`;
+        del.addEventListener("click", async () => {
+          const resp = await (await fetch(
+            `/api/places?level=${encodeURIComponent(level)}&name=${encodeURIComponent(p.name)}`,
+            { method: "DELETE" })).json();
+          tip.textContent = resp.ok
+            ? `removed '${p.name}' (re-applied: ${JSON.stringify(resp.applied)})`
+            : `remove failed: ${resp.error}`;
+          loadAuthored(); refresh();
+        });
+        li.appendChild(del);
+        ul.appendChild(li);
+      }
+    }
+
+    authorBtn.addEventListener("click", () => {
+      authoring = !authoring;
+      panel.style.display = authoring ? "block" : "none";
+      authorBtn.style.fontWeight = authoring ? "bold" : "";
+      wrap.style.cursor = authoring ? "crosshair" : "";
+      if (authoring) loadAuthored();
+    });
+
+    wrap.addEventListener("click", async e => {
+      if (!authoring || !geo) return;
+      const name = document.getElementById("place-name").value.trim();
+      if (!name) { tip.textContent = "author mode: type a place name first, then click the map"; return; }
+      const r = wrap.getBoundingClientRect(), f = geo.frame;
+      const wx = f.min_x + (e.clientX - r.left) / r.width * (f.max_x - f.min_x);
+      const wy = f.min_y + (e.clientY - r.top) / r.height * (f.max_y - f.min_y);
+      const body = { level, name, x: wx, y: wy,
+                     owner: document.getElementById("place-owner").value || null,
+                     extent_cm: parseFloat(document.getElementById("place-extent").value) || 900 };
+      let resp;
+      try {
+        resp = await (await fetch("/api/places", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })).json();
+      } catch (err) { tip.textContent = "authoring failed — is the web app still running?"; return; }
+      tip.textContent = resp.ok
+        ? `${resp.replaced ? "moved" : "authored"} '${name}' at (${Math.round(wx)}, ${Math.round(wy)})`
+        : `authoring failed: ${resp.error}`;
+      loadAuthored(); refresh();
     });
 
     refresh();

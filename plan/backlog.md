@@ -700,8 +700,16 @@ is its config artifact), #16 (the editor that writes this file), [[grid-place-ce
 
 ## 16. Click-to-author places on the /map — the no-Unreal place editor
 
-**Status:** Not started · **Source:** user, 2026-07-05 · **Depends on:** #15 (manifest), #6c (the
-registered map) · **Independence:** web-only (loop-safe via TestClient)
+**Status:** ✅ **DONE 2026-07-07** (suite 41/41). "Author places" toggle on `/map`: fill
+name/owner/extent, click the registered map → `POST /api/places` writes `places.json` (same
+normalized name = move/edit, no duplicates) and **re-applies the whole manifest to PlaceDB
+immediately** (WP6's declarative converge — no sim restart). Panel lists authored entries with
+per-entry delete (`DELETE /api/places`); `GET /api/places` serves the raw manifest. Fail-loud
+validation mirrors the loader (blank/placeholder names, non-numeric or out-of-bounds coords,
+unbounded grid); a **corrupt places.json is surfaced with a 500 and never rewritten**. Runtime
+LLM-discovered rows survive every authored edit. **The user now authors MCP_World's places by
+clicking** — WP6 D7 satisfied without anyone typing coordinates. · **Source:** user, 2026-07-05 ·
+**Depends on:** #15 ✅, #18 ✅ (the registered map)
 
 The #6c map is registered world↔pixel in both directions, which makes it the natural authoring
 surface: **click a spot on the real top-down map → name it → optionally assign an owner/extent →
