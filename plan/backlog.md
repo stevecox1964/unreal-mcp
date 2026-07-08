@@ -944,6 +944,82 @@ queue (retired the authoring half on 2026-06-28; this retires the rest),
 
 ---
 
+## 23. Landmarks — BP-authored ground-truth places (author the world in the editor, not a UI)
+
+**Status:** Queued 2026-07-08 (Python half loop-safe, delegated to a Sonnet executor;
+`Landmark_BP` asset + live verify are the user's) · **Source:** user, 2026-07-08 ("during a
+setup phase, the world author should place BPs at certain locations before sim runs… back away
+from building a full blown sim UI, and just let the APCs build things") ·
+**Depends on:** #15 (reuses the manifest pipeline as-is)
+
+**Direction reset.** Authored ground truth moves *into the level*: the author drops a marker BP
+where a place is; the sim reads it. The level becomes the single source of truth, so the whole
+drift class of bugs (truck 9 m from where the DB said, wake-seed guessing, stale map coords)
+stops existing — move the actor, the place moved. `/map` demotes to viewer/debug; #16
+click-authoring stays as a fallback but is no longer the recommended path; `places.json` stays
+supported (landmarks are simply a **second entry source** feeding the same `apply_manifest`).
+Full sim-authoring-UI ambitions are parked: APCs build everything else themselves — landmarks
+are their starting points.
+
+**Vocabulary (locked, user 2026-07-08):** the term is **landmark** ("anchor" rejected — means
+too much). Tiers: **landmarks** (author, editor, ground truth) → **community cells** (APC-built
+at runtime) → **memories** (episodic/social/spatial).
+
+**Authoring contract (user side, editor):**
+- Create `Landmark_BP`: a cheap marker actor — editor billboard/sprite, `bHiddenInGame`, no
+  collision, no variables needed for v1.
+- Drop an instance and set its **actor label** to `Landmark_<owner>_<place name with
+  underscores>`: `Landmark_maren_vegetable_truck`, `Landmark_dufus_home`,
+  `Landmark_community_town_square`. Owner token = text up to the next underscore;
+  `community` = shared/unowned. Name = the remainder, underscores → spaces.
+- Detection is by **label prefix, class-agnostic** — renaming a real prop's label (the actual
+  truck mesh) also works and pins the place to the prop itself.
+- Caveat: UE auto-suffixes duplicated labels (`…_home2`) — the wrong name shows loud on /map;
+  fix the label.
+
+**Why label, not BP variables:** `get_actors_in_level` already returns
+name/label/class/location for every actor (`UnrealMCPCommonUtils::ActorToJson`) — **zero C++,
+no plugin rebuild**. Reading BP variables over the socket is a v2 (new plugin command +
+rebuild) if labels ever feel clunky.
+
+**Plan (Python half, all offline-testable):**
+1. New `Python/agent_runtime/landmarks.py`:
+   - `landmark_from_actor(actor: dict) -> dict | None` — `None` (silently) for non-`Landmark_`
+     labels; malformed landmark labels (`Landmark_`, `Landmark_maren_`, blank name) are
+     `logger.error`-ed and skipped (fail loud). Valid → the same normalized entry shape
+     `load_manifest` returns: `{name, x, y, owner, community, extent_cm, actor}` with x/y from
+     `actor["location"][0..1]`, `owner=None` + `community=True` for the `community` token,
+     `extent_cm=PLACE_EXTENT_CM`, `actor=actor["name"]` (free #21-v2 provenance).
+   - `landmarks_from_actors(actors: list) -> list[dict]`.
+   - `merge_entries(landmarks, manifest_entries) -> list[dict]` — dedupe key
+     `(owner or "", name.casefold())`; **landmark wins**, shadowed `places.json` entry is
+     `logger.warning`-ed. Landmarks first in the returned list (apply's first-wins cell rule).
+2. `agent_manager.py` `start_simulation` (the `places.json` block, ~line 249): fetch
+   `self.bridge.get_level_actors()`, parse landmarks, merge with `load_manifest` entries, apply
+   the merged list. `_manifest_present = True` iff the merged list is non-empty. Log counts
+   separately: `landmarks: N (level), places.json: M, applied: {summary}`. Unreal unreachable →
+   `get_level_actors()` returns `[]` → places.json only, `logger.info` says no landmarks found.
+3. `/api/world/sync` (`web_ui/main.py`, #21): after `purge_wake_seeds`, rescan —
+   `unreal_client.get_actors()` → landmarks → merge with places.json → `apply_manifest`.
+   Response gains `landmarks` + `applied`; the `/map` tip line reports them. (`unreal_client`
+   is already stubbed by existing tests — same pattern.)
+4. **No schema change:** landmark rows are written `source='authored'` (they *are* authored
+   ground truth); provenance is logged, not stored. `clear_authored()` convergence covers them.
+5. Tests: new `test_landmarks.py` (parser valid/malformed/non-landmark cases, community token,
+   underscore names, merge precedence, stub-actors → PlaceDB end-to-end: right cell + dx/dy +
+   owner) + extend the sync-route test with stubbed `unreal_client`. Suite 40 → 41.
+
+**Live half (user, next session):** create `Landmark_BP`, drop `Landmark_maren_vegetable_truck`
+at the truck and `Landmark_dufus_home` at the house, press **Sync world** (or start a run) —
+then watch wake behavior: Maren stays at her truck, Dufus home until 08:30. This replaces the
+"click places on /map" step from HANDOFF_2026-07-07.
+
+Relates to: #15 (pipeline reused), #16 (demoted to fallback), #21 (v2 re-anchor subsumed —
+landmark rescan *is* the re-anchor), #18 (map viewer unchanged), memory
+`project_landmarks_direction`.
+
+---
+
 ## Outstanding — human / editor / live (not loop-safe)
 
 - **Merge** `auto-loop/backlog` → `main` (21 commits) and decide on `git push`.
