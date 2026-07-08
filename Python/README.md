@@ -46,4 +46,4 @@ You should make sure you have installed dependencies and/or are running in the `
 
 ## Development
 
-To add new tools, modify `agent_runtime/unreal_bridge.py` to add new command handlers, and register the MCP tool in the relevant `tools/*.py` module exposed by `unreal_sim_server.py`. 
+To add new tools, add a command handler to `agent_runtime/unreal_bridge.py` (`UnrealBridge`), then call it from the `AgentManager` action set or expose it through the sim runner's control API (`sim_runner.py`) as appropriate.

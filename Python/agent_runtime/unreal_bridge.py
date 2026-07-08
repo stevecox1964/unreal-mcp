@@ -35,7 +35,7 @@ class UnrealBridge:
         self.sim_run_id: str = "SR0"
 
     def _send(self, command: str, params: dict) -> dict:
-        from unreal_sim_server import get_unreal_connection
+        from .unreal_connection import get_unreal_connection
         conn = get_unreal_connection()
         if not conn:
             return {"success": False, "error": "Unreal not connected"}

@@ -1,12 +1,10 @@
 [project]
 name = "unreal-sim"
 version = "0.1.0"
-description = "AI agent simulation using Unreal Engine as a 3D world — MCP is the communication layer between the Python runtime and the engine."
+description = "AI agent simulation using Unreal Engine as a 3D world — a standalone Python runtime drives NPCs over a raw TCP bridge."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "mcp[cli]>=1.4.1",
-  "fastmcp>=0.2.0",
   "uvicorn",
   "fastapi",
   "pydantic>=2.6.1",
@@ -22,7 +20,3 @@ dependencies = [
 [build-system]
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
-
-[tool.setuptools]
-# The main server script is a single-file module
-py-modules = ["unreal_sim_server"]

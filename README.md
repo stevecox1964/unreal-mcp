@@ -58,13 +58,10 @@ Decisions stream to `worlds/<level>/logs/agent_decisions.log` and to the web coc
 - Implements actor manipulation tools
 - Handles command execution and response handling
 
-### Python MCP Server `Python/unreal_sim_server.py`
-- Implemented in `unreal_sim_server.py`
-- Manages TCP socket connections to the C++ plugin (port 55557)
-- Handles command serialization and response parsing
-- Provides error handling and connection management
-- Loads and registers tool modules from the `tools` directory
-- Uses the FastMCP library to implement the Model Context Protocol
+### Python Runtime `Python/`
+- Standalone — no Claude/MCP required to run the sim: `Python/start_sim.bat` or `python Python/sim_runner.py`
+- `agent_runtime/unreal_connection.py` owns the raw TCP socket to the Unreal bridge plugin (port 55557)
+- Handles command serialization, response parsing, and reconnection (Unreal closes the socket after each command)
 - Loads `Python/.env` for LLM-backed NPC simulation settings
 
 ## ðŸ“‚ Directory Structure
@@ -125,17 +122,7 @@ reached Unreal through the Python MCP server (`unreal_sim_server.py`, launched v
 path still works for the **simulation control surface**, but the standalone runner above is the
 direction of travel. Always start Unreal in PIE first — without it the bridge socket isn't hosted.
 
-### Restarting the MCP server without rebooting
-
-The MCP server runs over stdio, so the MCP client owns the live child process. If the transport gets stale, use the repo-root helper:
-
-```powershell
-.\restart_unreal_sim_server.bat
-```
-
-Then reload or reconnect the `unrealSIM` server in your MCP client. This stops only this repo's `unreal_sim_server.py` processes; it does not restart Unreal or Windows.
-
-For LLM key/model changes, a process restart should not be needed after the latest changes. The simulation layer reloads `Python/.env` before LLM decisions, and the MCP tool `reload_llm_environment()` can be used to reload and inspect masked LLM settings.
+For LLM key/model changes, a process restart should not be needed after the latest changes. The simulation layer reloads `Python/.env` before LLM decisions, and `reload_llm_environment()` can be used to reload and inspect masked LLM settings.
 
 ### Prerequisites
 - Unreal Engine 5.5+
@@ -234,40 +221,9 @@ are much faster. Switch back to cloud at any time by setting
 Settings are re-read from `.env` before each batch of LLM calls; the
 `reload_llm_environment()` MCP tool reloads and reports them with secrets masked.
 
-### Configuring your MCP Client
-
-Use the following JSON for your mcp configuration based on your MCP client.
-
-```json
-{
-  "mcpServers": {
-    "unrealSIM": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "<path/to/the/folder/PYTHON>",
-        "run",
-        "unreal_sim_server.py"
-      ]
-    }
-  }
-}
-```
-
-An example is found in `mcp.json`
-
-### MCP Configuration Locations
-
-Depending on which MCP client you're using, the configuration file location will differ:
-
-| MCP Client | Configuration File Location | Notes |
-|------------|------------------------------|-------|
-| Claude Desktop | `~/.config/claude-desktop/mcp.json` | On Windows: `%USERPROFILE%\.config\claude-desktop\mcp.json` |
-| Cursor | `.cursor/mcp.json` | Located in your project root directory |
-| Windsurf | `~/.config/windsurf/mcp.json` | On Windows: `%USERPROFILE%\.config\windsurf\mcp.json` |
-
-Each client uses the same JSON format as shown in the example above. 
-Simply place the configuration in the appropriate location for your MCP client.
+The sim runs standalone — no MCP client configuration needed. Start it with
+`Python/start_sim.bat` or `python Python/sim_runner.py`; it talks to Unreal over
+raw TCP on port 55557 via `agent_runtime/unreal_connection.py`.
 
 
 ## Changes from Upstream

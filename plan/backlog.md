@@ -900,7 +900,7 @@ Relates to: #15 (authored ground truth), #18 (same trigger), #13 (bootstrap = th
 
 ## 22. Retire the MCP layer — the sim is standalone; the socket class moves to agent_runtime
 
-**Status:** Queued 2026-07-08 (loop-safe; delegated to a Sonnet executor same day) ·
+**Status:** ✅ DONE 2026-07-08 (Sonnet executor) — suite 40/40 with mcp/fastmcp uninstalled ·
 **Source:** user, 2026-07-08 ("we don't use mcp anymore. Do we have mcp code still?") ·
 **Depends on:** nothing
 
