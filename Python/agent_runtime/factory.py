@@ -17,9 +17,8 @@ _DEFAULT_WORLDS_DIR = Path(__file__).resolve().parents[1] / "worlds"
 def build_agent_manager(worlds_dir: Path = None) -> AgentManager:
     """Construct a fully-wired AgentManager with the real runtime dependencies.
 
-    The single construction point shared by the MCP server (``get_agent_manager``)
-    and the standalone ``sim_runner`` — so both wire the manager identically and
-    a runner started without Claude behaves exactly like the MCP-hosted one.
+    The single construction point for the standalone ``sim_runner`` (and tests),
+    so every entry point wires the manager identically.
 
     No I/O happens here: ``UnrealBridge`` connects lazily per command and
     ``LLMRouter`` builds its API clients on first use, so this is safe to call
