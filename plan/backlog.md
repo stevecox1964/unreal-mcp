@@ -17,6 +17,19 @@ grooming: 2026-06-26.
 > **#3** factory ✓. The remaining MVP gap is **#3's standalone runner** (the "runs overnight
 > independent of Claude" long pole — nothing built but the factory).
 
+> **⚑ Status (2026-07-07, eve — camera bugs fixed + /map zoom/pan; user-verified live):** the
+> "2 cameras on MAP_Camera" was the C++ capture **leaking a SceneCaptureComponent2D per shot**
+> (now transient + destroyed after the file write) and the horizontal re-shoot was a **PIE/editor
+> world mismatch** (set_actor_transform resolved in GWorld, capture in the PIE-preferring world —
+> both now `GetGameWorld()`). `/map` gained **scroll-zoom / drag-pan / double-click reset** (author
+> clicks + coord readout stay exact at any zoom). A live-verified registered top-down capture is
+> installed. **User verified (plugin rebuilt, several sim runs):** zoom/pan works, **agent dots for
+> Maren + Dufus show live** (#18's pending dot verify ✓), MAP_Camera BP camera rotation zeroed,
+> exactly 3 CameraCaptureActors in level (Maren/Dufus/map — correct). Suite **41/41**, pushed.
+> **Still to do: the user authors places.json by clicking on /map** (skipped today for speed);
+> more testing tomorrow. Queue: #19 (needs a/b/c design call), #20 (instrument during runs),
+> #17 routing PIE verify.
+>
 > **⚑ Status (2026-07-07 — WP6 + WP7 built in-session, queue items 1–2 done):** **#15 authored
 > places manifest DONE** (`places_manifest.py`, `source` column authored/runtime/wake-seed,
 > plan-time schedule validation, wake seed demoted to a warning fallback) and **#21 v1 sync-world
