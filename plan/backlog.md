@@ -898,6 +898,52 @@ Relates to: #15 (authored ground truth), #18 (same trigger), #13 (bootstrap = th
 
 ---
 
+## 22. Retire the MCP layer — the sim is standalone; the socket class moves to agent_runtime
+
+**Status:** Queued 2026-07-08 (loop-safe; delegated to a Sonnet executor same day) ·
+**Source:** user, 2026-07-08 ("we don't use mcp anymore. Do we have mcp code still?") ·
+**Depends on:** nothing
+
+MCP is dead weight now: the sim runs via `sim_runner.py` + the web UI, and dev-mode driving goes
+over the runner's localhost HTTP API (`RunnerClient`), not MCP tools. But the raw Unreal socket
+class (`UnrealConnection`, TCP 55557) still lives *inside* `unreal_sim_server.py`, so every
+process — runner, web UI, offline suite — transitively imports the `mcp` pip package just to
+borrow the socket (`unreal_bridge.py:38`). That's why the suite broke when `mcp` vanished from
+the venv (2026-07-07 handoff) and why "pip install mcp" logs still appear in a repo that
+supposedly dropped MCP.
+
+Plan (all offline-testable):
+
+1. **New `Python/agent_runtime/unreal_connection.py`** — move `UNREAL_HOST`/`UNREAL_PORT`, the
+   `UnrealConnection` class, the module singleton, and `get_unreal_connection()` verbatim from
+   `unreal_sim_server.py` (lines 32–255). Module logger `logging.getLogger("UnrealConnection")`;
+   **no `logging.basicConfig`** — each process owns its logging (side effect: the stray
+   DEBUG-to-`unreal_mcp.log` config that piggybacked on this import dies; `sim_runner.py` already
+   configures its own).
+2. **`agent_runtime/unreal_bridge.py`** `_send()` imports
+   `from .unreal_connection import get_unreal_connection` instead of `from unreal_sim_server …`.
+3. **Delete:** `Python/unreal_sim_server.py`, `Python/tools/` (only `simulation_tools.py` in it),
+   `Python/scripts/agent_runtime/test_sim_tools_attach.py` (suite 41 → 40 by design — the surface
+   under test is gone), `mcp.json`, `restart_unreal_sim_server.bat`,
+   `Python/restart_unreal_mcp_stdio.ps1`. (`RunnerClient` **stays** — web UI + sim_runner use it.)
+4. **`Python/pyproject.toml`:** drop `mcp[cli]` and `fastmcp` deps; drop
+   `py-modules = ["unreal_sim_server"]`; fix the project description (it still says "MCP is the
+   communication layer").
+5. **Docs (light touch, only where misleading):** `README.md` (MCP-server section, restart
+   section, `mcp.json` snippet), `Python/README.md` (add-a-tool paragraph → point at
+   `unreal_bridge` + runner API). Historical docs (`Docs/`, handoffs, this backlog's history)
+   stay as written.
+6. **Verify (success criteria):** `pip uninstall -y mcp fastmcp` from the venv, then
+   `scripts/run_tests.py` → **40/40 green** — the suite passing *without* the package installed
+   is the proof the dependency is really gone. Plus `grep`-clean: no live `from mcp`/`import mcp`
+   outside `plan/`/`Docs/`.
+
+Relates to: #3 (independent sim lifetime — this finishes the decoupling), #8 in the autonomous
+queue (retired the authoring half on 2026-06-28; this retires the rest),
+`project_identity` (sim, not MCP bridge).
+
+---
+
 ## Outstanding — human / editor / live (not loop-safe)
 
 - **Merge** `auto-loop/backlog` → `main` (21 commits) and decide on `git push`.
