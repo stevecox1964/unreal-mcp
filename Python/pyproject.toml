@@ -20,3 +20,9 @@ dependencies = [
 [build-system]
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.uv]
+# This is an application, not an installable package — uv must not try to
+# build/install it into the venv (setuptools flat-layout discovery chokes on
+# the multiple top-level dirs: agent_runtime, web_ui, worlds, ...).
+package = false
