@@ -42,10 +42,14 @@ Decisions stream to `worlds/<level>/logs/agent_decisions.log` and to the web coc
 > Blueprint Development, Blueprint Node Graph, Editor Control, Camera, Project). Epic now ships an
 > official Unreal MCP for editor authoring, so maintaining ours wasn't worth it. The sim is driven by
 > a **standalone runner + web cockpit** (no Claude/MCP required). The underlying C++ commands still
-> exist in the plugin (reachable over the raw socket on `:55557`), but the Python MCP server now
-> exposes only the **simulation control surface** (`simulation_tools.py` — start/stop/inspect the loop).
+> exist in the plugin (reachable over the raw socket on `:55557`).
 > The bridge currently lives in an editor-only module, so **Unreal must be running in PIE** to host
 > the socket (making it a runtime module — for a packaged, editor-free build — is on the backlog).
+>
+> **Update (2026-07-08):** the Python MCP layer is now **fully retired** (backlog #22) — no MCP
+> server, no `mcp.json`, no `mcp`/`fastmcp` dependency. The sim talks to Unreal over raw TCP via
+> `agent_runtime/unreal_connection.py`, and anything driving the sim (web cockpit, Claude in dev
+> mode, curl) uses the runner's localhost HTTP API.
 
 ## ðŸ§© Components
 
@@ -69,9 +73,7 @@ Decisions stream to `worlds/<level>/logs/agent_decisions.log` and to the web coc
 - **MCPGameProject/** â€” Example Unreal project
   - **Plugins/UnrealMCP/** — C++ plugin source
 
-- **Python/** â€” Python MCP server and agent runtime
-  - **tools/** â€” MCP tool modules (`simulation_tools` — the sim control surface; editor-authoring
-    tools retired 2026-06-28, see the Overview note)
+- **Python/** â€” the standalone agent runtime (no MCP — retired 2026-07-08)
   - **agent_runtime/** â€” the cognitive loop: `agent_manager` (tick orchestration), `factory`
     (shared AgentManager construction), `llm_router`, `perception` (VLM), `memory_store`,
     `social_memory` + `episodic_memory` (per-agent memory), `place_db` + `world_grid` (shared
@@ -102,9 +104,26 @@ Decisions stream to `worlds/<level>/logs/agent_decisions.log` and to the web coc
 This is the primary path. Start things in this order:
 
 1. **Run the Unreal project in PIE** — open the project and press **Play**. This starts the C++ TCP server (`:55557`) the sim talks to. **Run exactly one editor instance**: only one process can own `:55557`, so a second editor leaves the sim driving a window you aren't watching.
-2. **Start the sim engine + web cockpit** — run `Python/start_sim.bat`. It launches:
+2. **Start the sim engine + web cockpit** — run `Python/start_sim.bat` (the repo's one batch file). It launches:
    - the **sim engine** (`sim_runner.py`) on `http://127.0.0.1:8777` — owns the agent loop and the single Unreal socket, exposing a localhost JSON control API (`/status`, `/start`, `/stop`, `/tick`, `/events`).
-   - the **web cockpit** on `http://127.0.0.1:8765/sim` — start/stop/step the sim and watch the live decision feed (with a Clear-feed button + per-event timestamps).
+   - the **web cockpit** on `http://127.0.0.1:8765/sim` — start/stop/step the sim and watch the live decision feed. **The cockpit page opens itself in your browser** once the server is listening.
+
+### Authoring places — Landmarks (setup phase, in the editor)
+
+Ground-truth places are authored by dropping a marker actor in the level and setting its **actor
+label** to `Landmark_<owner>_<place name with underscores>`:
+
+```
+Landmark_maren_vegetable_truck   -> maren's "vegetable truck"
+Landmark_dufus_home              -> dufus's "home"
+Landmark_community_town_square   -> shared "town square"
+```
+
+Any actor class works (a dedicated `Landmark_BP` marker, or rename a real prop to pin the place to
+it). Owner is case-insensitive; the sim scans landmarks at start, and `/map` → **Sync world**
+rescans after you move things — the tip line lists exactly which landmarks applied and flags
+near-miss labels (`Landmarlk_...`) as spelling suspects. Landmarks win over `places.json` on
+collision; moving the actor moves the place.
 
 Because the engine is a plain JSON HTTP API, you can also drive it directly with curl:
 
@@ -117,19 +136,19 @@ curl -X POST http://127.0.0.1:8777/stop
 
 ### Dev mode (Claude Code operating the sim)
 
-When Claude Code is running it can start/stop the sim and help read logs + debug. Historically Claude
-reached Unreal through the Python MCP server (`unreal_sim_server.py`, launched via `.mcp.json`); that
-path still works for the **simulation control surface**, but the standalone runner above is the
-direction of travel. Always start Unreal in PIE first — without it the bridge socket isn't hosted.
+When Claude Code is running it can start/stop the sim and help read logs + debug — it drives the
+same runner HTTP API as the cockpit (`http://127.0.0.1:8777`). The MCP path was retired 2026-07-08
+(#22). Always start Unreal in PIE first — without it the bridge socket isn't hosted.
 
-For LLM key/model changes, a process restart should not be needed after the latest changes. The simulation layer reloads `Python/.env` before LLM decisions, and `reload_llm_environment()` can be used to reload and inspect masked LLM settings.
+For LLM key/model changes, a process restart is not needed: the simulation layer reloads
+`Python/.env` before LLM decisions.
 
 ### Prerequisites
 - Unreal Engine 5.5+
 - Python 3.12+
-- MCP Client (e.g., Claude Desktop, Cursor, Windsurf)
+- [uv](https://docs.astral.sh/uv/) (used by `start_sim.bat` to run the Python side)
 
-> **Python setup:** Uninstall any existing Python versions before proceeding. Then install Python 3.12+ fresh from [python.org](https://www.python.org/downloads/). Having multiple Python versions can cause conflicts with the MCP server.
+> **Python setup:** Uninstall any existing Python versions before proceeding. Then install Python 3.12+ fresh from [python.org](https://www.python.org/downloads/). Multiple Python versions can cause environment conflicts.
 
 ### Sample project
 
@@ -161,12 +180,9 @@ Otherwise, if you want to use the plugin in your existing project:
    - Open solution (`.sln)
    - Build with your target platform and output settings
 
-### Python Server Setup
+### Python Setup
 
-See [Python/README.md](Python/README.md) for detailed Python setup instructions, including:
-- Setting up your Python environment
-- Running the MCP server
-- Using direct or server-based connections
+See [Python/README.md](Python/README.md) for detailed Python setup instructions.
 
 ### LLM configuration for NPC simulation
 
@@ -218,8 +234,7 @@ output. The first call is slow while the model loads into VRAM — a
 are much faster. Switch back to cloud at any time by setting
 `LLM_PROVIDER` / `VISION_PROVIDER` to their cloud values.
 
-Settings are re-read from `.env` before each batch of LLM calls; the
-`reload_llm_environment()` MCP tool reloads and reports them with secrets masked.
+Settings are re-read from `.env` before each batch of LLM calls.
 
 The sim runs standalone — no MCP client configuration needed. Start it with
 `Python/start_sim.bat` or `python Python/sim_runner.py`; it talks to Unreal over
@@ -263,6 +278,10 @@ A first-pass agentic NPC simulation layer driven by an LLM-controlled Agent Mana
 
 A cognitive layer the agents build and share as they run (verified live in PIE, 2026-06-26):
 
+- **Landmarks (authored ground truth, 2026-07-08)** â€” drop a `Landmark_<owner>_<name>`-labeled
+  actor in the level and the sim treats it as an authored place: scanned at sim start and by the
+  `/map` **Sync world** button (which reports exactly what applied and flags near-miss labels).
+  The level is the single source of truth — moving the actor moves the place.
 - **Named-place navigation** â€” `walk_to "<place name>"` resolves a place name â†’ grid cell â†’ world location (`PlaceDB.find_named_cell` + `WorldGrid.cell_center`), so an agent navigates to a stated destination instead of idling. Unknown names fall back gracefully.
 - **Shared world map (place cells)** â€” a SQLite `world_places.db` of named grid cells + compass-indexed landmark observations, **shared across all agents** (one agent's discoveries steer the others). `known_places` surfaces the named-place map (bearing + distance, nearest first) to each agent so it can pick a destination by name.
 - **Episodic + social memory (per agent)** â€” `episodes.jsonl` records structured per-tick events `{world_time, grid_cell, place, saw[], action, outcome}`; `social.json` tracks acquaintances `{first_met, last_seen, meet_count, sentiment}` from perceived characters and speech. Recall blends recency + spatial proximity + social ties â€” beating the flat 30-item `memory.json` window for long/overnight runs.
@@ -345,50 +364,47 @@ See [Docs/character_system.md](Docs/character_system.md) for the full command re
 
 > **Status: Prototype** â€” See [`MASTER_PLAN.md`](MASTER_PLAN.md) for the full design. The live task list is [`plan/backlog.md`](plan/backlog.md); `still_todo.md` is a superseded historical snapshot.
 
-The simulation layer lets an LLM (Claude, OpenAI, or a local model) autonomously drive NPCs inside a live Unreal session via the MCP server.
+The simulation layer lets an LLM (Claude, OpenAI, or a local model) autonomously drive NPCs inside a live Unreal session.
 
 ### Architecture
 
 ```
-Claude / OpenAI CLI
-        â”‚  MCP tool calls
+Web cockpit / curl / Claude (dev mode)
+        â”‚  localhost HTTP (:8777)
         â–¼
-Python MCP Server  â”€â”€â”€ Agent Manager + Simulation Harness
+sim_runner.py  â”€â”€â”€ Agent Manager + Simulation Harness
         â”‚              â”œâ”€ AgentRegistry / MemoryStore
         â”‚              â”œâ”€ LLMRouter (per-agent model selection)
         â”‚              â””â”€ ActionValidator (schema + allowlist)
-        â”‚  Unreal commands
+        â”‚  Unreal commands (raw TCP :55557)
         â–¼
-Unreal C++ MCP Plugin â†’ Unreal Editor / PIE
+Unreal C++ plugin (UnrealMCP) â†’ Unreal Editor / PIE
 ```
 
-### Key MCP tools
+### Sim control surface (runner HTTP API on `:8777`)
 
-| Tool | Description |
+| Endpoint | Description |
 |------|-------------|
-| `start_simulation` | Start the autonomous agent loop |
-| `stop_simulation` | Stop the loop |
-| `pause_simulation` / `resume_simulation` | Pause or resume without losing state |
-| `get_simulation_status` | Live status of the running sim |
-| `list_agents` / `inspect_agent` | Browse active agents |
-| `set_agent_goal` | Override an agent's current goal |
-| `force_agent_tick` | Manually pulse a single agent |
-| `get_recent_events` | Tail the world event log |
-| `reload_llm_environment` | Reload `Python/.env` and report masked LLM settings |
+| `POST /start` | Start the autonomous agent loop (`tick_seconds`, `active_agents`, `mode`) |
+| `POST /stop` | Stop the loop |
+| `POST /pause` / `POST /resume` | Pause or resume without losing state |
+| `GET /status` | Live status of the running sim |
+| `GET /agents` | Browse active agents |
+| `POST /tick` | Manually pulse the loop (single step) |
+| `GET /events` | Tail the world event log |
+| `POST /reset_day` | Restart the sim day from morning (memories kept) |
 
 ### Smoke test
 
-With Unreal running in PIE and `unrealSIM` connected:
+With Unreal running in PIE and the runner up (`start_sim.bat`):
 
-```txt
-reload_llm_environment()
-start_simulation(tick_seconds=10, active_agents=["dufus"])
-force_agent_tick("dufus")
-get_recent_events(limit=10)
-stop_simulation()
+```bash
+curl -X POST http://127.0.0.1:8777/start -d '{"tick_seconds":10,"active_agents":["dufus"]}'
+curl http://127.0.0.1:8777/events?limit=10
+curl -X POST http://127.0.0.1:8777/stop
 ```
 
-Expected: Dufus binds to the `BP_CameraNPC_C_1` actor in MCP_World; each tick the agent captures a camera PNG internally (via `UnrealBridge`, not a separate MCP tool), and the LLM decision loop returns a validated action logged in `get_recent_events`. Generated captures and decision logs are ignored by git.
+Expected: Dufus binds to his actor in MCP_World; each tick the agent captures a camera PNG internally (via `UnrealBridge`), and the LLM decision loop returns a validated action visible in `/events` and the cockpit feed. Generated captures and decision logs are ignored by git.
 
 ### Agent tiers
 
@@ -432,11 +448,10 @@ Per-agent (egocentric). Grid cells keyed `"gx,gy"` (`floor(x / cell_size)`, defa
 
 ### Smoke test
 
-```txt
-start_simulation(tick_seconds=10, active_agents=["maren"], mode="explore")
-force_agent_tick("maren")     # observe â†’ perceive â†’ map â†’ pick frontier â†’ walk
-get_character_location("Maren")   # x/y should track toward the frontier cell centre
-stop_simulation()
+```bash
+curl -X POST http://127.0.0.1:8777/start -d '{"tick_seconds":10,"active_agents":["maren"],"mode":"explore"}'
+curl -X POST http://127.0.0.1:8777/tick      # observe -> perceive -> map -> pick frontier -> walk
+curl -X POST http://127.0.0.1:8777/stop
 ```
 
 Expected: each tick the agent's `cells_visited` climbs, `spatial_map.json` fills with landmark-tagged cells linked by nav edges, and the avatar walks frontier-to-frontier. Delete `spatial_map.json` to start a fresh map.
