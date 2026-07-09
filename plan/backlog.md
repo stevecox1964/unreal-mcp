@@ -1020,6 +1020,33 @@ landmark rescan *is* the re-anchor), #18 (map viewer unchanged), memory
 
 ---
 
+## 24. start_sim.bat opens the cockpit page itself (one batch file, one double-click)
+
+**Status:** Queued 2026-07-08 (delegated to a Sonnet executor; final double-click test is the
+user's) · **Source:** user, 2026-07-08 ("make the start_sim bat run so the web page just opens
+and we only have one batch file") · **Depends on:** nothing
+
+Half is already true: after #22, `Python/start_sim.bat` is the repo's **only** batch file
+(engine build scripts aside). Remaining: today the user must read the console and type
+`http://127.0.0.1:8765/sim` — the bat should open it in the default browser once the cockpit
+is actually listening.
+
+Plan:
+- Before the blocking `uvicorn` line, launch a minimized background waiter:
+  `start "" /min powershell -NoProfile -Command "for($i=0;$i -lt 30;$i++){ if(Test-NetConnection
+  127.0.0.1 -Port 8765 -InformationLevel Quiet -WarningAction SilentlyContinue){ Start-Process
+  'http://127.0.0.1:8765/sim'; exit } Start-Sleep 1 }"` — polls up to 30 s (first run can be
+  slow while `uv` resolves), opens `/sim` exactly once when the port is live, exits silently if
+  the server never comes up (the console error is already loud in that case).
+- Banner text gains "the cockpit page opens automatically".
+- No second .bat, no .ps1 file — the waiter stays inline so the one-file rule holds.
+
+**Verify:** executor = static + snippet check only (run the waiter loop standalone against a
+closed port with a short count → exits quietly; confirm exactly one repo .bat). **Live
+double-click = user** (server boots + browser tab appears).
+
+---
+
 ## Outstanding — human / editor / live (not loop-safe)
 
 - **Merge** `auto-loop/backlog` → `main` (21 commits) and decide on `git push`.
