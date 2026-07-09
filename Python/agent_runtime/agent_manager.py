@@ -14,6 +14,7 @@ from .action_validator import validate
 from . import explorer
 from .perception import VisionPerceiver
 from . import cell_sweep
+from .landmarks import landmarks_from_actors, merge_entries
 from . import map_capture
 from . import places_manifest
 from . import planner
@@ -243,13 +244,27 @@ class AgentManager:
             db_path = self._agents_dir.parent / "world_places.db"
             self.place_db = PlaceDB(db_path)
 
-            # Authored places manifest (WP6): the user's ground truth, loaded
-            # before any tick so scheduled places resolve without wake-seeding.
+            # Authored ground truth, loaded before any tick so scheduled places
+            # resolve without wake-seeding. Two sources feed the same manifest
+            # pipeline (#23): Landmark_* actors in the level (ground truth,
+            # wins on collision) and places.json (fallback / no-Unreal path).
             self._manifest_present = False
+            try:
+                level_actors = self.bridge.get_level_actors()
+            except Exception as e:
+                logger.warning(f"get_level_actors() failed ({e}) — landmarks skipped, "
+                               f"places.json only")
+                level_actors = []
+            landmarks = landmarks_from_actors(level_actors)
             manifest = places_manifest.load_manifest(self._agents_dir.parent / "places.json")
-            if manifest:
-                summary = places_manifest.apply_manifest(self.place_db, self.world_grid, manifest)
-                logger.info(f"places.json: {summary}")
+            if not landmarks:
+                logger.info(f"landmarks: 0 (level) — no Landmark_* actors found, "
+                           f"places.json: {len(manifest)}")
+            merged = merge_entries(landmarks, manifest)
+            if merged:
+                summary = places_manifest.apply_manifest(self.place_db, self.world_grid, merged)
+                logger.info(f"landmarks: {len(landmarks)} (level), places.json: {len(manifest)}, "
+                           f"applied: {summary}")
                 self._manifest_present = True
 
             # Allocate this run's SR<n> tag (per-world) and push it everywhere the

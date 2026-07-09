@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from agent_runtime import places_manifest
+from agent_runtime.landmarks import landmarks_from_actors, merge_entries
 from agent_runtime.config_store import read_config, write_config, is_secret
 from agent_runtime.map_capture import (MAP_CAMERA_ACTOR, MAP_CAMERA_ROTATION,
                                        MAP_CAPTURE_ASPECT, MAP_CAPTURE_MARGIN,
@@ -227,23 +228,37 @@ async def api_map(level: str = None):
 
 @app.post("/api/world/sync")
 async def api_world_sync(level: str = None):
-    """"I moved things — sync the world" (#21 v1): purge wake-seeded places.
+    """"I moved things — sync the world" (#21 v1, upgraded by #23): purge
+    wake-seeded places, then rescan Landmark_* actors in the level and
+    re-apply the manifest (landmarks + places.json, landmark wins on
+    collision) so a moved/renamed landmark converges immediately — this *is*
+    the #21 v2 re-anchor.
 
     Editor moves make wake seeds stale (agents hunt the old spots); deleting
     them is self-healing — the next run re-seeds at the new day-start
-    positions. Authored (places.json) and runtime (agent-discovered) rows are
-    never touched. Never creates the DB; reports exactly what was deleted —
-    count 0 is an honest "nothing to sync".
+    positions. Authored (landmark/places.json) and runtime (agent-discovered)
+    rows are never touched by the purge. The purge itself never creates the
+    DB (count 0 is an honest "nothing to sync"); the landmark rescan does
+    open/create the world's PlaceDB, since it may be this world's first sync.
     """
     level = _resolve_level(level)
     if not level:
-        return JSONResponse({"level": None, "deleted": [], "count": 0})
+        return JSONResponse({"level": None, "deleted": [], "count": 0,
+                             "landmarks": 0, "applied": {"applied": 0, "owned": 0,
+                                                          "community": 0, "skipped": 0}})
     db_path = WORLDS_DIR / level / "world_places.db"
-    if not db_path.exists():
-        return JSONResponse({"level": level, "deleted": [], "count": 0})
-    deleted = [{"owner": r["owner"], "name": r["name"], "col": r["col"], "row": r["row"]}
-               for r in PlaceDB(db_path).purge_wake_seeds()]
-    return JSONResponse({"level": level, "deleted": deleted, "count": len(deleted)})
+    deleted = []
+    if db_path.exists():
+        deleted = [{"owner": r["owner"], "name": r["name"], "col": r["col"], "row": r["row"]}
+                   for r in PlaceDB(db_path).purge_wake_seeds()]
+
+    landmarks = landmarks_from_actors(unreal_client.get_actors())
+    merged = merge_entries(landmarks, places_manifest.load_manifest(_places_path(level)))
+    grid = WorldGrid.load(WORLDS_DIR / level / "world_grid.json")
+    applied = places_manifest.apply_manifest(PlaceDB(db_path), grid, merged)
+
+    return JSONResponse({"level": level, "deleted": deleted, "count": len(deleted),
+                         "landmarks": len(landmarks), "applied": applied})
 
 
 # ── Map capture (#18): shoot the world map from the MAP_Camera pawn ───────────

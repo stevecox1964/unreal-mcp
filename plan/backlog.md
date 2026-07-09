@@ -946,8 +946,8 @@ queue (retired the authoring half on 2026-06-28; this retires the rest),
 
 ## 23. Landmarks — BP-authored ground-truth places (author the world in the editor, not a UI)
 
-**Status:** Queued 2026-07-08 (Python half loop-safe, delegated to a Sonnet executor;
-`Landmark_BP` asset + live verify are the user's) · **Source:** user, 2026-07-08 ("during a
+**Status:** ✅ Python half DONE 2026-07-08 (Sonnet executor) — suite 41/41; Landmark_BP asset +
+live verify remain the user's · **Source:** user, 2026-07-08 ("during a
 setup phase, the world author should place BPs at certain locations before sim runs… back away
 from building a full blown sim UI, and just let the APCs build things") ·
 **Depends on:** #15 (reuses the manifest pipeline as-is)
