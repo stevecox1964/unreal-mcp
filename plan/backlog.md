@@ -1048,6 +1048,41 @@ double-click = user** (server boots + browser tab appears).
 
 ---
 
+## 25. Landmark hardening — the author's typos are our problem
+
+**Status:** Queued 2026-07-08 (delegated to a Sonnet executor) · **Source:** user's first live
+authoring attempt, 2026-07-08 — three landmarks, three hazards (screenshot):
+`Landmarlk_Dufus_Home` (prefix typo → silently invisible), `Landmark_Maren_Vegitable_truck`
+(owner case + name spelling), `Landmark_Maren_home` (owner case breaks the case-sensitive
+`preferred_owner` tie-break in `find_owned_place` — Dufus resolving "home" could get Maren's) ·
+**Depends on:** #23
+
+Per `feedback_drag_and_drop`: config complexity is ours. Three fixes, all in the #23 scan layer —
+**`place_db.py` matching stays untouched** (normalize at the boundary, not in the store):
+
+1. **Owner casefold + case-insensitive prefix** (`agent_runtime/landmarks.py`):
+   `owner = owner_token.casefold()` (agent ids are lowercase; `Community`≡`community` too), and
+   the `Landmark_` prefix match becomes case-insensitive (`landmark_maren_home` works). Display
+   name stays as authored (name matching is already case-insensitive downstream).
+2. **Near-miss prefix detection.** New `scan_landmarks(actors) -> {"entries": [...], "suspects":
+   [...]}`: a label whose first underscore-token casefolds to within **Levenshtein distance 1–2**
+   of `landmark` (but isn't it) is a *suspect* — `logger.error`-ed and returned, never guessed
+   into a place. Tiny inline DP levenshtein, no new deps. `landmarks_from_actors` stays as a thin
+   entries-only wrapper (API compat).
+3. **Visible sync report.** `agent_manager` logs suspects at error level at sim start.
+   `/api/world/sync` response gains `landmark_places` (`["maren/vegetable truck", …]`,
+   `community/<name>` for community) and `suspects` (raw labels); the `/map` tip line prints
+   both — applied names in one glance, and `⚠ ignored near-landmark labels: … (check spelling)`
+   when a suspect exists. The un-fixable case (a *spelled-wrong name* like "Vegitable") becomes
+   visible by reading the applied list.
+
+Tests (`test_landmarks.py` + `test_world_sync.py`): case-insensitive prefix accept; owner
+casefold (`Landmark_Maren_home` → owner `maren`); `Landmark_Community_town_square` → community;
+suspect detection (`Landmarlk_Dufus_Home` → suspect, `PlayerStart`/`MAP_Camera` → not);
+`scan_landmarks` shape; sync response carries `landmark_places` + `suspects`.
+
+---
+
 ## Outstanding — human / editor / live (not loop-safe)
 
 - **Merge** `auto-loop/backlog` → `main` (21 commits) and decide on `git push`.
