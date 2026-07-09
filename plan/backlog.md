@@ -1023,8 +1023,8 @@ landmark rescan *is* the re-anchor), #18 (map viewer unchanged), memory
 
 ## 24. start_sim.bat opens the cockpit page itself (one batch file, one double-click)
 
-**Status:** Queued 2026-07-08 (delegated to a Sonnet executor; final double-click test is the
-user's) · **Source:** user, 2026-07-08 ("make the start_sim bat run so the web page just opens
+**Status:** ✅ Built 2026-07-08 (Sonnet executor) — live double-click verify remains the user's ·
+**Source:** user, 2026-07-08 ("make the start_sim bat run so the web page just opens
 and we only have one batch file") · **Depends on:** nothing
 
 Half is already true: after #22, `Python/start_sim.bat` is the repo's **only** batch file
