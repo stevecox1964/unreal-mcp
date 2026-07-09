@@ -314,11 +314,18 @@
         data = await (await fetch(`/api/world/sync?level=${encodeURIComponent(level)}`,
                                   { method: "POST" })).json();
       } catch (e) { tip.textContent = "sync failed — is the web app still running?"; return; }
-      tip.textContent = (data.count
+      let msg = (data.count
         ? `synced: deleted ${data.count} wake seed(s) (` +
           data.deleted.map(d => `${d.owner}: ${d.name}`).join("; ") + ")"
         : "synced: nothing to purge")
         + ` + ${data.landmarks || 0} landmark(s) applied`;
+      if (data.landmark_places && data.landmark_places.length) {
+        msg += ` — landmarks: ${data.landmark_places.join(", ")}`;
+      }
+      if (data.suspects && data.suspects.length) {
+        msg += ` ⚠ ignored near-landmark labels: ${data.suspects.join(", ")} (check spelling)`;
+      }
+      tip.textContent = msg;
       refresh();
     });
 

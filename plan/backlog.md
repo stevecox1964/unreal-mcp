@@ -1050,7 +1050,7 @@ double-click = user** (server boots + browser tab appears).
 
 ## 25. Landmark hardening — the author's typos are our problem
 
-**Status:** Queued 2026-07-08 (delegated to a Sonnet executor) · **Source:** user's first live
+**Status:** ✅ DONE 2026-07-08 (Sonnet executor) — suite 41/41 · **Source:** user's first live
 authoring attempt, 2026-07-08 — three landmarks, three hazards (screenshot):
 `Landmarlk_Dufus_Home` (prefix typo → silently invisible), `Landmark_Maren_Vegitable_truck`
 (owner case + name spelling), `Landmark_Maren_home` (owner case breaks the case-sensitive

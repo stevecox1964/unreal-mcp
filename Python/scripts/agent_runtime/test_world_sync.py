@@ -144,11 +144,32 @@ def test_sync_rescans_landmarks():
             check("one landmark actor -> landmarks 1", data["landmarks"] == 1)
             check("applied summary reports the owned write",
                   data["applied"] == {"applied": 1, "owned": 1, "community": 0, "skipped": 0})
+            check("landmark_places names the applied landmark",
+                  data["landmark_places"] == ["maren/vegetable truck"])
+            check("no suspects", data["suspects"] == [])
             db = PlaceDB(world / "world_places.db")
             owned = db.find_owned_place("vegetable truck")
             check("landmark reached PlaceDB via the sync route",
                   owned is not None and owned["owner"] == "maren")
         _with_worlds(tmp, body, actors=[actor])
+
+
+def test_sync_reports_suspects_alongside_good_landmarks():
+    with tempfile.TemporaryDirectory() as tmp:
+        _world(tmp, level="TestWorld", with_db=False)
+        good = {"name": "BP_VegTruck_C_1", "label": "Landmark_maren_vegetable_truck",
+                "class": "BP_VegTruck_C", "location": [320.0, 120.0, 90.0]}
+        typo = {"name": "BP_House_C_1", "label": "Landmarlk_Dufus_Home",
+                "class": "BP_House_C", "location": [0.0, 0.0, 0.0]}
+
+        def body(client):
+            data = client.post("/api/world/sync?level=TestWorld").json()
+            check("only the good landmark parses", data["landmarks"] == 1)
+            check("landmark_places lists only the good one",
+                  data["landmark_places"] == ["maren/vegetable truck"])
+            check("suspects lists the typo'd label",
+                  data["suspects"] == ["Landmarlk_Dufus_Home"])
+        _with_worlds(tmp, body, actors=[good, typo])
 
 
 def test_map_page_has_sync_button():
@@ -168,6 +189,7 @@ def main():
     test_sync_route_purges_and_reports()
     test_sync_missing_db_purges_nothing_but_still_rescans()
     test_sync_rescans_landmarks()
+    test_sync_reports_suspects_alongside_good_landmarks()
     test_map_page_has_sync_button()
     print("\nAll world-sync checks passed.")
 

@@ -14,7 +14,7 @@ from .action_validator import validate
 from . import explorer
 from .perception import VisionPerceiver
 from . import cell_sweep
-from .landmarks import landmarks_from_actors, merge_entries
+from .landmarks import merge_entries, scan_landmarks
 from . import map_capture
 from . import places_manifest
 from . import planner
@@ -255,7 +255,10 @@ class AgentManager:
                 logger.warning(f"get_level_actors() failed ({e}) — landmarks skipped, "
                                f"places.json only")
                 level_actors = []
-            landmarks = landmarks_from_actors(level_actors)
+            scanned = scan_landmarks(level_actors)
+            landmarks = scanned["entries"]
+            if scanned["suspects"]:
+                logger.error(f"landmark suspects ignored: {scanned['suspects']}")
             manifest = places_manifest.load_manifest(self._agents_dir.parent / "places.json")
             if not landmarks:
                 logger.info(f"landmarks: 0 (level) — no Landmark_* actors found, "

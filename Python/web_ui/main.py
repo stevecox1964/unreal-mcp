@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from agent_runtime import places_manifest
-from agent_runtime.landmarks import landmarks_from_actors, merge_entries
+from agent_runtime.landmarks import merge_entries, scan_landmarks
 from agent_runtime.config_store import read_config, write_config, is_secret
 from agent_runtime.map_capture import (MAP_CAMERA_ACTOR, MAP_CAMERA_ROTATION,
                                        MAP_CAPTURE_ASPECT, MAP_CAPTURE_MARGIN,
@@ -245,20 +245,25 @@ async def api_world_sync(level: str = None):
     if not level:
         return JSONResponse({"level": None, "deleted": [], "count": 0,
                              "landmarks": 0, "applied": {"applied": 0, "owned": 0,
-                                                          "community": 0, "skipped": 0}})
+                                                          "community": 0, "skipped": 0},
+                             "landmark_places": [], "suspects": []})
     db_path = WORLDS_DIR / level / "world_places.db"
     deleted = []
     if db_path.exists():
         deleted = [{"owner": r["owner"], "name": r["name"], "col": r["col"], "row": r["row"]}
                    for r in PlaceDB(db_path).purge_wake_seeds()]
 
-    landmarks = landmarks_from_actors(unreal_client.get_actors())
+    scanned = scan_landmarks(unreal_client.get_actors())
+    landmarks = scanned["entries"]
+    suspects = scanned["suspects"]
     merged = merge_entries(landmarks, places_manifest.load_manifest(_places_path(level)))
     grid = WorldGrid.load(WORLDS_DIR / level / "world_grid.json")
     applied = places_manifest.apply_manifest(PlaceDB(db_path), grid, merged)
+    landmark_places = [f"{e['owner'] or 'community'}/{e['name']}" for e in landmarks]
 
     return JSONResponse({"level": level, "deleted": deleted, "count": len(deleted),
-                         "landmarks": len(landmarks), "applied": applied})
+                         "landmarks": len(landmarks), "applied": applied,
+                         "landmark_places": landmark_places, "suspects": suspects})
 
 
 # ── Map capture (#18): shoot the world map from the MAP_Camera pawn ───────────
