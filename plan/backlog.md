@@ -422,9 +422,10 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
      The run id reaches the bridge via `bridge.sim_run_id` (default `SR0`, set at run start).
    - [x] **Decision log** ✓ 2026-07-03 — each `memory_store.record()` entry carries a `sim_run` field
      (via `memory.sim_run_id`), so `agent_decisions.log` is filterable by run.
-   - [ ] **General logs** — a `logging.Filter` that injects `SR<n>` into `AgentRuntime` log lines, wired
+   - [x] **General logs** ✓ 2026-07-08 — a `logging.Filter` that injects `SR<n>` into `AgentRuntime` log lines, wired
      into `sim_runner.py`'s format (`%(sim_run)s …`), so console/file lines carry the run. *(Remaining
      sub-item; needs care so records emitted before a run allocates one still format.)*
+     SimRunFilter in sim_run.py (in-process active run set at allocation); sim_runner format carries [SR<n>]; pre-allocation records read SR0.
    - **Offline test:** `test_sim_run.py` (counter increment/persist/corruption/per-world, bridge
      filename prefix, decision-log field). **Live verify:** `SR<n>_` filenames + the `sim_run` field
      appear in a real PIE run.

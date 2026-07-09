@@ -9,6 +9,7 @@ filenames, and the decision-log field. No Unreal, no network. Run:
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import tempfile
 from pathlib import Path
@@ -127,6 +128,42 @@ def test_decision_log_entry_has_sim_run():
         check("decision entry is stamped with the run tag", entry["sim_run"] == "SR3")
 
 
+# ── In-process active run + logging filter (general logs, SR<n>) ────────────────
+
+def test_active_run_defaults_to_sr0():
+    check("active_run defaults to SR0", sim_run.active_run() == "SR0")
+
+
+def test_set_active_run_updates_active_run():
+    sim_run.set_active_run("SR7")
+    check("set_active_run updates active_run", sim_run.active_run() == "SR7")
+
+
+def test_set_active_run_ignores_blank():
+    sim_run.set_active_run("SR7")
+    sim_run.set_active_run("")
+    check("set_active_run('') keeps the previous run", sim_run.active_run() == "SR7")
+    sim_run.set_active_run(None)
+    check("set_active_run(None) keeps the previous run", sim_run.active_run() == "SR7")
+
+
+def test_sim_run_filter_stamps_record():
+    sim_run.set_active_run("SR9")
+    record = logging.LogRecord("test", logging.INFO, __file__, 1, "hello", None, None)
+    result = sim_run.SimRunFilter().filter(record)
+    check("filter returns True", result is True)
+    check("filter stamps record.sim_run", record.sim_run == "SR9")
+
+
+def test_sim_run_filter_formats_without_error():
+    sim_run.set_active_run("SR9")
+    record = logging.LogRecord("test", logging.INFO, __file__, 1, "hello", None, None)
+    sim_run.SimRunFilter().filter(record)
+    formatter = logging.Formatter("%(levelname)s [%(sim_run)s] %(message)s")
+    formatted = formatter.format(record)
+    check("formatter renders the sim_run tag", formatted == "INFO [SR9] hello")
+
+
 def main():
     test_first_run_is_sr1_and_increments()
     test_allocation_survives_process_restart()
@@ -135,6 +172,12 @@ def main():
     test_observation_filename_carries_the_run_tag()
     test_bridge_defaults_to_sr0_before_a_run_starts()
     test_decision_log_entry_has_sim_run()
+    test_active_run_defaults_to_sr0()
+    test_set_active_run_updates_active_run()
+    test_set_active_run_ignores_blank()
+    test_sim_run_filter_stamps_record()
+    test_sim_run_filter_formats_without_error()
+    sim_run._active_run = "SR0"   # reset so ordering doesn't leak across test runs
     print("\nAll sim-run checks passed.")
 
 
