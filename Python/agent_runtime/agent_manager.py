@@ -255,6 +255,7 @@ class AgentManager:
             # Allocate this run's SR<n> tag (per-world) and push it everywhere the
             # run needs stamping: observation filenames + the decision log.
             self.sim_run_id = sim_run.allocate_run(self._agents_dir.parent)
+            sim_run.set_active_run(self.sim_run_id)
             self.bridge.sim_run_id = self.sim_run_id
             self.memory.sim_run_id = self.sim_run_id
             logger.info(f"Sim run {self.sim_run_id} — observations + decision log tagged")

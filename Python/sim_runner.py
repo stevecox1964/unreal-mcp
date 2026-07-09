@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import logging
 
+from agent_runtime import sim_run
 from agent_runtime.factory import build_agent_manager
 from agent_runtime.runner_app import build_control_app
 
@@ -43,7 +44,10 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=8777, help="bind port (default 8777)")
     args = ap.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(sim_run)s] %(message)s")
+    run_filter = sim_run.SimRunFilter()
+    for handler in logging.root.handlers:
+        handler.addFilter(run_filter)
     logger.info(f"Starting sim runner on http://{args.host}:{args.port}")
 
     import uvicorn

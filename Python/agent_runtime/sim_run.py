@@ -11,6 +11,7 @@ No Unreal, no network: pure counter I/O, fully offline-testable.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 _FILE = "sim_run.json"
@@ -56,3 +57,33 @@ def allocate_run(world_dir: Path) -> str:
     n = current_number(world_dir) + 1
     _path(world_dir).write_text(json.dumps({"run": n}), encoding="utf-8")
     return format_run(n)
+
+
+# ── In-process active run (for tagging general logs) ─────────────────────────────
+
+_active_run: str = "SR0"
+
+
+def set_active_run(tag: str) -> None:
+    """Set the in-process active run tag; blank/``None`` is ignored (stays SR0)."""
+    global _active_run
+    if not tag:
+        return
+    _active_run = tag
+
+
+def active_run() -> str:
+    """The in-process active run tag (``'SR0'`` before any run allocates one)."""
+    return _active_run
+
+
+class SimRunFilter(logging.Filter):
+    """Logging filter that stamps every record with the current SR tag.
+
+    Attach to log handlers so the format string can reference ``%(sim_run)s``;
+    records emitted before a run allocates are stamped ``SR0``.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.sim_run = active_run()
+        return True
