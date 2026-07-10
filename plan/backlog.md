@@ -624,7 +624,8 @@ re-reframed 2026-07-09 to the landmark era — "paramount to making this project
 
 ### Executor slices (spec'd 2026-07-09, Fable — both loop-safe, both web-layer only)
 
-- [ ] **13.1 · First-run setup banner (gap 1).** A fresh clone has no `.env`; today nothing tells
+- [x] **13.1 · First-run setup banner (gap 1).** ✓ 2026-07-09 (Sonnet executor `f88f8b9`,
+      worktree; merged, suite 42/42). A fresh clone has no `.env`; today nothing tells
       the user. Build: **(a)** `config_store.setup_status(env_path) -> dict` —
       `{"env_exists": bool, "provider_ready": bool, "ready": bool}`; `provider_ready` = the
       configured `LLM_PROVIDER` is `ollama` (needs no key) **or** any key matching
@@ -639,7 +640,14 @@ re-reframed 2026-07-09 to the landmark era — "paramount to making this project
       ENV_PATH override the settings tests use). Files: `agent_runtime/config_store.py`,
       `web_ui/main.py`, `web_ui/templates/index.html` + `sim.html` (or `base.html` if both
       inherit a block), new test. **Do not** touch llm_router/perception key resolution.
-- [ ] **13.2 · Grid-gen from the cockpit (gap 4).** `generate_world_grid` exists end-to-end
+- [x] **13.2 · Grid-gen from the cockpit (gap 4).** ✓ 2026-07-09 (Sonnet executor `75ae079`,
+      worktree; merged, suite 42/42; live verify: press the /map button on a fresh level).
+      Executor's sound extras: proper `{ok, error}` envelope (503 runner-down / 400 manager
+      error) so the callout can show failures. **Fallout fix, same session:** both worktree
+      venvs failed at import on Python 3.11 — `llm_router.py:308` uses PEP-701 f-string
+      syntax; `requires-python` bumped `>=3.10` → `>=3.12` (+ re-lock + smoke import), so a
+      fresh clone's uv provisions a parseable interpreter (an onboarding bug #13 exists to
+      kill). `generate_world_grid` exists end-to-end
       (manager → runner `POST /world_grid` → `RunnerClient.generate_world_grid`) but a new user
       has no way to invoke it. Build: **(a)** `web_ui` `POST /api/world/grid` — proxy to
       `RunnerClient.generate_world_grid()` (accept optional `cell_size`/`padding` in the JSON

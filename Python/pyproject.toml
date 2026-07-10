@@ -3,7 +3,9 @@ name = "unreal-sim"
 version = "0.1.0"
 description = "AI agent simulation using Unreal Engine as a 3D world — a standalone Python runtime drives NPCs over a raw TCP bridge."
 readme = "README.md"
-requires-python = ">=3.10"
+# 3.12+ is real: llm_router.py uses PEP-701 f-string syntax that 3.10/3.11
+# cannot parse (both #13 worktree venvs failed at import on 3.11).
+requires-python = ">=3.12"
 dependencies = [
   "uvicorn",
   "fastapi",
