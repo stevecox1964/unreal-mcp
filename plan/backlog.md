@@ -1161,6 +1161,30 @@ suspect detection (`Landmarlk_Dufus_Home` → suspect, `PlayerStart`/`MAP_Camera
 
 ---
 
+## 26. Dead-end recognition — navmesh-reachable ≠ worth walking
+
+**Status:** Not started (needs a Fable spec; likely folds into #17's route planner + #19's design
+call) · **Source:** user, 2026-07-09, watching SR9+: *"Dufus took off down the street, came back
+and oscillated back and forth into/out of a yard. Just because a nav mesh says a bot can walk
+there doesn't mean they should. Dead end recognition another backlog item."*
+
+The failure: greedy-by-vision travel wanders into pockets (yards, alcoves, fenced corners) that
+are navmesh-legal but lead nowhere, then oscillates in/out because each re-decide sees the same
+tempting opening. Engine-agnostic per [[architecture_engine_agnostic_navigation]] — the fix is
+cognitive, not a navmesh patch:
+
+- **Recognize** ("I entered this pocket and had to come back out") — candidate signals we already
+  have: `_no_progress` / same-cell stuck counts, revisit-within-N-ticks of a just-left cell,
+  route-leg regression (#17's leg counter going backwards).
+- **Remember** — a "dead end toward X" note (place/episodic layer) so the *next* travel decision
+  is told "the yard on your right dead-ends" as a fact ([[feedback_lizard_brain_contract]]: facts,
+  not advice).
+- **Route around** — #17's grid-first legs shrink the problem (a routed agent has less reason to
+  enter a yard at all); #19's sidewalk/road preference then biases the fine legs. Spec after #17
+  lands; this item holds the user's framing so it isn't lost.
+
+---
+
 ## Outstanding — human / editor / live (not loop-safe)
 
 - **Merge** `auto-loop/backlog` → `main` (21 commits) and decide on `git push`.
