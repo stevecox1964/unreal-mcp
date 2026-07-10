@@ -597,16 +597,30 @@ that turns a pass-by into a face-to-face interaction).
 
 ## 13. World initialization + "make all the things" generation
 
-**Status:** Not started · *(user, 2026-07-03; reframed 2026-07-05 as the **downloader bootstrap**)*
+**Status:** Not started · *(user, 2026-07-03; reframed 2026-07-05 as the **downloader bootstrap**;
+re-reframed 2026-07-09 to the landmark era — "paramount to making this project useful to others")*
 
-> **⚑ Reframed (user, 2026-07-05):** this is also the answer to "someone downloads this project —
-> how do they build out / configure the world?" The target is a **first-run bootstrap flow, all
-> web-driven, zero Unreal knowledge** ([[drag-and-drop]]): (1) pick the level → (2) generate
-> `world_grid.json` bounds (`generate_world_grid` exists) → (3) drop in one top-down capture
-> (#6c's `images/<level>.png`) → (4) click-author the named places + APC homes on the map
-> (**#16**, writing the **#15** manifest) → (5) create agents (`/create-npc` / web form) →
-> (6) press start. #15/#16 are the config artifacts + editor; this item owns the end-to-end flow
-> and the "generate what can be generated" glue.
+> **⚑ Re-reframed (user, 2026-07-09):** "The world grid gen and landmark items plus dropping APCs
+> into the world is paramount to making this project useful to others. We are both experimenting
+> but will need to harden the **git download and set things up** sequence." The 2026-07-05 flow
+> below is updated to the **landmark era** (#23/#25 replaced the click-authoring path — the level
+> is the source of truth, not a web UI). **New-user sequence to harden:**
+> 1. **git clone → `Python/start_sim.bat`** — uv bootstraps deps, runner + cockpit come up, tab
+>    opens itself (#24 ✓). Harden: a fresh clone has **no `.env`** — first run must land on the
+>    settings page saying "add your API key here", never a stack trace ([[drag-and-drop]]: fail
+>    loud *with instructions*).
+> 2. **Plugin into *their* Unreal project** — copy/enable the bridge plugin, confirm the 55557
+>    listener in the Output Log. Harden: document it; cockpit shows "Unreal not connected — did
+>    the plugin load?" instead of silent 0-agent starts (the 2026-07-08 failure, now a known class).
+> 3. **Author the world in the editor** (#23): drop `Landmark_<owner>_<name>` actors + drop APC
+>    child BPs at their day-start posts (editor placement = wake spot — put each APC *at* its
+>    first-block landmark).
+> 4. **Generate `world_grid.json`** for a fresh level — `generate_world_grid` exists but needs a
+>    zero-knowledge path (cockpit button / first-run prompt), not a Claude-driven call.
+> 5. **Create agents** — `/create-npc` or web form → `agents/<id>/` md files + actor binding.
+> 6. **`/map` → Sync world** (landmarks listed, suspects flagged, #25 ✓) → **Start**.
+> Steps 1/2/4 are the hardening gaps; 3/5/6 exist. A `QUICKSTART.md` walking exactly this
+> sequence, verified against a scratch clone on a clean machine, is the acceptance test.
 
 The long-term goal: **initialize a world from scratch** with **generation code that builds all the
 things** — spawns/wires the actors, child BPs, agents, grid, and place cells automatically, so a new
@@ -631,7 +645,9 @@ hand when the user adds things in Unreal.** Concretely, what the child-BP rework
 - Scaffolding a new agent end-to-end (the `/create-npc` skill is the seed of this).
 
 Relates to: `feedback_drag_and_drop`, `feedback_dev_sim_modes` (dev-mode CC operates), #11 (grid/place
-build-out), the child-BP rework (the first hand-linked example), `/create-npc`.
+build-out), the child-BP rework (the first hand-linked example), `/create-npc`, **#23/#25 landmarks
+(the authoring path this flow now routes through — #15 `places.json` is the secondary source, #16
+click-authoring is fallback only)**, #24 (`start_sim.bat`, step 1's one-click).
 
 ---
 
