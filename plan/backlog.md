@@ -662,6 +662,23 @@ re-reframed 2026-07-09 to the landmark era — "paramount to making this project
       `web_ui/templates/map.html`, tests. **Do not** change `AgentManager.generate_world_grid`
       or the runner routes.
 
+- [ ] **13.3 · Cockpit buttons for the deep resets (spec'd 2026-07-09, Fable).** The user asked
+      "do we have a webUI button for all this?" while we hand-wiped agent brains + the place DB —
+      answer was no. `reset_agents` and `reset_places` exist end-to-end (manager → runner
+      `POST /reset_agents`/`/reset_places` → `RunnerClient.reset_agents()`/`.reset_places()`)
+      but the `/sim` cockpit only exposes `reset_day`. Build, mirroring the existing reset_day
+      pattern exactly: **(a)** `web_ui/main.py`: `POST /api/sim/reset_agents` and
+      `POST /api/sim/reset_places` proxying the client methods (same error handling as
+      `/api/sim/reset_day`). **(b)** `sim.html`: two buttons beside ☀ Restart day, each with a
+      `confirm()` whose text says what it really does — "Reset agents: teleport agents to their
+      start spots and wipe learned memories (restores memory.seed.json if present)" / "Reset
+      places: wipe the shared world map DB (landmarks re-apply on next sim start)". **(c)**
+      Tests: extend `test_sim_controller.py` (stub runner grows the two methods; routes proxy +
+      surface stub payloads; degrade cleanly when the runner is down, same as reset_day's test).
+      Files: `web_ui/main.py`, `web_ui/templates/sim.html`, `test_sim_controller.py`. **Do not**
+      touch `runner_app.py`, `runner_client.py`, `agent_manager.py`, or any #13.1/#13.2 files
+      beyond these three.
+
 The long-term goal: **initialize a world from scratch** with **generation code that builds all the
 things** — spawns/wires the actors, child BPs, agents, grid, and place cells automatically, so a new
 world stands itself up. This is the automated end-state of the [[drag-and-drop]] philosophy: the end
