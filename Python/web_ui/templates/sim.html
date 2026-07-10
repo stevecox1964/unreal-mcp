@@ -30,6 +30,8 @@ debugging.</small></p>
   <button id="btn-start">▶ Start</button>
   <button id="btn-step" class="secondary">⏭ Step (1 tick)</button>
   <button id="btn-restart-day" class="secondary outline">☀ Restart day</button>
+  <button id="btn-reset-agents" class="secondary outline">🧠 Reset agents</button>
+  <button id="btn-reset-places" class="secondary outline">🗺 Reset places</button>
   <button id="btn-stop" class="danger">■ Stop</button>
 </div>
 <small style="color:#666;">Restart day = fresh morning (new schedules); memories + place cells kept.</small>
@@ -73,6 +75,14 @@ document.getElementById('btn-step').onclick = async () => { await postJSON('/api
 document.getElementById('btn-restart-day').onclick = async () => {
   if(!confirm('Restart the sim from morning? Schedules regenerate; memories + place cells are kept.')) return;
   await postJSON('/api/sim/reset_day'); refresh();
+};
+document.getElementById('btn-reset-agents').onclick = async () => {
+  if(!confirm('Reset agents: teleport agents to their start spots and wipe learned memories (restores memory.seed.json if present)')) return;
+  await postJSON('/api/sim/reset_agents'); refresh();
+};
+document.getElementById('btn-reset-places').onclick = async () => {
+  if(!confirm('Reset places: wipe the shared world map DB (landmarks re-apply on next sim start)')) return;
+  await postJSON('/api/sim/reset_places'); refresh();
 };
 document.getElementById('btn-clear').onclick = async () => {
   await postJSON('/api/sim/events/clear');

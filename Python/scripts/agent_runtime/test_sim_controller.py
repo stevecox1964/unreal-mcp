@@ -62,6 +62,14 @@ class StubRunner:
         self.calls.append(("reset_day",)); self.running = False
         return {"status": "day_reset", "world_time": "Day 1, 08:00"}
 
+    def reset_agents(self):
+        self.calls.append(("reset_agents",))
+        return {"status": "agents_reset", "agent_count": 2}
+
+    def reset_places(self):
+        self.calls.append(("reset_places",))
+        return {"status": "places_reset"}
+
     def generate_world_grid(self, cell_size=3000.0, padding=800.0):
         if not self.online:
             raise RuntimeError("offline")
@@ -85,6 +93,8 @@ def test_sim_page_renders_with_controls():
         check("sim page returns the cockpit", "Start" in text and "Stop" in text and "Step" in text)
         check("sim page has a Clear feed button", "Clear feed" in text)
         check("sim page has a Restart day button", "Restart day" in text)
+        check("sim page has a Reset agents button", "Reset agents" in text)
+        check("sim page has a Reset places button", "Reset places" in text)
         check("sim page renders a timestamp per event", "fmtTime(e.timestamp)" in text)
     _with_runner(StubRunner(), body)
 
@@ -137,8 +147,11 @@ def test_control_actions_proxy_to_runner():
         check("start forwarded args", stub.calls[-1] == ("start", 2, "explore"))
         check("step (single tick) proxied", client.post("/api/sim/tick").json()["ticked"] == 2)
         check("restart-day proxied", client.post("/api/sim/reset_day").json()["status"] == "day_reset")
+        check("reset-agents proxied", client.post("/api/sim/reset_agents").json()["status"] == "agents_reset")
+        check("reset-places proxied", client.post("/api/sim/reset_places").json()["status"] == "places_reset")
         check("stop proxied", client.post("/api/sim/stop").json()["status"] == "stopped")
-        check("calls recorded in order", [c[0] for c in stub.calls] == ["start", "tick", "reset_day", "stop"])
+        check("calls recorded in order", [c[0] for c in stub.calls] ==
+              ["start", "tick", "reset_day", "reset_agents", "reset_places", "stop"])
     _with_runner(stub, body)
 
 

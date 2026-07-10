@@ -691,6 +691,19 @@ def api_sim_reset_day():
     return JSONResponse(get_runner().reset_day())
 
 
+@app.post("/api/sim/reset_agents")
+def api_sim_reset_agents():
+    """Teleport agents to their start spots and wipe learned memories (restores
+    memory.seed.json if present)."""
+    return JSONResponse(get_runner().reset_agents())
+
+
+@app.post("/api/sim/reset_places")
+def api_sim_reset_places():
+    """Wipe the shared world map DB — landmarks re-apply on next sim start."""
+    return JSONResponse(get_runner().reset_places())
+
+
 async def _maybe_json(request: Request) -> dict:
     try:
         data = await request.json()
