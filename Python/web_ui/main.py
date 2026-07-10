@@ -694,6 +694,31 @@ async def _maybe_json(request: Request) -> dict:
         return {}
 
 
+@app.post("/api/world/grid")
+async def api_world_grid(request: Request):
+    """Generate the world grid from the cockpit (#13.2) — proxy to the standalone
+    runner's ``generate_world_grid`` (needs the editor open with PIE stopped; the
+    runner is the bridge's sole owner). No runner reachable -> the same
+    "no sim runner running" envelope the other ``/api/sim/*`` proxies use, just
+    with ``ok``/``error`` fields so the /map callout can surface the failure.
+    """
+    body = await _maybe_json(request)
+    try:
+        cell_size = float(body.get("cell_size", 3000))
+        padding = float(body.get("padding", 800))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "cell_size/padding must be numbers"},
+                            status_code=400)
+    try:
+        result = get_runner().generate_world_grid(cell_size=cell_size, padding=padding)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "no sim runner running"}, status_code=503)
+    if result.get("status") == "error":
+        return JSONResponse({"ok": False, "error": result.get("error", "grid generation failed")},
+                            status_code=400)
+    return JSONResponse({"ok": True, **result})
+
+
 # ── Settings ──────────────────────────────────────────────────────────────────
 
 @app.get("/settings", response_class=HTMLResponse)

@@ -31,6 +31,39 @@
   <p><strong>{{ level }}</strong> has no bounded grid — add
      <code>worlds/{{ level }}/world_grid.json</code> with <code>bounds</code> to see the cell map.
      ({{ map.cells|length }} place cell(s) recorded so far.)</p>
+
+  {# #13.2: zero-knowledge path to generate_world_grid — a fresh level has no
+     grid until this runs once (needs the editor open, PIE stopped). #}
+  <div id="grid-callout" data-level="{{ level }}"
+       style="border:1px solid #8b95a1; border-radius:4px; padding:.75rem; max-width:32rem;">
+    This level has no grid yet —
+    <button type="button" id="gen-grid-btn">Generate world grid</button>
+    <p id="grid-callout-msg" style="color:#c0392b; margin:.5rem 0 0;"></p>
+  </div>
+  <script>
+    document.getElementById("gen-grid-btn").addEventListener("click", async () => {
+      const btn = document.getElementById("gen-grid-btn");
+      const msg = document.getElementById("grid-callout-msg");
+      btn.disabled = true;
+      msg.textContent = "";
+      let data;
+      try {
+        data = await (await fetch("/api/world/grid", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+        })).json();
+      } catch (e) {
+        msg.textContent = "grid generation failed — is the web app still running?";
+        btn.disabled = false;
+        return;
+      }
+      if (!data.ok) {
+        msg.textContent = `grid generation failed: ${data.error}`;
+        btn.disabled = false;
+        return;
+      }
+      location.reload();   // fresh world_grid.json -> the cell map now renders
+    });
+  </script>
 {% else %}
   <p class="breadcrumb">
     <strong>{{ level }}</strong> · {{ map.cols }}×{{ map.rows }} cells · {{ map.cell_size|int }}cm each ·

@@ -62,6 +62,13 @@ class StubRunner:
         self.calls.append(("reset_day",)); self.running = False
         return {"status": "day_reset", "world_time": "Day 1, 08:00"}
 
+    def generate_world_grid(self, cell_size=3000.0, padding=800.0):
+        if not self.online:
+            raise RuntimeError("offline")
+        self.calls.append(("generate_world_grid", cell_size, padding))
+        return {"status": "generated", "level": "TestWorld", "actors_scanned": 3,
+                "bounds": {"min_x": -1000, "min_y": -1000, "max_x": 1000, "max_y": 1000}}
+
 
 def _with_runner(stub, fn):
     old = wm.get_runner
@@ -135,12 +142,51 @@ def test_control_actions_proxy_to_runner():
     _with_runner(stub, body)
 
 
+def test_world_grid_proxied():
+    """#13.2: POST /api/world/grid proxies to the runner's generate_world_grid."""
+    stub = StubRunner()
+
+    def body(client):
+        r = client.post("/api/world/grid").json()
+        check("grid generation proxied (ok)", r["ok"] is True)
+        check("grid payload passed through", r["actors_scanned"] == 3)
+        check("defaults used when body omitted", stub.calls[-1] == ("generate_world_grid", 3000.0, 800.0))
+    _with_runner(stub, body)
+
+    def custom(client):
+        r = client.post("/api/world/grid", json={"cell_size": 500, "padding": 100}).json()
+        check("custom cell_size/padding forwarded", stub.calls[-1] == ("generate_world_grid", 500.0, 100.0))
+        check("still ok", r["ok"] is True)
+    _with_runner(stub, custom)
+
+    def offline(client):
+        r = client.post("/api/world/grid")
+        check("unreachable runner -> 503", r.status_code == 503)
+        data = r.json()
+        check("unreachable runner -> ok false", data["ok"] is False)
+        check("unreachable runner -> 'no sim runner running' envelope",
+              data["error"] == "no sim runner running")
+    _with_runner(StubRunner(online=False), offline)
+
+    class ErrRunner(StubRunner):
+        def generate_world_grid(self, cell_size=3000.0, padding=800.0):
+            return {"status": "error", "error": "No actor positions returned"}
+
+    def manager_error(client):
+        r = client.post("/api/world/grid")
+        check("manager-side error surfaced as ok:false", r.status_code == 400)
+        check("manager-side error text passed through",
+              r.json()["error"] == "No actor positions returned")
+    _with_runner(ErrRunner(), manager_error)
+
+
 def main():
     test_sim_page_renders_with_controls()
     test_api_status_online_and_offline()
     test_api_events_proxied()
     test_clear_feed_proxied()
     test_control_actions_proxy_to_runner()
+    test_world_grid_proxied()
     print("\nAll sim-controller checks passed.")
 
 
