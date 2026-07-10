@@ -2,6 +2,13 @@
 {% block title %}Unreal World Sim — Worlds{% endblock %}
 {% block content %}
 
+{% if not setup.ready %}
+<div class="setup-banner" id="setup-banner">
+  <span>First run? Add your model provider key in <a href="/settings">Settings</a> &rarr;</span>
+  <button type="button" onclick="this.closest('#setup-banner').remove()" aria-label="Dismiss">&times;</button>
+</div>
+{% endif %}
+
 <h2>Worlds</h2>
 <p>Each folder under <code>Python/worlds/</code> maps to an Unreal level. Place your NPC body in the level first, then configure it here.</p>
 {% if current_level %}

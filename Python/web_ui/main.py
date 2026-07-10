@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 from agent_runtime import places_manifest
 from agent_runtime.landmarks import merge_entries, scan_landmarks
-from agent_runtime.config_store import read_config, write_config, is_secret
+from agent_runtime.config_store import read_config, write_config, is_secret, setup_status
 from agent_runtime.map_capture import (MAP_CAMERA_ACTOR, MAP_CAMERA_ROTATION,
                                        MAP_CAPTURE_ASPECT, MAP_CAPTURE_MARGIN,
                                        camera_pose_for_bounds)
@@ -197,6 +197,7 @@ async def index(request: Request):
         "worlds": worlds,
         "world_agents": {w: list_agents(w) for w in worlds},
         "current_level": unreal_client.get_current_level(),
+        "setup": setup_status(ENV_PATH),
     })
 
 
@@ -630,7 +631,11 @@ def get_runner() -> RunnerClient:
 
 @app.get("/sim", response_class=HTMLResponse)
 async def sim_page(request: Request):
-    return templates.TemplateResponse(request, "sim.html", {"request": request, "runner_url": RUNNER_URL})
+    return templates.TemplateResponse(request, "sim.html", {
+        "request": request,
+        "runner_url": RUNNER_URL,
+        "setup": setup_status(ENV_PATH),
+    })
 
 
 @app.get("/api/sim/status")
@@ -708,6 +713,12 @@ async def settings_page(request: Request):
 async def api_settings():
     """Current config; secret values are masked (set/unset only)."""
     return JSONResponse(read_config(ENV_PATH))
+
+
+@app.get("/api/setup")
+async def api_setup():
+    """First-run readiness — drives the setup banner (backlog #13.1)."""
+    return JSONResponse(setup_status(ENV_PATH))
 
 
 @app.post("/settings")

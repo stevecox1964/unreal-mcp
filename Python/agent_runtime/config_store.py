@@ -57,6 +57,35 @@ def read_config(env_path: Path) -> dict[str, dict]:
     return out
 
 
+def setup_status(env_path: Path) -> dict:
+    """First-run readiness check for the web cockpit (backlog #13.1).
+
+    Returns ``{"env_exists": bool, "provider_ready": bool, "ready": bool}``.
+    ``provider_ready`` is True when the configured ``LLM_PROVIDER`` is
+    ``ollama`` (no key needed) or any ``*_API_KEY``-style key (see
+    :func:`is_secret`) is set to a non-empty value. A missing ``.env`` yields
+    all False. Never raises — a bad/missing file is just "not ready".
+
+    Example: ``setup_status(Path("Python/.env"))`` ->
+    ``{"env_exists": True, "provider_ready": True, "ready": True}``.
+    """
+    try:
+        if not env_path.exists():
+            return {"env_exists": False, "provider_ready": False, "ready": False}
+        config = read_config(env_path)
+        provider = (config.get("LLM_PROVIDER", {}).get("value") or "").strip().lower()
+        has_key = any(
+            "API_KEY" in key.upper() and item.get("set")
+            for key, item in config.items()
+        )
+        provider_ready = provider == "ollama" or has_key
+        return {"env_exists": True, "provider_ready": provider_ready,
+                "ready": provider_ready}
+    except Exception:
+        logger.exception(f"setup_status failed for {env_path}")
+        return {"env_exists": False, "provider_ready": False, "ready": False}
+
+
 def write_config(env_path: Path, updates: dict[str, str]) -> None:
     """Apply ``updates`` to ``.env`` in place, preserving comments and order.
 

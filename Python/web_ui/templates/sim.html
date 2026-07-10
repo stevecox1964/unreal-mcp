@@ -2,6 +2,14 @@
 {% block title %}Sim · Unreal World Sim{% endblock %}
 {% block content %}
 <div class="breadcrumb"><a href="/">Home</a> / Sim</div>
+
+{% if not setup.ready %}
+<div class="setup-banner" id="setup-banner">
+  <span>First run? Add your model provider key in <a href="/settings">Settings</a> &rarr;</span>
+  <button type="button" onclick="this.closest('#setup-banner').remove()" aria-label="Dismiss">&times;</button>
+</div>
+{% endif %}
+
 <h2>Simulation</h2>
 <p><small>Drives the standalone <code>sim_runner</code> at <code>{{ runner_url }}</code>. Start it
 with <code>python sim_runner.py</code> (Unreal in PIE). <strong>Step</strong> advances one tick for
