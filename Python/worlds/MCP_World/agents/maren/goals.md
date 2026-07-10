@@ -8,7 +8,7 @@
 - 12:00 — close up briefly, walk to Don's Donuts for lunch
 - 13:00–18:00 — back at the truck for the afternoon
 - 18:00 — close up, stroll past the Sheriff's office to swap news
-- 20:00 — retire for the night near the motel
+- 20:00 — walk home and sleep at home for the night
 
 ## Long-Term Goals
 
