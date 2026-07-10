@@ -622,6 +622,38 @@ re-reframed 2026-07-09 to the landmark era — "paramount to making this project
 > Steps 1/2/4 are the hardening gaps; 3/5/6 exist. A `QUICKSTART.md` walking exactly this
 > sequence, verified against a scratch clone on a clean machine, is the acceptance test.
 
+### Executor slices (spec'd 2026-07-09, Fable — both loop-safe, both web-layer only)
+
+- [ ] **13.1 · First-run setup banner (gap 1).** A fresh clone has no `.env`; today nothing tells
+      the user. Build: **(a)** `config_store.setup_status(env_path) -> dict` —
+      `{"env_exists": bool, "provider_ready": bool, "ready": bool}`; `provider_ready` = the
+      configured `LLM_PROVIDER` is `ollama` (needs no key) **or** any key matching
+      `is_secret`-style `*_API_KEY` is set non-empty; `ready = env_exists and provider_ready`;
+      missing `.env` → all False, **never raises**. **(b)** `web_ui`: `GET /api/setup` returns it;
+      the `/` (index) and `/sim` page routes pass `setup` into their template context, and the
+      templates render a dismissable banner when `not ready`: "First run? Add your model provider
+      key in **Settings** →" linking `/settings` (which already exists and works). No redirect, no
+      gating of routes — a loud banner only. **(c)** Offline tests (`test_first_run.py`, pattern =
+      `test_settings_page.py`): status dict for missing .env / ollama-no-key / anthropic+key;
+      banner present when not ready, absent when ready (TestClient + tmp .env via the same
+      ENV_PATH override the settings tests use). Files: `agent_runtime/config_store.py`,
+      `web_ui/main.py`, `web_ui/templates/index.html` + `sim.html` (or `base.html` if both
+      inherit a block), new test. **Do not** touch llm_router/perception key resolution.
+- [ ] **13.2 · Grid-gen from the cockpit (gap 4).** `generate_world_grid` exists end-to-end
+      (manager → runner `POST /world_grid` → `RunnerClient.generate_world_grid`) but a new user
+      has no way to invoke it. Build: **(a)** `web_ui` `POST /api/world/grid` — proxy to
+      `RunnerClient.generate_world_grid()` (accept optional `cell_size`/`padding` in the JSON
+      body, default 3000/800), with the same "no sim runner running" error envelope the other
+      `/api/sim/*` proxies use. **(b)** `/map` page: when the level has no `world_grid.json`
+      (the existing no-bounds/no-grid error path in `/api/map`), render a callout — "This level
+      has no grid yet — **Generate world grid**" — whose button POSTs the new route and reloads
+      the map on `ok`. Keep the existing behavior when a grid exists (no new UI). **(c)** Offline
+      tests (extend `test_map_view.py` / `test_sim_controller.py` patterns): route proxies to a
+      stub runner + surfaces its error when unreachable; map page HTML carries the callout when
+      the grid file is absent and not when present. Files: `web_ui/main.py`,
+      `web_ui/templates/map.html`, tests. **Do not** change `AgentManager.generate_world_grid`
+      or the runner routes.
+
 The long-term goal: **initialize a world from scratch** with **generation code that builds all the
 things** — spawns/wires the actors, child BPs, agents, grid, and place cells automatically, so a new
 world stands itself up. This is the automated end-state of the [[drag-and-drop]] philosophy: the end
