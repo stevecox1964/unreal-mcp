@@ -662,7 +662,12 @@ re-reframed 2026-07-09 to the landmark era — "paramount to making this project
       `web_ui/templates/map.html`, tests. **Do not** change `AgentManager.generate_world_grid`
       or the runner routes.
 
-- [ ] **13.3 · Cockpit buttons for the deep resets (spec'd 2026-07-09, Fable).** The user asked
+- [x] **13.3 · Cockpit buttons for the deep resets.** ✓ 2026-07-09 (Sonnet executor `0648b10`,
+      worktree; merged, suite 42/42; live verify: click both buttons in a browser). 🧠 Reset
+      agents + 🗺 Reset places now sit beside ☀ Restart day with honest confirm() text.
+      **Caveat surfaced during the hand-wipe that prompted this:** maren's `memory.seed.json`
+      is stale (May world: "shop canopy", "pawn shop") — Reset agents re-injects it; rewrite or
+      delete the seed. (Spec'd 2026-07-09, Fable.) The user asked
       "do we have a webUI button for all this?" while we hand-wiped agent brains + the place DB —
       answer was no. `reset_agents` and `reset_places` exist end-to-end (manager → runner
       `POST /reset_agents`/`/reset_places` → `RunnerClient.reset_agents()`/`.reset_places()`)
