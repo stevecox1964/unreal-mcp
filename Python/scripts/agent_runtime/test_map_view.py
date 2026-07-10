@@ -200,6 +200,33 @@ def test_map_page_renders_with_legend_and_polls_api():
         _with_worlds(tmp, body)
 
 
+def test_map_page_shows_grid_gen_callout_when_ungridded():
+    # #13.2: a level with no world_grid.json bounds gets the "Generate world
+    # grid" callout; a bounded level renders exactly what it renders today.
+    with tempfile.TemporaryDirectory() as tmp:
+        level = "Ungridded"
+        (Path(tmp) / level / "agents").mkdir(parents=True)
+
+        def body(client):
+            text = client.get(f"/map?level={level}").text
+            check("ungridded level has no bounded grid message",
+                  "has no bounded grid" in text)
+            check("ungridded level shows the grid-gen callout",
+                  "has no grid yet" in text and 'id="gen-grid-btn"' in text)
+            check("callout button posts the new route",
+                  '"/api/world/grid"' in text)
+        _with_worlds(tmp, body)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        _world(tmp)   # bounded world (TestWorld) — has_bounds True
+
+        def body(client):
+            text = client.get("/map?level=TestWorld").text
+            check("bounded level has no grid-gen callout",
+                  "has no grid yet" not in text and 'id="gen-grid-btn"' not in text)
+        _with_worlds(tmp, body)
+
+
 def test_map_image_is_served():
     with tempfile.TemporaryDirectory() as tmp:
         _world(tmp)
@@ -219,6 +246,7 @@ def main():
     test_api_map_carries_image_bounds_calibration()
     test_api_map_missing_db_is_empty_not_error()
     test_map_page_renders_with_legend_and_polls_api()
+    test_map_page_shows_grid_gen_callout_when_ungridded()
     test_map_image_is_served()
     print("\nAll map-view checks passed.")
 
