@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]      # Python/
@@ -119,6 +120,7 @@ class StubBridge:
 class StubAgent:
     def __init__(self, agent_id):
         self.agent_id = agent_id
+        self.display_name = agent_id.title()
         self.bound_unreal_actor_name = f"BP_{agent_id}"
 
 
@@ -231,6 +233,53 @@ def test_executor_fallbacks():
               "location" not in sent and "maren" not in mgr._routes)
 
 
+def test_at_place_wander_stays_inside_place():
+    """SR11 regression: Dufus may roam the square, but not leave its cell."""
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr, _ = _manager(tmp)
+        dufus = StubAgent("dufus")
+        mgr.place_db.set_name("dufus", 5, 5, "village square", "T0")
+        obs = _obs(390.0, 200.0)
+        obs["rotation"] = {"x": 0.0, "y": 0.0, "z": 0.0}
+        obs["schedule"] = {"status": "act", "place": "village square"}
+
+        bounded = mgr._bound_at_place_movement(dufus, {"type": "wander"}, obs)
+        target = bounded.get("location")
+        target_cell = GRID.locate(target[0], target[1])
+        check("wander becomes a deterministic bounded walk", bounded["type"] == "walk_to")
+        check("bounded wander remains in scheduled cell",
+              (target_cell["col"], target_cell["row"]) == (5, 5))
+        check("boundary wander turns back into the place", target[0] < 390.0)
+
+
+def test_nearby_apcs_and_perception_evidence():
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr, _ = _manager(tmp)
+        mgr.agents = {"dufus": StubAgent("dufus"), "maren": StubAgent("maren")}
+        mgr._live_pos = {
+            "dufus": {"x": 0.0, "y": 0.0, "yaw": 0.0},
+            "maren": {"x": 1500.0, "y": 0.0, "yaw": 0.0},
+        }
+        observations = {
+            "dufus": {"location": {"x": 0.0, "y": 0.0, "z": 90.0}},
+            "maren": {"location": {"x": 1500.0, "y": 0.0, "z": 90.0}},
+        }
+        mgr._attach_nearby_characters(observations)
+        check("nearby APC survives a vision miss",
+              observations["maren"]["nearby_characters"]
+              == [{"name": "Dufus", "distance_cm": 1500.0}])
+
+        agent_dir = Path(tmp) / "agents" / "maren"
+        agent_dir.mkdir(parents=True)
+        mgr._save_perception_evidence("maren", {"world_time": "Day 1, 08:15",
+                                                "image_path": "frame.png"},
+                                      {"model": "haiku", "caption": "street",
+                                       "landmarks": [], "characters": []})
+        saved = json.loads((agent_dir / "last_perception.json").read_text(encoding="utf-8"))
+        check("latest structured vision result is inspectable",
+              saved["world_time"] == "Day 1, 08:15" and saved["characters"] == [])
+
+
 # ── prompt + map surface ──────────────────────────────────────────────────────
 
 def test_schedule_route_narration():
@@ -297,6 +346,8 @@ def main():
     test_executor_walks_legs()
     test_executor_replans()
     test_executor_fallbacks()
+    test_at_place_wander_stays_inside_place()
+    test_nearby_apcs_and_perception_evidence()
     test_schedule_route_narration()
     test_route_map_path_overlay()
     print("\nAll route-planner checks passed.")

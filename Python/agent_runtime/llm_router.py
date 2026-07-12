@@ -64,6 +64,9 @@ _USER_TEMPLATE_VISION = """\
 ## Characters You May Encounter
 {known_characters}
 
+## Nearby APCs (engine position fact; not proof of line of sight)
+{nearby_character_lines}
+
 ## Your Location
 x={x:.0f}, y={y:.0f}, z={z:.0f}
 Facing: {facing}
@@ -89,6 +92,9 @@ Time: {world_time}
 Anything listed under "You See" is really there. A CHARACTER sighting matching
 a name under "People You Know" is someone you have met before; one matching
 "Characters You May Encounter" is that person.
+Nearby APC positions are reliable proximity facts, although they do not prove
+line of sight. If your scheduled activity calls for greeting passersby, you may
+turn toward or approach a nearby APC instead of wandering away to search blindly.
 
 ## What Wins Right Now
 Your routine (see "Your Routine Right Now") is your default. When it says to
@@ -451,6 +457,7 @@ class LLMRouter:
                 agent_id=agent.agent_id,
                 memories=mem_lines,
                 known_characters=known_text,
+                nearby_character_lines=_nearby_character_lines(observation.get("nearby_characters")),
                 grid_cell=_grid_text(observation.get("grid")),
                 place=_place_text(observation),
                 x=loc.get("x", 0),
@@ -735,6 +742,16 @@ def _episode_lines(episodes: list | None) -> str:
         where = e.get("place") or e.get("grid_cell") or "somewhere"
         lines.append(f"- [{e.get('world_time', '?')}] at {where}: {', '.join(bits) or 'nothing notable'}")
     return "\n".join(lines) or "Nothing memorable yet."
+
+
+def _nearby_character_lines(characters: list | None) -> str:
+    """Deterministic proximity facts from the current APC position snapshot."""
+    lines = []
+    for character in characters or []:
+        name = str(character.get("name") or "").strip()
+        if name:
+            lines.append(f"- {name} — about {round((character.get('distance_cm') or 0) / 100)} m away")
+    return "\n".join(lines) or "No other APC is nearby."
 
 
 def _seen_text(seen: dict | None) -> str:

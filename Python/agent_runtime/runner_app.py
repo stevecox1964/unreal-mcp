@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 logger = logging.getLogger("AgentRuntime")
 
@@ -48,7 +49,8 @@ def build_control_app(manager) -> FastAPI:
                     "http://127.0.0.1:8765/sim",
             "endpoints": ["/health", "/status", "/events", "/start", "/stop", "/tick",
                           "/pause", "/resume", "/agents", "/positions", "/reset_day",
-                          "/reset_agents", "/reset_places", "/resync", "/world_grid"],
+                          "/reset_agents", "/reset_places", "/resync", "/capture_starts",
+                          "/world_grid"],
         }
 
     @app.get("/health")
@@ -70,8 +72,17 @@ def build_control_app(manager) -> FastAPI:
     @app.post("/start")
     async def start(request: Request) -> dict:
         body = await _json_body(request)
+        raw_tick_seconds = body.get("tick_seconds", 1)
+        try:
+            if isinstance(raw_tick_seconds, bool):
+                raise ValueError
+            tick_seconds = int(raw_tick_seconds)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="tick_seconds must be a positive integer")
+        if tick_seconds <= 0:
+            raise HTTPException(status_code=400, detail="tick_seconds must be a positive integer")
         return await manager.start_simulation(
-            tick_seconds=int(body.get("tick_seconds", 1)),
+            tick_seconds=tick_seconds,
             active_agents=body.get("active_agents"),
             mode=body.get("mode", "live"),
         )
@@ -81,8 +92,8 @@ def build_control_app(manager) -> FastAPI:
         return await manager.stop_simulation()
 
     @app.post("/tick")
-    async def tick() -> dict:
-        return await manager.tick()
+    async def tick():
+        return _tick_response(await manager.tick())
 
     @app.post("/reset_day")
     async def reset_day() -> dict:
@@ -116,8 +127,8 @@ def build_control_app(manager) -> FastAPI:
         return manager.set_agent_goal(agent_id, str(body.get("goal", "")))
 
     @app.post("/agents/{agent_id}/tick")
-    async def agent_tick(agent_id: str) -> dict:
-        return await manager.pulse_agent(agent_id)
+    async def agent_tick(agent_id: str):
+        return _tick_response(await manager.pulse_agent(agent_id))
 
     @app.post("/reset_agents")
     async def reset_agents() -> dict:
@@ -130,6 +141,10 @@ def build_control_app(manager) -> FastAPI:
     @app.post("/resync")
     def resync() -> dict:
         return manager.resync()
+
+    @app.post("/capture_starts")
+    def capture_starts() -> dict:
+        return manager.capture_start_transforms()
 
     @app.post("/world_grid")
     async def world_grid(request: Request) -> dict:
@@ -149,3 +164,10 @@ async def _json_body(request: Request) -> dict:
     except Exception:
         return {}
     return body if isinstance(body, dict) else {}
+
+
+def _tick_response(result: dict):
+    """Expose manager busy results as an HTTP conflict without changing JSON."""
+    if result.get("status") == "busy":
+        return JSONResponse(status_code=409, content=result)
+    return result

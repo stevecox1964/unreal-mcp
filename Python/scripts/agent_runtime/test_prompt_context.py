@@ -20,6 +20,7 @@ from agent_runtime.llm_router import (             # noqa: E402
     _acquaintance_lines,
     _episode_lines,
     _known_place_lines,
+    _nearby_character_lines,
     _schedule_note,
 )
 
@@ -95,8 +96,15 @@ def test_episode_lines():
     check("None -> placeholder", _episode_lines(None) == "Nothing memorable yet.")
 
 
+def test_nearby_character_lines():
+    out = _nearby_character_lines([{"name": "Dufus", "distance_cm": 1696.0}])
+    check("engine-nearby fact renders name and distance", "Dufus" in out and "17 m" in out)
+    check("empty nearby facts are explicit", "no other apc" in _nearby_character_lines([]).lower())
+
+
 def test_template_contract():
-    for placeholder in ("{acquaintance_lines}", "{known_place_lines}", "{episode_lines}"):
+    for placeholder in ("{acquaintance_lines}", "{known_place_lines}", "{episode_lines}",
+                        "{nearby_character_lines}"):
         check(f"template has {placeholder}", placeholder in _USER_TEMPLATE_VISION)
     check("template has People You Know heading", "## People You Know" in _USER_TEMPLATE_VISION)
     check("template has Places You Know heading", "## Places You Know" in _USER_TEMPLATE_VISION)
@@ -157,6 +165,7 @@ def main():
     test_acquaintance_lines()
     test_known_place_lines()
     test_episode_lines()
+    test_nearby_character_lines()
     test_template_contract()
     test_reaction_gate_template()
     test_schedule_note_weighting()

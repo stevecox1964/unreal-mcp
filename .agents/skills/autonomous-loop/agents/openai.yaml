@@ -1,0 +1,4 @@
+interface:
+  display_name: "Autonomous Loop"
+  short_description: "Build safe backlog items test-first on a branch"
+  default_prompt: "Use $autonomous-loop to work the next safe backlog item through a green commit."

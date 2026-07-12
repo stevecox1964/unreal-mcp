@@ -95,6 +95,16 @@ def test_find_owned_place():
         hit = db.find_owned_place("home", preferred_owner="maren")
         check("exact beats preferred substring", hit and hit["owner"] == "dufus" and hit["name"] == "home")
 
+        # SR11 regression: an authored landmark with a small spelling error is
+        # still better ground truth than an exact stale wake seed.
+        db.add_owned_place("maren", 3, 4, "the vegetable truck", 0, 0,
+                           source="wake-seed")
+        db.add_owned_place("maren", 8, 9, "vegitable truck", 0, 0,
+                           source="authored")
+        hit = db.find_owned_place("the vegetable truck", preferred_owner="maren")
+        check("authored fuzzy match beats stale exact wake seed",
+              hit and hit["source"] == "authored" and hit["name"] == "vegitable truck")
+
 
 class StubBridge:
     def __init__(self):
@@ -133,6 +143,16 @@ def test_resolver_order():
         target = mgr._resolve_place_target("maren", "my home", obs)
         check("owned place -> anchor + offset", target == [320.0, 120.0, 90.0])
         check("z carried from current location", target[2] == 90.0)
+
+        # SR11: a stale community/wake name must not shadow the authored truck,
+        # even when the authored label has the observed one-letter typo.
+        mgr.place_db.set_name("maren", 6, 6, "vegetable truck", "T0")
+        mgr.place_db.add_owned_place("maren", 7, 7, "vegitable truck",
+                                     dx=20.0, dy=30.0, source="authored")
+        target = mgr._resolve_place_target("maren", "the vegetable truck", obs)
+        authored_center = mgr.world_grid.cell_center(7, 7)
+        check("authored fuzzy endpoint beats stale community alias",
+              target == [authored_center[0] + 20.0, authored_center[1] + 30.0, 90.0])
 
         check("unknown still None", mgr._resolve_place_target("maren", "atlantis", obs) is None)
 

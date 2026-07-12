@@ -2,20 +2,50 @@
 
 Rolling list of outstanding work — add items as they come up, check off or
 delete them as they land. Not session-scoped; this is the durable home for
-"things I want done but didn't have tokens for this session." Newest
-grooming: 2026-06-26.
+approved scope and priority. Handoffs are chronological session state.
+Newest grooming: **2026-07-11**.
 
-> **▶ Resume the autonomous loop:** next credit window, say **"run the autonomous loop."**
+## Active view — groomed 2026-07-11
+
+### Now
+
+1. **#29 Contain cockpit world/agent paths** before any read, write, or recursive delete.
+
+### Next
+
+1. **#20 Add movement/decision timing instrumentation** so the reported slow start can
+   be diagnosed from evidence instead of tuned blindly.
+2. **#30 Declare `httpx` directly** and pin the runner-client dependency contract in a test.
+3. **#27:** continue the approved navigation-ticket/controller work after the SR11 live check.
+
+### Waiting
+
+- **#27 Navigation executive + deterministic movement controller:** first robustness slice built
+  offline; waiting on the SR11 follow-up PIE run before the persistent-ticket slice continues.
+- **PIE/live verification bundle:** #17 routed travel, #23 landmarks, #24 launcher,
+  #13.2/#13.3 cockpit controls, #14 replay, B7b personal space, and the sweep/map checks.
+- **Child Blueprint meshes:** actor rebind is done; mesh selection remains an editor choice.
+- **#12.2 interaction memory:** needs a compact event-schema decision before implementation.
+
+### Loop-safe
+
+In execution order: **#29**, **#20 instrumentation only**, **#30**. Each requires
+a failing offline test first and the full suite green. No product code is authorized by
+this grooming pass; use `$autonomous-loop` only after the queue is reviewed.
+
+> **Historical status log below.** Dated banners and the 2026-07-01 queues are retained
+> as evidence, not as current priority. The active view above is authoritative.
+
+> **Historical — prior autonomous-loop instruction:** next credit window, say **"run the autonomous loop."**
 > It reads the **"## Autonomous queue"** below, takes the next unchecked item, and grinds
 > loop-safe (offline-testable) work on an `auto-loop/*` branch per `plan/autonomous_loop.md`:
 > failing test → implement → `python scripts/run_tests.py` green → commit → check off.
-> **Never pushes** — work piles up for human review + merge. (Handoffs are retired; this
-> backlog is the single source of truth — see memory `feedback-no-handoffs`.)
+> **Never pushes** — work piles up for human review + merge. Current policy is that the
+> backlog owns scope while handoffs preserve session state; see `plan/autonomous_loop.md`.
 
-> **★ MVP slice** *"Runs overnight, navigates to a named place, remembers who it met"* —
-> mostly **landed**: **#1** place-name nav ✓, **#5** social + episodic + relevance recall ✓,
-> **#3** factory ✓. The remaining MVP gap is **#3's standalone runner** (the "runs overnight
-> independent of Claude" long pole — nothing built but the factory).
+> **Historical MVP checkpoint (2026-06-26):** *"Runs overnight, navigates to a named place,
+> remembers who it met"* — at that date #1 and #5 had landed while #3 was only a factory.
+> The standalone runner described as missing here was built later; see #3 and #24.
 
 > **⚑ Status (2026-07-07, eve — camera bugs fixed + /map zoom/pan; user-verified live):** the
 > "2 cameras on MAP_Camera" was the C++ capture **leaking a SceneCaptureComponent2D per shot**
@@ -225,13 +255,13 @@ grooming: 2026-06-26.
 > **Gated (user approval before build):** **WP4** (A5/#11.2 owned places — minimal slice defined),
 > **WP5** (#6b top-down map — design answers ready for sign-off). WP1–WP3 are loop-safe and hands-off.
 
-## ▶▶ Staged plan (2026-07-01) — direction reset: wind down grid/place, then observability
+## Historical staged plan (2026-07-01) — completed/drained
 
 Two ordered queues. **A** is what I grind hands-off while you're gone (loop-safe, commit-per-green, no
 push). **B** is blocked on you (editor / PIE / live / a design call) — ordered so we can knock it out
 together when you're back. Detail for each lives in the thematic sections below (`## N`).
 
-### A — Loop-safe autonomous queue (grind now)
+### A — Completed loop-safe queue (archive)
 
 - [x] **A1 · Web map view — watch the grid + place cells build out.** ✓ 2026-07-01 — `PlaceDB.map_cells()`
       (named/swept cells + landmark counts) + `web_ui` `GET /map` page and `GET /api/map` JSON; `map.html`
@@ -280,7 +310,7 @@ together when you're back. Detail for each lives in the thematic sections below 
       exploration gated on an empty schedule, travel directive stated as the priority. Contract-pinned by
       string tests; **live tune + verify stays B3.** Spec: `plan/specs/WP2-reaction-gate.md`.
 
-### B — Work together (blocked on you: editor / PIE / live / design)
+### B — Historical joint-session queue (use the active Waiting list above)
 
 Ordered for a joint session:
 
@@ -322,7 +352,7 @@ Ordered for a joint session:
 
 ---
 
-## Autonomous queue — loop-safe (offline-testable), grind hands-off
+## Historical autonomous queue — completed prior cycle
 
 Build these in order on an `auto-loop/*` branch; each is Python whose **logic** is offline-testable
 even though final live execution may need PIE. Commit each green step, never push.
@@ -597,7 +627,9 @@ that turns a pass-by into a face-to-face interaction).
 
 ## 13. World initialization + "make all the things" generation
 
-**Status:** Not started · *(user, 2026-07-03; reframed 2026-07-05 as the **downloader bootstrap**;
+**Status:** **In progress** — 13.1–13.3 built offline 2026-07-09 (suite 42/42 at
+those commits); plugin-install guidance, clean-clone QUICKSTART validation, and broader generation
+remain open. · *(user, 2026-07-03; reframed 2026-07-05 as the **downloader bootstrap**;
 re-reframed 2026-07-09 to the landmark era — "paramount to making this project useful to others")*
 
 > **⚑ Re-reframed (user, 2026-07-09):** "The world grid gen and landmark items plus dropping APCs
@@ -905,9 +937,9 @@ Relates to: #6c (the overlay engine this feeds), #16 (authoring needs a trustwor
 
 ## 19. Keep APCs on sidewalks and roads
 
-**Status:** Not started (needs a design call) · **Source:** user, 2026-07-06 ("Maren is wandering
-into the corn field and people's back yards") · **Depends on:** #17 (the route planner is where a
-road preference lives naturally)
+**Status:** **Folded into #27** on 2026-07-11; this section preserves the original problem and
+option analysis. Do not implement (a)/(b)/(c) independently. · **Source:** user, 2026-07-06
+("Maren is wandering into the corn field and people's back yards") · **Depends on:** #17
 
 Agents cut straight lines through anything walkable — corn fields, yards. Navmesh says "walkable";
 nothing says "socially, stay on the pavement." Options, not mutually exclusive:
@@ -933,8 +965,8 @@ loop-safe.
 
 ## 20. Movement pacing — Dufus is slow to get going
 
-**Status:** Not started (observe first) · **Source:** user, 2026-07-06 ("Dufus takes a long time
-to move, but eventually does. Goes down street.")
+**Status:** **NEXT — instrumentation slice ready and loop-safe; tuning remains evidence-gated** ·
+**Source:** user, 2026-07-06 ("Dufus takes a long time to move, but eventually does. Goes down street.")
 
 Might be real (tick cadence, cooldowns, walk speed, LLM latency per decision) or might be persona
 + schedule (his own plan keeps him home until 08:30 sim time — flagged 2026-07-05 as "looks
@@ -1163,8 +1195,9 @@ suspect detection (`Landmarlk_Dufus_Home` → suspect, `PlayerStart`/`MAP_Camera
 
 ## 26. Dead-end recognition — navmesh-reachable ≠ worth walking
 
-**Status:** Not started (needs a Fable spec; likely folds into #17's route planner + #19's design
-call) · **Source:** user, 2026-07-09, watching SR9+: *"Dufus took off down the street, came back
+**Status:** **Folded into #27** on 2026-07-11; this section preserves the observed failure and
+candidate signals. Do not build a separate memory-only patch before the movement-controller
+contract is approved. · **Source:** user, 2026-07-09, watching SR9+: *"Dufus took off down the street, came back
 and oscillated back and forth into/out of a yard. Just because a nav mesh says a bot can walk
 there doesn't mean they should. Dead end recognition another backlog item."*
 
@@ -1185,17 +1218,123 @@ cognitive, not a navmesh patch:
 
 ---
 
+## 27. Navigation executive + deterministic movement controller
+
+**Status:** **APPROVED / IN PROGRESS 2026-07-11** — first SR11 robustness slice built offline,
+full suite 42/42; PIE verification pending. · **Canonical for:** #19 road/sidewalk preference and #26 dead-end recognition ·
+**Builds on:** #17 routed semantic travel (built offline; PIE verify pending)
+
+The current navigation path mixes two control models. A scheduled destination creates a routed
+semantic trip, but the decision prompt still encourages frame-by-frame directional `walk_to`
+actions. The model can therefore bypass or destabilize the cached route while deterministic state
+only reacts after the movement has already gone wrong.
+
+Proposed responsibility boundary:
+
+- **AI executive:** choose or change durable semantic intent — destination, activity, interaction,
+  or explicit cancellation. It does not steer every movement frame.
+- **Persistent navigation ticket:** destination identity, endpoint, route cells, current leg,
+  progress, retries, arrival, cancellation, and terminal failure survive across decisions.
+- **Deterministic movement controller (lizard brain):** advance the ticket, keep personal space,
+  follow socially valid surfaces, detect no-progress/regression/dead ends, retry locally, and report
+  facts/outcomes to the executive.
+- **Engine-neutral embodiment port:** expose pose, movement command/status, obstacle/person/surface
+  facts, and stop; keep Unreal TCP details in the first adapter.
+- **Spatial roles stay distinct:** grids index exploration/routing, place cells define semantic
+  arrival, and `Landmark_*` actors provide authored anchors.
+- **Headless reference world:** a tiny deterministic adapter proves route progress, recovery,
+  arrival, and failure without Unreal or an LLM.
+
+Approval gate satisfied 2026-07-11 when the user asked Codex to make the APC body less brittle and
+write the movement code. Continue in small acceptance-tested slices; the persistent ticket/headless
+adapter comes next, with road preference and dead-end recovery behind that seam.
+
+**First slice landed offline (2026-07-11):** scheduled `wander`/directional movement is clamped
+inside the active community cell or owned-place box (fixes Dufus's square→leave→return loop);
+authored owned landmarks outrank runtime community aliases and wake seeds with conservative
+one-edit typo tolerance (`vegitable truck` resolves for `the vegetable truck`); every decision gets
+deterministic nearby-APC distance facts in addition to VLM sightings; the latest structured vision
+result persists as `last_perception.json`; and the cockpit gained **Capture starts** so deliberate
+editor placement can replace stale reset coordinates without hand-editing JSON. These are seams
+toward the proposed controller, not the persistent navigation ticket itself.
+
+Acceptance for the eventual umbrella item: a named-place trip cannot be replaced accidentally by
+directional steering; local avoidance does not discard the destination; progress/failure is
+observable; and the same navigator passes in both the headless adapter and Unreal integration.
+
+---
+
+## 28. Runner tick safety — serialize entry points and validate cadence
+
+**Status:** ✅ **DONE 2026-07-11** — manager-owned non-waiting tick gate; runner returns HTTP 409
+for conflicting whole-sim/per-agent requests; `/status` exposes the active entry for cockpit UX;
+invalid cadence rejected at runner and manager boundaries; full offline suite 42/42. ·
+**Source:** architecture/correctness audit
+
+`AgentManager._loop()` awaits `tick()`, but the HTTP `POST /tick` and
+`POST /agents/{id}/tick` entry points can invoke the same manager concurrently while an automatic
+tick is waiting on LLM work. That can overlap bridge calls, route/sweep state, decisions, and acts.
+`start_simulation()` also accepts zero or negative `tick_seconds`, so the loop can become a tight
+or invalid cadence.
+
+Required behavior:
+
+- one manager-owned async lock covers automatic ticks, whole-sim manual ticks, and per-agent pulses;
+- a concurrent manual request returns an explicit busy/conflict result rather than waiting behind a
+  long LLM call or entering the bridge;
+- `tick_seconds <= 0` is rejected at the runner boundary and defensively by the manager;
+- offline tests force overlap with a controllable await and prove only one tick reaches observe/act;
+- existing sequential bridge and parallel-per-agent LLM behavior inside one tick stays unchanged.
+
+Implemented in `agent_manager.py` and `runner_app.py`; regression coverage lives in
+`test_pacing_and_reset.py` and `test_runner_api.py`.
+
+---
+
+## 29. Contain cockpit world and agent filesystem paths
+
+**Status:** **NEXT — ready and loop-safe** (2026-07-11) · **Source:** architecture/correctness audit ·
+**Touches:** `web_ui/main.py` and web-route tests
+
+Several cockpit routes join untrusted `{level}` and `{agent_id}` values directly under
+`WORLDS_DIR`; the delete route passes that result to `shutil.rmtree`. Creation validates a new
+agent id, but edit/read/delete paths and level names do not share a containment check.
+
+Required behavior:
+
+- one resolver validates identifiers and proves the resolved path remains under the expected
+  world/agents root before every read, write, mkdir, or delete;
+- reject traversal, separators, absolute paths, empty/reserved segments, and symlink escapes with a
+  400/404 response; never normalize them into a different valid target;
+- recursive delete operates only on the already-contained resolved agent directory;
+- route tests cover encoded traversal and verify that an outside sentinel is untouched.
+
+---
+
+## 30. Declare the runner client's direct HTTP dependency
+
+**Status:** **NEXT — ready and loop-safe** (2026-07-11) · **Source:** architecture/correctness audit ·
+**Touches:** `Python/pyproject.toml`, lockfile, dependency/import smoke test
+
+`RunnerClient` imports `httpx` directly, but `pyproject.toml` does not declare it. The current
+environment receives it transitively, which makes clean installs dependent on another package's
+implementation details.
+
+Add a compatible direct `httpx` dependency, refresh the lockfile, and verify a clean project
+environment can import and construct `RunnerClient` without relying on test-only dependencies.
+
+---
+
 ## Outstanding — human / editor / live (not loop-safe)
 
-- **Merge** `auto-loop/backlog` → `main` (21 commits) and decide on `git push`.
-- **#7 sweep — live half:** ~~implement `observe_heading` in C++~~ **done in Python 2026-07-01 (no
-  rebuild)**; role spawn obsolete (#11.1). Remaining: *PIE verify only* (folds into B2).
-- **#3 standalone runner:** `sim_runner.py` + localhost control API + thin MCP clients (factory done). *Live Unreal.*
-- **#2 settings page + rename:** UI (`config_store` backend done); "NPC Builder" → "Unreal World Sim". *Live app to verify.*
-- **#6 map:** manual-capture mode (user snapshots) + lizard-brain routing (path-as-facts). *Editor/design.*
-- **#5 consolidation** + a **sentiment policy:** need an LLM summariser/signal.
-- **Child Blueprints** — child BPs made (`APC_Maren_BP`/`APC_Dufus_BP`) + Python rebind ✓ 2026-07-03;
-  **only the mesh override remains** (editor + mesh choice). See "▶ Next up".
+- **#27:** approve, reject, or revise the navigation executive / deterministic-controller boundary.
+- **PIE verification bundle:** #17 routed travel, #23 landmarks, #24 launcher, #13.2/#13.3 cockpit
+  controls, #14 replay, B7b personal space, and sweep/map behavior. Record each result against its
+  canonical item; do not create another status banner.
+- **Child Blueprints:** choose and apply Maren/Dufus meshes in the editor; bindings already landed.
+- **#12.2:** decide whether interaction content belongs in the episodic log or a dedicated store.
+- **Process changes:** review and commit the `.agents/skills/*`, `plan/autonomous_loop.md`, backlog
+  grooming, and handoff updates as one project-workflow change if accepted.
 
 ## Recently landed
 
@@ -1254,7 +1393,9 @@ and component come along automatically.
 
 ## 1. Named-place navigation + grid/place cells
 
-**Status:** Not started · **Independence:** Self-contained (no dependency on #2/#3)
+**Status:** **Foundation complete** — name resolution and place/grid persistence landed; #17 added
+multi-leg routing. Remaining navigation responsibility is canonical in #27. · **Independence:**
+Self-contained (no dependency on #2/#3)
 
 The real remaining navigation gap. A `walk_to` with a string place-name
 ("village square", "Don's Donuts", "Sheriff's office") currently short-circuits
@@ -1267,9 +1408,10 @@ memory is a long loop of "still searching for village square.")
       navigates instead of idling. ✓ 2026-06-26 — `PlaceDB.find_named_cell` +
       `WorldGrid.cell_center` + `AgentManager._resolve_place_target`, wired into
       `_execute_world_action`. Offline test: `scripts/agent_runtime/test_place_resolver.py`.
-- [ ] Finalize grid cells and place cells. *(Design reconciled in **#11** — central community cell +
-      APC-owned cells + staleness.)*
-- [ ] Design how observations attach to / save against grid/place cells. *(See **#11**.)*
+- [x] Finalize grid cells and place cells. Central community cells, APC-owned cells, extents,
+      staleness, authored sources, and routed travel landed across A2/A5 and #15–#18.
+- [x] Attach observations to grid/place cells through visits, compass observations, sweeps, and
+      authored/runtime source tagging. Further movement policy belongs to #27.
 - [x] Reset the place-cell DB to start from scratch (`reset_world_places()`). ✓ 2026-06-24
 
 > Note: the walk_to *error* is already dead (no failures since 2026-05-14). This
@@ -1281,36 +1423,33 @@ Relates to: engine-agnostic navigation, lizard-brain sensing.
 
 ## 2. World Sim web-app settings page + rename
 
-**Status:** Not started · **Independence:** Coupled with #3 (shared web app)
+**Status:** **Core built offline** — settings backend/page, provider profiles, navigation, and
+surface rename landed; live UX spot-check/polish remains. · **Independence:** Coupled with #3
+(shared web app)
 
 The app's scope has grown past building individual NPCs — it's becoming the
 control surface for the whole simulation.
 
-- [ ] Add a **settings/configuration page** to the web app — manage config
+- [x] Add a **settings/configuration page** to the web app — manage config
       (model/provider selection, sim parameters) through the UI instead of
-      hand-editing `.env`.
-  - [ ] First control to surface: the Ollama vs cloud provider switch
-        (currently `.env`-only: `LLM_PROVIDER` / `VISION_PROVIDER`).
-- [ ] Rename **"NPC Builder" → "Unreal World Sim"** throughout:
-  - [ ] UI titles
-  - [ ] `start_npc_builder.bat`
-  - [ ] the `web_ui` app
-  - [ ] `npc_builder` references
-  - [ ] `/create-npc` skill text that mentions "the npc_builder web UI"
+      hand-editing `.env`. ✓ 2026-06-26; provider-profile CRUD followed 2026-06-28.
+  - [x] Ollama/cloud selection is surfaced through named provider profiles.
+- [x] Rename the active surface **"NPC Builder" → "Unreal World Sim"**. Legacy
+      `npc_builder` code was later removed; #22 removed obsolete launch/MCP surfaces.
 
 Config complexity is ours to solve in the UI, not the user's.
 
 Action breakdown (from dreams iter 3, `plan/dreams/dreams_2026-06-25_1131.md` — subagent-ready):
-- [ ] **2.1** Rename surface strings only (`web_ui` templates, `main.py` title/docstring,
+- [x] **2.1** Rename surface strings only (`web_ui` templates, `main.py` title/docstring,
       `start_npc_builder.bat`, `/create-npc` skill prose); leave `npc_builder` *code identifiers* for a
-      separate pass.
+      separate pass. ✓ 2026-06-26.
 - [x] **2.2** New `agent_runtime/config_store.py` — `read_config()` (secrets as set/unset, never values)
       + `write_config()` that rewrites `.env` preserving comments/order, leaving omitted secrets intact.
       ✓ 2026-06-26. Offline test: `test_config_store.py`. *(Reload: callers invoke the existing
       `load_dotenv(override=True)` path — `reload_llm_environment`; not bundled into write_config.)*
-- [ ] **2.3** Settings page: `GET/POST /settings` in `web_ui/main.py` + `settings.html` + nav link.
-- [ ] **2.4** First control — Ollama⇄cloud provider toggle (decision + vision roles, hybrid-selectable),
-      writes both keys and reloads with no restart.
+- [x] **2.3** Settings page: `GET/POST /settings` in `web_ui/main.py` + `settings.html` + nav link.
+- [x] **2.4** Provider selection generalized beyond the original toggle into named profiles with
+      decision/vision role assignment. Live UX polish remains, not core implementation.
 
 Decisions (human): persistence target `.env` vs new `config.json` (rec: `.env`)? secrets editable in the
 form or set/unset display only (rec: display only)? rename scope surface-only now vs code identifiers too
@@ -1320,12 +1459,12 @@ form or set/unset display only (rec: display only)? rename scope surface-only no
 
 ## 3. Independent sim lifetime
 
-**Status:** Not started · **Size:** Potentially large · **Independence:** Coupled with #2
+**Status:** **Built offline; live Unreal verification pending** — `sim_runner.py`, runner HTTP API,
+`RunnerClient`, web cockpit, and one-click launcher exist. · **Size:** Potentially large ·
+**Independence:** Coupled with #2
 
-Today **Claude Code owns the lifetime** of the MCP server + simulator — when
-Claude isn't running, the sim isn't running. The user wants the world sim to run
-**independently of Claude Code** so it can run overnight or for long stretches
-without Claude Code open.
+Originally Claude Code owned the simulator lifetime. The standalone runner now owns it and the
+web cockpit controls it over localhost HTTP; remaining work is live verification and hardening.
 
 The coupling is one line: `unreal_sim_server.py:417` `mcp.run(transport='stdio')` — the MCP
 server is a stdio subprocess of Claude Code, and the `AgentManager` (async sim loop) lives inside
@@ -1335,18 +1474,17 @@ Action breakdown (from dreams iter 2, `plan/dreams/dreams_2026-06-24_2327.md` �
 - [x] **2.1** Factor `AgentManager` construction into `agent_runtime/factory.py` (shared by MCP + runner).
       ✓ 2026-06-26 — `build_agent_manager(worlds_dir=None)`; `get_agent_manager` now delegates to it.
       No I/O at construction, so offline-testable: `test_factory.py`.
-- [ ] **2.2** New `Python/sim_runner.py` — standalone process that runs the loop with no MCP/Claude.
-- [ ] **2.3** Control surface on the runner (localhost HTTP: start/stop/status/tick).
+- [x] **2.2** New `Python/sim_runner.py` — standalone process that runs the loop with no MCP/Claude.
+- [x] **2.3** Control surface on the runner (localhost HTTP: start/stop/status/tick).
 - [x] **2.4** Make `simulation_tools.py` thin clients of the runner (attach, don't host).
       ✓ 2026-07-03 — every director tool goes through `RunnerClient`; no runner reachable = loud
       error with the start hint (never an in-process manager). Runner API + client grew the missing
       director surface; `generate_world_grid` moved into `AgentManager` (the runner owns the bridge).
       Offline end-to-end: `test_sim_tools_attach.py`. *Live verify: run `sim_runner` + drive one tool.*
-- [ ] **2.5** Point web_ui at the runner control API (→ theme #2/③ controller). Fleshed out in dreams
+- [x] **2.5** Point web_ui at the runner control API (→ theme #2/③ controller). Fleshed out in dreams
       iter 3 (`plan/dreams/dreams_2026-06-25_1131.md` Action 3.5): `sim_runner_client` in
       `web_ui/unreal_client.py` + a dashboard status panel and start/stop buttons; no auto-spawn (keep
-      lifetime decoupled); if no runner is reachable, render "no sim runner running". **Blocked on 2.2–2.3
-      (the runner + its control API)** — until then, build the UI against a documented mock contract.
+      lifetime decoupled); if no runner is reachable, render "no sim runner running". ✓ 2026-06-26.
 
 Decisions (human): IPC = HTTP (rec)? auto-spawn runner from MCP (rec: no)? Unreal socket owned by
 runner exclusively (rec: yes — bridge isn't concurrency-safe)? one runner/machine vs per-world?
@@ -1363,7 +1501,10 @@ process. The standalone launcher likely belongs in the same web app as #2.
 > so it's cheap on cloud. **#4b — running the *live* sim unattended** is what's gated by #3 + local models
 > (per-tick inference cost). Don't let #4b's blockers stall #4a.
 
-**Status:** Not started · **Size:** Process/setup, not a code feature · **Depends on:** local models (cost) + #3 (engine autonomy)
+**Status:** **Harness built; Codex workflow refresh in progress** — test runner/preflight exist;
+five project-local skills and the revised contract are uncommitted as of 2026-07-11. Live-sim
+autonomy remains gated by cost and Unreal/PIE. · **Size:** Process/setup, not a code feature ·
+**Depends on:** #3 live verification for live-sim autonomy
 
 Goal: put Claude into a **self-paced `/loop`** that works this backlog
 unattended — building, testing, committing — until the daily credit/usage limit
@@ -1423,7 +1564,9 @@ up credits.** So local models (below) and #3 are the real enablers of this goal.
 
 ## 5. Episodic observation + social memory layer
 
-**Status:** Not started · **Independence:** Extends #1 · **Source:** dreams iteration 1
+**Status:** **Core memory layer built** — episodic/social stores, prompt recall, consolidation, and
+recent-greeting suppression landed; #12.2 interaction schema and sentiment policy remain open. ·
+**Independence:** Extends #1 · **Source:** dreams iteration 1
 (`plan/dreams/dreams_2026-06-24_2308.md`)
 
 Today observation is split: spatial facts → `world_places.db` (good); everything episodic →
@@ -1458,7 +1601,9 @@ rolling window + consolidation vs full episodic history?
 
 ## 6. Map feature — named-place query + manual capture + lizard-brain routing
 
-**Status:** Not started · **Independence:** Builds on #1 (place resolver) · **Source:** user, 2026-06-26
+**Status:** **Superseded as an umbrella** — query/authoring/visualization/routing landed through
+#16, #17, #18, #23, and #27. Retain this section as original design history. · **Independence:**
+Builds on #1 (place resolver) · **Source:** user, 2026-06-26
 
 A first-class **"map"**: a queryable set of **named places**. An agent asks the map *what
 places exist* (and roughly where), picks a destination, then asks **lizard brain** *how to get
@@ -1508,7 +1653,8 @@ Relates to: #1 (resolver — lookup half done), #5 (social/episodic — "places 
 
 ## 6b. APC-generated top-down map — lizard-brain "chart me a course"
 
-**Status:** Not started · **Source:** user, 2026-07-01 · **Independence:** builds on #1/#6 + lizard brain
+**Status:** **Built offline 2026-07-01; PIE attachment verify pending** · **Source:** user,
+2026-07-01 · **Independence:** builds on #1/#6 + lizard brain
 
 An APC needs to build its **own top-down map** to plan a route, generated on demand via **lizard brain**.
 The scenario the user gave: *"I woke up, I'm at my house, but my schedule says I need to be at my
@@ -1544,7 +1690,8 @@ decision call (OpenAI text-only). Test: `test_route_map.py`. Suite 30/30. **Rema
 
 ## 6c. Real-world PNG map background — grid + place cells overlaid on the actual world
 
-**Status:** BUILT (offline) 2026-07-05 · live browser verify pending · **Source:** user, 2026-07-03 ·
+**Status:** **Superseded/completed by #18** — the registered live camera replaced manual
+assume-bounds calibration and agent dots were user-verified. · **Source:** user, 2026-07-03 ·
 **Independence:** extends A1 (web `/map`) + #6b
 
 > **⚑ Built 2026-07-05:** calibration decision made by the user ("if the actual world is m×n, we
@@ -1659,8 +1806,9 @@ Relates to: #1 (cell_center resolve), #6 (map/known_places), #5 (episodic), engi
 
 ## 8. Talk to Unreal without MCP (Claude-driven + standalone)
 
-**Status:** Not started · **Source:** user, 2026-06-28 · **Independence:** relates to #3 + the
-MCP-deprecation idea
+**Status:** **Standalone and HTTP operator paths built; custom MCP retired by #22.** Documentation
+and higher-level dev-mode ergonomics remain under #9. · **Source:** user, 2026-06-28 ·
+**Independence:** relates to #3
 
 Two ways to drive Unreal, and the user wants **both** to work without the custom MCP:
 - **Standalone (no Claude):** already largely solved — `UnrealBridge` talks to the engine over a
@@ -1683,8 +1831,9 @@ Relates to: #3 (standalone runner), the MCP-deprecation idea below.
 
 ## 9. Dev mode vs sim mode — Claude as operator
 
-**Status:** Not started · **Source:** user, 2026-06-28 · **Independence:** uses computer/browser use,
-needs supervision first · See memory [[feedback-dev-sim-modes]].
+**Status:** **Partially realized** — standalone sim mode and HTTP controls exist; a durable supervised
+operator workflow and log-triage contract remain open. · **Source:** user, 2026-06-28 ·
+**Independence:** uses computer/browser use, needs supervision first.
 
 Two operating modes the user wants framed explicitly:
 - **Sim mode** — the sim runs **standalone**, web-driven, no Claude/MCP (the #3/#6 work).
@@ -1757,13 +1906,11 @@ before driving it (health endpoint vs port check)? guardrails for unsupervised U
 
 ## Notes
 
-- **The offline-testable Python core is done.** What remains is the editor/live
-  half: each open item below needs Unreal/PIE, the web app running, an LLM signal,
-  or a human decision. The next loop session has no loop-safe work until one of
-  those unblocks (e.g. the `observe_heading` bridge handler lands).
-- **#2 and #3 are coupled** — the standalone launcher probably belongs in the
-  same web app that's getting the settings page and rename.
-- **#4 (autonomous loop) harness is built** (`run_tests.py`, `preflight.py`,
-  `autonomous_loop.md`); running it *live* is still gated by local models + #3.
-- **The autonomous loop verifies via `python scripts/run_tests.py` (15/15)** — keep
-  it green; preflight refuses to start on a dirty tree or `main`.
+- **Current priority and classification live only in the Active view at the top.** Dated
+  banners and old queues are evidence, not instructions.
+- **The next offline queue is #29 → #20 instrumentation → #30.** The prior claim
+  that no loop-safe work remained was superseded by the 2026-07-11 correctness audit.
+- **#4's harness is built** (`run_tests.py`, `preflight.py`, `autonomous_loop.md`);
+  running the live sim autonomously is still gated by Unreal/PIE reliability and inference cost.
+- **Verification uses `python scripts/run_tests.py`.** Never copy an old suite count forward;
+  record the count produced by the commit being described.

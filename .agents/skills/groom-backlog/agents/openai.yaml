@@ -1,0 +1,4 @@
+interface:
+  display_name: "Groom Backlog"
+  short_description: "Reconcile and prioritize the project backlog"
+  default_prompt: "Use $groom-backlog to clean, classify, and prioritize the project backlog."

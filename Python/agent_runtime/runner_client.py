@@ -90,6 +90,10 @@ class RunnerClient:
     def resync(self) -> dict:
         return self._client.post("/resync").json()
 
+    def capture_starts(self) -> dict:
+        """Adopt current Unreal APC transforms as reset/start points."""
+        return self._client.post("/capture_starts").json()
+
     def generate_world_grid(self, cell_size: float = 3000.0, padding: float = 800.0) -> dict:
         return self._client.post("/world_grid", json={
             "cell_size": cell_size, "padding": padding,

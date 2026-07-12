@@ -28,25 +28,25 @@ guess.
    Write what you found in "Executor notes" and stop the package (move to the
    next non-blocked one).
 
-## Packages (in order)
+## Packages (historical execution order)
 
 | # | File | Item | Status | Gate |
 |---|------|------|--------|------|
-| WP1 | [WP1-recall-context.md](WP1-recall-context.md) | prompt renders acquaintances / known places / episodes | ready | none |
-| WP2 | [WP2-reaction-gate.md](WP2-reaction-gate.md) | #10.5 balanced reaction gate (offline slice) | ready — after WP1 | live tune stays B3 |
-| WP3 | [WP3-sweep-capability.md](WP3-sweep-capability.md) | A4/#11.1 collapse maintenance role → sweep capability | ready | live verify stays B-side |
-| WP4 | [WP4-owned-places.md](WP4-owned-places.md) | A5/#11.2 owned place cells + grid-first resolve | **GATED — user approval required** | user said "maybe too complicated" |
-| WP5 | [WP5-apc-topdown-map.md](WP5-apc-topdown-map.md) | #6b APC top-down map (design only) | **GATED — design sign-off, do not build** | user said "do not implement yet" |
+| WP1 | [WP1-recall-context.md](WP1-recall-context.md) | prompt renders acquaintances / known places / episodes | **DONE 2026-07-01** | live behavior covered by later runs |
+| WP2 | [WP2-reaction-gate.md](WP2-reaction-gate.md) | #10.5 balanced reaction gate (offline slice) | **DONE 2026-07-01** | live-tuned and verified 2026-07-01 |
+| WP3 | [WP3-sweep-capability.md](WP3-sweep-capability.md) | A4/#11.1 collapse maintenance role → sweep capability | **DONE 2026-07-01** | focused PIE sweep verify remains |
+| WP4 | [WP4-owned-places.md](WP4-owned-places.md) | A5/#11.2 owned place cells + grid-first resolve | **DONE 2026-07-01** | user approved before build |
+| WP5 | [WP5-apc-topdown-map.md](WP5-apc-topdown-map.md) | #6b APC top-down map | **DONE 2026-07-01** | PIE attachment verify remains |
 | WP6 | [WP6-authored-places-manifest.md](WP6-authored-places-manifest.md) | #15 authored places manifest + `source` tagging | **DONE 2026-07-07** | none |
 | WP7 | [WP7-sync-world-button.md](WP7-sync-world-button.md) | #21 v1 "sync the world" button (purge wake seeds) | **DONE 2026-07-07** | none |
 | WP8 | [WP8-grid-first-routing.md](WP8-grid-first-routing.md) | #17 grid-first routing (multi-leg travel) | **DONE 2026-07-07** | none |
 
-## Why these five
+## Why these five existed
 
-The loop-safe queue was drained on 2026-07-01; everything left was blocked on
-design. This architect pass makes the design calls (grounded in the code as of
-commit `6a75e20`) so WP1–WP3 are executable hands-off, and WP4/WP5 are decided
-up to a single user yes/no instead of an open design session.
+The loop-safe queue had been drained, so this architect pass converted five ambiguous
+items into executor-ready packages. All five were subsequently approved where required
+and built on 2026-07-01. This table is retained as execution history; current priority
+lives in `plan/backlog.md`.
 
 Line numbers in the specs are as of `6a75e20` and will drift — trust the
 function names over the numbers.

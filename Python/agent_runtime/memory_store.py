@@ -48,17 +48,22 @@ class MemoryStore:
         combined = {m["timestamp"]: m for m in high_importance + recent}
         return sorted(combined.values(), key=lambda m: m["timestamp"])
 
-    def get_recent_events(self, limit: int = 20) -> list[dict]:
+    def get_recent_events(self, limit: int = 20, sim_run_id: str = None) -> list[dict]:
+        """Return recent decisions, optionally restricted to one simulation run."""
+        if limit <= 0:
+            return []
         if not self.decisions_log or not self.decisions_log.exists():
             return []
         lines = self.decisions_log.read_text(encoding="utf-8").strip().splitlines()
         entries = []
-        for line in lines[-limit:]:
+        for line in lines:
             try:
-                entries.append(json.loads(line))
+                entry = json.loads(line)
+                if sim_run_id is None or entry.get("sim_run") == sim_run_id:
+                    entries.append(entry)
             except json.JSONDecodeError:
                 pass
-        return entries
+        return entries[-limit:]
 
     def clear_recent_events(self) -> int:
         """Empty the decision log (the Sim-page "feed"). Returns lines cleared.

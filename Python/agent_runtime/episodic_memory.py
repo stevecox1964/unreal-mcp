@@ -43,6 +43,14 @@ class EpisodicLog:
             self._since_consolidate = 0
             self.consolidate()
 
+    def reset(self) -> int:
+        """Clear learned episodes and return the number of events removed."""
+        removed = len(self._all())
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._path.write_text("", encoding="utf-8")
+        self._since_consolidate = 0
+        return removed
+
     def consolidate(self, max_events: int = None, keep_recent: int = None) -> dict:
         """Roll up old events into compact per-place summaries to cap file growth.
 

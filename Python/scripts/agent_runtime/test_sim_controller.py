@@ -70,6 +70,10 @@ class StubRunner:
         self.calls.append(("reset_places",))
         return {"status": "places_reset"}
 
+    def capture_starts(self):
+        self.calls.append(("capture_starts",))
+        return {"status": "captured", "captured": ["dufus", "maren"]}
+
     def generate_world_grid(self, cell_size=3000.0, padding=800.0):
         if not self.online:
             raise RuntimeError("offline")
@@ -95,6 +99,7 @@ def test_sim_page_renders_with_controls():
         check("sim page has a Restart day button", "Restart day" in text)
         check("sim page has a Reset agents button", "Reset agents" in text)
         check("sim page has a Reset places button", "Reset places" in text)
+        check("sim page has a Capture starts button", "Capture starts" in text)
         check("sim page renders a timestamp per event", "fmtTime(e.timestamp)" in text)
     _with_runner(StubRunner(), body)
 
@@ -149,9 +154,11 @@ def test_control_actions_proxy_to_runner():
         check("restart-day proxied", client.post("/api/sim/reset_day").json()["status"] == "day_reset")
         check("reset-agents proxied", client.post("/api/sim/reset_agents").json()["status"] == "agents_reset")
         check("reset-places proxied", client.post("/api/sim/reset_places").json()["status"] == "places_reset")
+        check("capture-starts proxied", client.post("/api/sim/capture_starts").json()["status"] == "captured")
         check("stop proxied", client.post("/api/sim/stop").json()["status"] == "stopped")
         check("calls recorded in order", [c[0] for c in stub.calls] ==
-              ["start", "tick", "reset_day", "reset_agents", "reset_places", "stop"])
+              ["start", "tick", "reset_day", "reset_agents", "reset_places",
+               "capture_starts", "stop"])
     _with_runner(stub, body)
 
 

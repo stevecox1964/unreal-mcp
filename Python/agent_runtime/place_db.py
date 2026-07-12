@@ -85,6 +85,30 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _place_key(name: str) -> str:
+    """Normalize harmless wording differences without rewriting display names."""
+    key = " ".join(str(name or "").casefold().split())
+    return key[4:] if key.startswith("the ") else key
+
+
+def _edit_distance(a: str, b: str) -> int:
+    """Small two-row Levenshtein helper for typo-tolerant authored places."""
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, start=1):
+        curr = [i]
+        for j, cb in enumerate(b, start=1):
+            curr.append(min(curr[-1] + 1, prev[j] + 1,
+                            prev[j - 1] + (ca != cb)))
+        prev = curr
+    return prev[-1]
+
+
 def yaw_to_compass(yaw: float) -> str:
     """Convert an absolute UE yaw to a compass direction string.
 
@@ -223,7 +247,7 @@ class PlaceDB:
         Examples: "village square" -> (3, 4); "  Village Square  " -> (3, 4);
         "donut" -> the "Don's Donuts" cell; "the moon" -> None.
         """
-        needle = " ".join(name.split()).lower()
+        needle = _place_key(name)
         if not needle:
             return None
         with self._connect() as conn:
@@ -536,28 +560,34 @@ class PlaceDB:
         wins — my "My Home" resolves before someone else's. Returns
         ``{"col","row","owner","name","dx","dy","extent_cm"}``.
         """
-        needle = " ".join(name.split()).lower()
+        needle = _place_key(name)
         if not needle:
             return None
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT col, row, owner, name, dx, dy, extent_cm "
+                "SELECT col, row, owner, name, dx, dy, extent_cm, source "
                 "FROM owned_place_cells ORDER BY col, row, owner, name"
             ).fetchall()
-        best: tuple[tuple[int, int], dict] | None = None
+        best: tuple[tuple[int, int, int], dict] | None = None
         for r in rows:
-            owned_name = " ".join(r["name"].split()).lower()
+            owned_name = _place_key(r["name"])
             if owned_name == needle:
                 quality = 0
             elif needle in owned_name or owned_name in needle:
                 quality = 1
+            elif len(needle) >= 8 and len(owned_name) >= 8 and _edit_distance(needle, owned_name) <= 1:
+                quality = 2
             else:
                 continue
+            source_rank = {"authored": 0, "runtime": 1, "wake-seed": 2}.get(
+                r["source"], 1)
             owner_rank = 0 if (preferred_owner and r["owner"] == preferred_owner) else 1
-            key = (quality, owner_rank)
+            # Ground truth outranks learned/guessed aliases. Within one source,
+            # exact still beats substring/fuzzy and the preferred owner wins ties.
+            key = (source_rank, quality, owner_rank)
             if best is None or key < best[0]:   # strict: first (ordered) match wins ties
                 best = (key, dict(r))
-                if key == (0, 0):
+                if key == (0, 0, 0):
                     break
         return best[1] if best else None
 

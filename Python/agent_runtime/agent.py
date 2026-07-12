@@ -218,6 +218,12 @@ class Agent:
         self._save_state(agents_dir)
         return True
 
+    def update_start_transform(self, location, rotation, agents_dir: Path) -> None:
+        """Explicitly replace the reset/start point from a deliberate UI action."""
+        self.state["start_location"] = location
+        self.state["start_rotation"] = rotation
+        self._save_state(agents_dir)
+
     def reset_runtime_state(self, agents_dir: Path) -> None:
         """Clear per-run timers, goal, and the day's plan so a fresh run behaves
         like the first one (the schedule regenerates for the new run/day)."""

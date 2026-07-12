@@ -8,13 +8,13 @@
   "tick_interval_seconds": 2,
   "speech_cooldown_seconds": 30,
   "start_location": {
-    "x": -8400,
-    "y": 150,
-    "z": 89.9136613166582
+    "x": -8950,
+    "y": 160,
+    "z": 89.9136643409729
   },
   "start_rotation": {
     "x": 0,
-    "y": -90.00000209151892,
+    "y": -124.99999938029049,
     "z": 0
   }
 }

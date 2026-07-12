@@ -1,0 +1,4 @@
+interface:
+  display_name: "Read Handoff"
+  short_description: "Load and summarize the latest project handoff"
+  default_prompt: "Use $read-handoff to load the latest project handoff and tell me where to resume."

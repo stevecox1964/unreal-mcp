@@ -93,6 +93,8 @@ _STANDOFF_CM = 300.0
 # don't say hi every tick the person stays in view. A fresh encounter after the
 # cooldown (or a new sim-day) greets again.
 _GREET_COOLDOWN_MINUTES = 60
+_NEARBY_CHARACTER_CM = 2500.0
+_PLACE_ROAM_MARGIN_CM = 100.0
 
 # Semantic classifier for forward-trace hits.
 # Maps engine actor names/classes → generic categories the LLM can reason about.
@@ -160,6 +162,12 @@ class AgentManager:
         self._tick_count = 0
         self._started_at: float | None = None
         self._last_tick_duration = 0.0
+        # Every path that can observe/decide/act shares this gate: the automatic
+        # loop, POST /tick, and POST /agents/{id}/tick. The active label is set
+        # synchronously before acquiring the lock so competing requests return
+        # busy immediately instead of queueing behind a long LLM call.
+        self._tick_lock = asyncio.Lock()
+        self._active_tick_entry: str | None = None
 
         # Explore-mode state (per agent).
         self.perceiver = VisionPerceiver()
@@ -211,6 +219,10 @@ class AgentManager:
         active_agents: list[str] | None = None,
         mode: str = "live",
     ) -> dict:
+        if (isinstance(tick_seconds, bool)
+                or not isinstance(tick_seconds, (int, float))
+                or tick_seconds <= 0):
+            return {"status": "error", "error": "tick_seconds must be positive"}
         if self.running:
             return {"status": "already_running", "tick_seconds": self.tick_seconds}
 
@@ -375,13 +387,15 @@ class AgentManager:
             "tick_seconds": self.tick_seconds,
             "tick_count": self._tick_count,
             "last_tick_duration_seconds": round(self._last_tick_duration, 2),
+            "tick_in_progress": self._active_tick_entry is not None,
+            "active_tick_entry": self._active_tick_entry,
             "agent_count": len(self.agents),
             "agents": [self._agent_summary(a) for a in self.agents.values()],
         }
 
     def recent_events(self, limit: int = 20) -> list[dict]:
-        """Recent agent decision-log entries (for the web cockpit's live log)."""
-        return self.memory.get_recent_events(limit) if self.memory else []
+        """Decision-feed entries from only the active simulation run."""
+        return self.memory.get_recent_events(limit, sim_run_id=self.sim_run_id) if self.memory else []
 
     def clear_events(self) -> int:
         """Clear the decision feed (the cockpit's live log). Returns lines cleared."""
@@ -490,12 +504,13 @@ class AgentManager:
                 started = time.monotonic()
                 result = None
                 try:
-                    result = await self.tick()
+                    result = await self.tick(entry="automatic_tick")
                 except Exception as e:
                     logger.error(f"Tick error: {e}")
                 duration = time.monotonic() - started
                 self._last_tick_duration = duration
-                self._tick_count += 1
+                if not result or result.get("status") != "busy":
+                    self._tick_count += 1
                 if result and result.get("ticked"):
                     logger.info(
                         f"Tick #{self._tick_count}: {result['ticked']} agent(s) in {duration:.2f}s "
@@ -790,7 +805,34 @@ class AgentManager:
             smap.save(self._agents_dir / agent.agent_id / "spatial_map.json")
         return views
 
-    async def tick(self) -> dict:
+    async def _run_tick_entry(self, entry: str, operation) -> dict:
+        """Run one tick-like operation, or reject it without waiting.
+
+        The event loop cannot switch tasks between the active-entry check and
+        assignment, which makes the busy decision atomic for this manager.
+        ``asyncio.Lock`` remains the actual critical-section guard.
+        """
+        if self._active_tick_entry is not None:
+            return {
+                "status": "busy",
+                "error": "A simulation tick is already in progress",
+                "requested_entry": entry,
+                "active_entry": self._active_tick_entry,
+            }
+
+        self._active_tick_entry = entry
+        await self._tick_lock.acquire()
+        try:
+            return await operation()
+        finally:
+            self._tick_lock.release()
+            self._active_tick_entry = None
+
+    async def tick(self, entry: str = "tick") -> dict:
+        """Run a whole-simulation tick unless another tick entry is active."""
+        return await self._run_tick_entry(entry, self._tick_impl)
+
+    async def _tick_impl(self) -> dict:
         """Run one simulation tick across all ready agents.
 
         Three phases keep Unreal bridge calls sequential while LLM calls
@@ -819,6 +861,7 @@ class AgentManager:
         for agent in ready:
             self._set_activity(agent, "observing")
             observations[agent.agent_id] = self._observe_agent(agent)
+        self._attach_nearby_characters(observations)
 
         # Phase 2: perceive + decide (parallel, thread pool)
         llm_needed = [a for a in ready if observations.get(a.agent_id) is not None]
@@ -845,7 +888,13 @@ class AgentManager:
         return {"ticked": len(results), "agent_results": results}
 
     async def pulse_agent(self, agent_id: str) -> dict:
-        """Single-agent tick used by force_agent_tick MCP tool and tests."""
+        """Run one agent immediately unless another tick entry is active."""
+        return await self._run_tick_entry(
+            f"agent_tick:{agent_id}", lambda: self._pulse_agent_impl(agent_id)
+        )
+
+    async def _pulse_agent_impl(self, agent_id: str) -> dict:
+        """Single-agent tick implementation; caller owns the shared tick lock."""
         agent = self.agents.get(agent_id)
         if not agent:
             return {"error": f"Agent '{agent_id}' not loaded"}
@@ -858,6 +907,7 @@ class AgentManager:
             grid, place = self._last_grid_place.get(agent_id, (None, []))
             return {"agent_id": agent_id, "action": "idle", "reason": "scene_unchanged",
                     "grid": grid, "place": place}
+        self._attach_nearby_characters({agent_id: obs})
         decision = await asyncio.to_thread(self._perceive_and_decide, agent, obs)
         return self._act_agent(agent, decision, obs)
 
@@ -1019,6 +1069,7 @@ class AgentManager:
             if seen.get("error"):
                 logger.warning(f"[{agent_id}] perception failed: {seen['error']}")
             observation["seen"] = seen
+            self._save_perception_evidence(agent_id, observation, seen)
 
             xyz = _loc_xyz(observation.get("location"))
             if xyz and seen.get("landmarks"):
@@ -1243,12 +1294,8 @@ class AgentManager:
         if xyz is None or col is None:
             return None
 
-        cell = self.place_db.find_named_cell(name)
-        if cell is not None:
-            return (col, row) == cell
-
-        owned = self.place_db.find_owned_place(name, preferred_owner=agent_id)
-        if owned is None:
+        end = self._resolve_place_endpoint(agent_id, name)
+        if end is None:
             if not seed_if_unknown:
                 return None
             center = self.world_grid.cell_center(col, row)
@@ -1268,13 +1315,11 @@ class AgentManager:
                        if self._manifest_present else ""))
                 return True
             return None
-
-        center = self.world_grid.cell_center(owned["col"], owned["row"])
-        if center is None:
-            return None
-        half = float(owned.get("extent_cm") or PLACE_EXTENT_CM) / 2.0
-        return (abs(xyz[0] - (center[0] + owned["dx"])) <= half
-                and abs(xyz[1] - (center[1] + owned["dy"])) <= half)
+        if float(end.get("extent_cm") or 0.0) <= 0:
+            return (col, row) == tuple(end["cell"])
+        half = float(end["extent_cm"]) / 2.0
+        return (abs(xyz[0] - end["xy"][0]) <= half
+                and abs(xyz[1] - end["xy"][1]) <= half)
 
     def _act_agent(self, agent: Agent, decision, observation: dict | None) -> dict:
         """Phase 3: validate decision, execute in Unreal, persist memory."""
@@ -1298,6 +1343,8 @@ class AgentManager:
             agent.mark_ticked(self._agents_dir)
             self._pie_activity(agent_id, "OBS fire -> invalid decision (idle)")
             return {"agent_id": agent_id, "action": "idle", "reason": "validation_failed"}
+
+        action = self._bound_at_place_movement(agent, action, observation)
 
         # Sweep interrupt (#11.1): an APC staying in an unexplored cell maps it
         # before acting — the sweep's first step replaces this tick's LLM action;
@@ -1349,6 +1396,66 @@ class AgentManager:
             "place":    observation.get("place"),
         }
 
+    def _bound_at_place_movement(self, agent: Agent, action: dict,
+                                 observation: dict) -> dict:
+        """Keep freeform roaming inside the place where the schedule says to act.
+
+        The LLM may choose ``wander`` to perform an activity such as "wander the
+        village square". A raw wander is a 15 m forward step and can leave the
+        place immediately (SR11). Convert it to a concrete target clamped inside
+        the community cell or owned-place box. Named travel and actor approaches
+        remain unchanged.
+        """
+        sched = observation.get("schedule") or {}
+        if sched.get("status") != "act" or not sched.get("place"):
+            return action
+        if not (action.get("type") == "wander"
+                or (action.get("type") == "walk_to" and action.get("direction"))):
+            return action
+
+        xyz = _loc_xyz(observation.get("location"))
+        desired = self._direction_target(observation, action.get("direction") or "forward")
+        end = self._resolve_place_endpoint(agent.agent_id, sched["place"])
+        if xyz is None or desired is None or end is None:
+            return {"type": "idle"}
+
+        cx, cy = end["xy"]
+        extent = float(end.get("extent_cm") or 0.0)
+        half = (extent / 2.0 if extent > 0 else self.world_grid.cell_size / 2.0)
+        safe_half = max(half - _PLACE_ROAM_MARGIN_CM, 0.0)
+        tx = min(max(desired[0], cx - safe_half), cx + safe_half)
+        ty = min(max(desired[1], cy - safe_half), cy + safe_half)
+
+        # At an edge, clamping can produce the current point. Turn back toward
+        # the anchor so repeated wander decisions cannot wedge on the boundary.
+        if math.hypot(tx - xyz[0], ty - xyz[1]) < 100.0:
+            tx, ty = cx, cy
+        return {"type": "walk_to", "location": [tx, ty, xyz[2]]}
+
+    def _attach_nearby_characters(self, observations: dict[str, dict | None]) -> None:
+        """Attach deterministic APC proximity facts before parallel LLM work.
+
+        Vision remains the authority for line of sight. This engine-neutral
+        position fact prevents a small/far character missed by the VLM from
+        becoming completely nonexistent to the decision layer.
+        """
+        for agent_id, observation in observations.items():
+            if observation is None:
+                continue
+            here = _loc_xyz(observation.get("location"))
+            if here is None:
+                continue
+            nearby = []
+            for other_id, pos in self._live_pos.items():
+                if other_id == agent_id:
+                    continue
+                distance = math.hypot(pos["x"] - here[0], pos["y"] - here[1])
+                if distance <= _NEARBY_CHARACTER_CM:
+                    other = self.agents.get(other_id)
+                    nearby.append({"name": getattr(other, "display_name", other_id),
+                                   "distance_cm": round(distance, 1)})
+            observation["nearby_characters"] = sorted(nearby, key=lambda x: x["distance_cm"])
+
     def _resolve_place_endpoint(self, agent_id: str, name: str) -> dict | None:
         """Resolve a place name to a travel endpoint, or None if unknown.
 
@@ -1361,6 +1468,16 @@ class AgentManager:
         if self.place_db is None:
             return None
 
+        owned = self.place_db.find_owned_place(name, preferred_owner=agent_id)
+
+        # Authored markers are world ground truth. They beat runtime community
+        # labels and wake seeds even when the authored name is a safe fuzzy
+        # match (SR11: "vegitable truck" vs "the vegetable truck").
+        if owned is not None and owned.get("source") == "authored":
+            endpoint = self._owned_place_endpoint(owned)
+            if endpoint is not None:
+                return endpoint
+
         cell = self.place_db.find_named_cell(name)
         if cell is not None:
             center = self.world_grid.cell_center(*cell)
@@ -1368,18 +1485,22 @@ class AgentManager:
                 logger.info(f"Resolved place '{name}' -> cell {cell} center {center}")
                 return {"cell": cell, "xy": center, "extent_cm": 0.0}
 
-        owned = self.place_db.find_owned_place(name, preferred_owner=agent_id)
         if owned is not None:
-            center = self.world_grid.cell_center(owned["col"], owned["row"])
-            if center is not None:
-                logger.info(
-                    f"Resolved owned place '{name}' ({owned['owner']}) -> cell "
-                    f"({owned['col']},{owned['row']}) offset ({owned['dx']:.0f},{owned['dy']:.0f})"
-                )
-                return {"cell": (owned["col"], owned["row"]),
-                        "xy": (center[0] + owned["dx"], center[1] + owned["dy"]),
-                        "extent_cm": float(owned.get("extent_cm") or PLACE_EXTENT_CM)}
+            return self._owned_place_endpoint(owned)
         return None
+
+    def _owned_place_endpoint(self, owned: dict) -> dict | None:
+        center = self.world_grid.cell_center(owned["col"], owned["row"])
+        if center is None:
+            return None
+        logger.info(
+            f"Resolved owned place '{owned['name']}' ({owned['owner']}, "
+            f"{owned.get('source') or 'runtime'}) -> cell "
+            f"({owned['col']},{owned['row']}) offset ({owned['dx']:.0f},{owned['dy']:.0f})"
+        )
+        return {"cell": (owned["col"], owned["row"]),
+                "xy": (center[0] + owned["dx"], center[1] + owned["dy"]),
+                "extent_cm": float(owned.get("extent_cm") or PLACE_EXTENT_CM)}
 
     def _resolve_place_target(self, agent_id: str, name: str, observation: dict) -> list[float] | None:
         """Resolve a place name to a walk target ``[x, y, z]``, or None.
@@ -2082,8 +2203,8 @@ class AgentManager:
         """Reset agents to their run-start state for reproducible re-runs.
 
         Stops the sim if running, teleports each agent back to its recorded
-        start transform, clears per-run timers, restores memories from
-        memory.seed.json (or empties them), and deletes spatial maps.
+        start transform, clears per-run timers and episodic recall, restores
+        memories from memory.seed.json (or empties them), and deletes spatial maps.
         """
         was_running = self.running
         if was_running:
@@ -2115,6 +2236,7 @@ class AgentManager:
 
             agent.reset_runtime_state(self._agents_dir)
             entry["memories"] = self.memory.reset_memories(agent.agent_id)
+            entry["episodes"] = self._episodic(agent.agent_id).reset()
 
             map_path = self._agents_dir / agent.agent_id / "spatial_map.json"
             if map_path.exists():
@@ -2212,6 +2334,36 @@ class AgentManager:
             "skipped_levels": skipped_levels,
         }
 
+    def capture_start_transforms(self) -> dict:
+        """Adopt current bound APC transforms as explicit reset/start points.
+
+        This is intentionally operator-triggered: silently refreshing on every
+        start would capture a wandered runtime position during a same-PIE rerun.
+        Use after placing APCs in the editor (and while the sim is stopped).
+        """
+        if self.running:
+            return {"status": "error", "error": "Stop the simulation before capturing starts"}
+        if not self.agents:
+            self._load_agents(None)
+            self._bind_agents()
+        if not self._agents_dir:
+            return {"status": "error", "error": "No agents loaded — is Unreal connected?"}
+
+        captured, skipped = [], []
+        for agent in self.agents.values():
+            if not agent.has_unreal_binding:
+                skipped.append({"agent_id": agent.agent_id, "reason": "no Unreal binding"})
+                continue
+            transform = self.bridge.get_character_transform(agent.bound_unreal_actor_name) or {}
+            if not transform.get("location"):
+                skipped.append({"agent_id": agent.agent_id, "reason": "no transform"})
+                continue
+            agent.update_start_transform(transform["location"], transform.get("rotation"),
+                                         self._agents_dir)
+            captured.append(agent.agent_id)
+        logger.info(f"Captured APC start transforms: {captured}; skipped={skipped}")
+        return {"status": "captured", "captured": captured, "skipped": skipped}
+
     # Director commands
 
     def list_agents(self) -> list[dict]:
@@ -2301,6 +2453,28 @@ class AgentManager:
         }
 
     # Helpers
+
+    def _save_perception_evidence(self, agent_id: str, observation: dict, seen: dict) -> None:
+        """Persist the latest structured VLM output so live misses are inspectable."""
+        if not self._agents_dir:
+            return
+        path = self._agents_dir / agent_id / "last_perception.json"
+        payload = {
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "world_time": observation.get("world_time"),
+            "image_path": observation.get("image_path"),
+            "model": seen.get("model"),
+            "caption": seen.get("caption", ""),
+            "landmarks": seen.get("landmarks") or [],
+            "characters": seen.get("characters") or [],
+            "error": seen.get("error"),
+        }
+        try:
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            tmp.replace(path)
+        except Exception as e:
+            logger.warning(f"[{agent_id}] could not save perception evidence: {e}")
 
     def _record_live_pos(self, agent_id: str, observation: dict) -> None:
         """Remember the agent's last observed position + facing (#18 live map).

@@ -34,6 +34,8 @@ class StubManager:
     def __init__(self):
         self.running = False
         self.calls = []
+        self.tick_busy = False
+        self.pulse_busy = False
 
     def get_status(self) -> dict:
         return {"running": self.running, "tick_count": 3, "agent_count": 2}
@@ -58,6 +60,8 @@ class StubManager:
 
     async def tick(self) -> dict:
         self.calls.append(("tick",))
+        if self.tick_busy:
+            return {"status": "busy", "active_entry": "automatic_tick"}
         return {"ticked": 2}
 
     async def restart_day(self) -> dict:
@@ -87,6 +91,8 @@ class StubManager:
 
     async def pulse_agent(self, agent_id: str) -> dict:
         self.calls.append(("pulse", agent_id))
+        if self.pulse_busy:
+            return {"status": "busy", "active_entry": "automatic_tick"}
         return {"agent_id": agent_id, "action": "idle"}
 
     async def reset_agents(self) -> dict:
@@ -100,6 +106,10 @@ class StubManager:
     def resync(self) -> dict:
         self.calls.append(("resync",))
         return {"status": "resynced", "level": "TestWorld"}
+
+    def capture_start_transforms(self) -> dict:
+        self.calls.append(("capture_starts",))
+        return {"status": "captured", "captured": ["dufus", "maren"]}
 
     def generate_world_grid(self, cell_size: float = 400.0, padding: float = 800.0) -> dict:
         self.calls.append(("world_grid", cell_size, padding))
@@ -158,6 +168,7 @@ def test_director_routes():
     check("reset_agents proxies", client.post("/reset_agents").json()["status"] == "reset")
     check("reset_places proxies", client.post("/reset_places").json()["tables"] == ["place_cells"])
     check("resync proxies", client.post("/resync").json()["status"] == "resynced")
+    check("capture starts proxies", client.post("/capture_starts").json()["status"] == "captured")
 
     r = client.post("/world_grid", json={"cell_size": 500.0, "padding": 100.0})
     check("world_grid forwards args", mgr.calls[-1] == ("world_grid", 500.0, 100.0))
@@ -179,6 +190,7 @@ def test_runner_client_director_methods():
     check("client.reset_agents", rc.reset_agents()["status"] == "reset")
     check("client.reset_places", rc.reset_places()["status"] == "reset")
     check("client.resync", rc.resync()["status"] == "resynced")
+    check("client.capture_starts", rc.capture_starts()["captured"] == ["dufus", "maren"])
     check("client.generate_world_grid forwards args",
           rc.generate_world_grid(cell_size=250.0)["status"] == "generated"
           and mgr.calls[-1] == ("world_grid", 250.0, 800.0))
@@ -189,6 +201,30 @@ def test_start_defaults():
     client = TestClient(build_control_app(mgr))
     client.post("/start", json={})  # empty body -> manager defaults
     check("empty start uses manager defaults", mgr.calls[-1] == ("start", 1, (), "live"))
+
+
+def test_start_rejects_invalid_cadence():
+    mgr = StubManager()
+    client = TestClient(build_control_app(mgr))
+    calls_before = list(mgr.calls)
+
+    for value in (0, -1, "not-a-number"):
+        response = client.post("/start", json={"tick_seconds": value})
+        check(f"start rejects tick_seconds={value!r}", response.status_code == 400)
+        check("invalid cadence never reaches manager", mgr.calls == calls_before)
+
+
+def test_tick_conflicts_return_409():
+    mgr = StubManager()
+    client = TestClient(build_control_app(mgr))
+    mgr.tick_busy = True
+    whole = client.post("/tick")
+    check("busy whole tick returns HTTP conflict", whole.status_code == 409)
+    check("busy whole tick keeps manager payload", whole.json()["active_entry"] == "automatic_tick")
+
+    mgr.pulse_busy = True
+    pulse = client.post("/agents/dufus/tick")
+    check("busy agent pulse returns HTTP conflict", pulse.status_code == 409)
 
 
 def test_runner_client_round_trip():
@@ -234,6 +270,8 @@ def main():
     test_director_routes()
     test_runner_client_director_methods()
     test_start_defaults()
+    test_start_rejects_invalid_cadence()
+    test_tick_conflicts_return_409()
     test_runner_client_round_trip()
     test_runner_client_is_running_helper()
     test_sim_runner_create_app_wires_offline()

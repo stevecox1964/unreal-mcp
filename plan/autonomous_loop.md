@@ -1,55 +1,78 @@
-# Autonomous loop — run contract
+# Autonomous loop — Codex run contract
 
-The contract the self-paced coding loop (backlog #4) reads at the start of each
-session. Goal: work the backlog unattended — build, test, commit on green —
-until usage limits stop the session, then resume next session from the handoff.
+The autonomous loop converts approved, offline-testable backlog work into small green commits. It does not choose product direction, operate Unreal, or replace the user's review.
 
-## Allowed surface (loop-safe)
+## Durable project workflow
 
-- **Python only**, under `Python/agent_runtime/**` and `Python/scripts/**`.
-- Work that is **verifiable by an offline test** — the `scripts/agent_runtime/`
-  suite stubs Unreal entirely (no socket, no editor, no network, no LLM call).
-- Planning/docs under `plan/**`.
+The four planning actions have separate jobs:
 
-## Hard NOs (never, unattended)
+1. **Read hand off** — recover the latest session state and compare it with the current repository.
+2. **Create handoff** — save the session outcome, locked decisions, open questions, and one resume step.
+3. **Add item to back log** — capture new scope without implementing it or silently prioritizing it.
+4. **Groom backlog** — reconcile evidence, remove duplication, classify work, and choose the active order.
 
-- **Never `git push`** and never auto-merge to `main`. Human reviews the branch.
-- **Never** edit C++ (`MCPGameProject/**`, `*.cpp/*.h`), Blueprints, or UMG.
-- **Never** edit `.env` or touch secrets/provider config.
-- **Never** start the sim, need PIE, or run the socket-based
-  `scripts/{actors,node,blueprints}` tests (they require a live editor).
-- **Never** make an LLM/vision API call from loop code (burns credits — the
-  whole point is to *not* spend them; the build/test loop itself makes no calls).
+`plan/backlog.md` is the canonical roadmap. `plan/handoffs/*` are chronological session snapshots. When they disagree, investigate the repository and newer evidence rather than silently choosing one.
 
-## Stop / skip conditions
+## Entry contract
 
-- **Skip + log** (don't guess) anything needing: the editor, a C++ rebuild, a
-  design decision (e.g. which mesh, UX layout), or live-sim verification. Record
-  it in the backlog under the item so the human can pick it up.
-- **Stop the item** if its tests fail and can't be fixed in ~2 tries; leave it
-  red-but-isolated on its own branch, note it, move to the next item.
-- **Stay on a dedicated branch** (`auto-loop/*`), never `main`.
+1. Read `AGENTS.md`.
+2. Follow the `read-handoff` skill.
+3. Read the backlog's active view, the selected item, and any linked spec.
+4. Inspect `git status --short --branch` and recent commits.
+5. Require a clean baseline and a dedicated `auto-loop/*` branch. Do not discard user changes to obtain one.
+6. Run `Python/.venv/Scripts/python.exe Python/scripts/loop/preflight.py` from the repository root when available. Otherwise run the complete offline suite manually.
 
-## Per-item cycle
+If the baseline is red, the tree contains unexplained changes, or the selected item is not approved and loop-safe, stop and report the evidence.
 
-1. Pick the next loop-safe backlog item (prefer self-contained, testable).
-2. Write a **failing** offline test first (`scripts/agent_runtime/test_*.py`).
-3. Implement the minimum code to pass it.
-4. `python scripts/run_tests.py` — the whole offline suite must be green.
-5. **Commit** on green (never push). Check off the backlog item.
-6. Keep `plan/handoffs/LATEST.md` current so the loop is resumable when limits hit.
+## Allowed work
 
-## Signals
+- `Python/agent_runtime/**`
+- `Python/scripts/**`
+- Python web UI work that is fully exercised offline
+- `plan/**` and relevant project-local skill instructions
+- Work with deterministic offline acceptance evidence
 
-- One green/red signal: `Python/scripts/run_tests.py` (`--only <glob>` for the
-  in-progress test). Preflight (clean tree, on a loop branch, baseline green) is
-  `Python/scripts/loop/preflight.py` when present.
-- Recoverability = `plan/handoffs/LATEST.md` + `plan/backlog.md`, both kept
-  current as the loop runs.
+## Prohibited unattended work
 
-## Loop-safe backlog targets (today)
+- C++, Blueprints, UMG, Unreal assets, or editor automation
+- PIE or socket-based live tests
+- Paid LLM or vision calls
+- `.env`, credentials, provider keys, or user runtime data
+- Pushes, merges, releases, or changes directly on `main`
+- Product decisions not already approved by the user or locked in a spec
 
-Good: #1 place nav (done), #5 episodic/social memory (data layer), #6 map query
-surface, #3 runner scaffolding + control API (offline), #2 `config_store.py`.
-Blocked (needs human/editor): Child Blueprints, #2 settings UI verification,
-live-sim runs, anything C++/UMG.
+## Per-item loop
+
+1. Select the first approved `loop-safe` item from the groomed active queue.
+2. Restate its acceptance behavior in the working notes.
+3. Write or extend an offline test and confirm it fails for the intended reason.
+4. Implement the minimum coherent behavior.
+5. Run the focused test until green.
+6. Run the entire offline suite with `Python/scripts/run_tests.py`.
+7. Review the diff for scope creep, state-file churn, secrets, and accidental engine coupling.
+8. Update the backlog with what is proven, the test signal, and any remaining live verification.
+9. Commit the green slice with an outcome-oriented message. Never push.
+10. Repeat only if another approved loop-safe item is ready.
+
+## Stop conditions
+
+Stop the current item when:
+
+- it needs PIE, C++, an engine asset, a paid model call, or a user decision;
+- the spec contradicts current code or omits a material design choice;
+- the same failing approach has not converged after two focused correction attempts;
+- the full offline suite cannot be returned to green without expanding scope;
+- the worktree or branch state becomes ambiguous.
+
+Record the blocker in the backlog. Keep an isolated failing test only when it clearly documents the missing behavior and does not leave the suite or branch misleadingly broken.
+
+## Completion and handoff
+
+Before stopping:
+
+1. Verify `git status` and record whether the tree is clean.
+2. Update the active backlog view and selected item from evidence only.
+3. Create a handoff using the project `create-handoff` skill.
+4. Make the next concrete step immediately executable.
+
+A handoff is required at the end of an autonomous run, but not after every commit. The backlog remains the durable scope authority between runs.

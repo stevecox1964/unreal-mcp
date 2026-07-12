@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create Handoff"
+  short_description: "Save precise session state for the next session"
+  default_prompt: "Use $create-handoff to save the current project state for the next session."

@@ -8,7 +8,10 @@ Checks:
      interval is processing time + base — slow observations stretch the
      interval instead of letting ticks pile up.
   2. reset_agents teleports back to the recorded start transform, clears
-     per-run timers, restores seed memories, and deletes the spatial map.
+     per-run timers and episodic recall, restores seed memories, and deletes
+     the spatial map.
+  3. Whole-sim ticks and per-agent pulses share one non-waiting manager lock.
+  4. The manager rejects zero or negative base tick intervals defensively.
 """
 from __future__ import annotations
 
@@ -105,7 +108,58 @@ async def run_pacing() -> None:
     check("loop kept ticking", len(starts) >= 2)
 
 
-# ── 2. reset_agents ───────────────────────────────────────────────────────────
+# ── 2. Tick entry-point serialization ─────────────────────────────────────────
+
+async def run_tick_serialization() -> None:
+    mgr = AgentManager(worlds_dir=Path("."), llm_router=None,
+                       unreal_bridge=None, memory_store=None)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_tick():
+        entered.set()
+        await release.wait()
+        return {"ticked": 1, "agent_results": []}
+
+    async def pulse(agent_id):
+        return {"agent_id": agent_id, "action": "idle"}
+
+    # Patch below the public lock-owning entry points so this test isolates the
+    # concurrency contract without needing Unreal, agents, or an LLM.
+    mgr._tick_impl = slow_tick
+    mgr._pulse_agent_impl = pulse
+
+    first = asyncio.create_task(mgr.tick())
+    await asyncio.wait_for(entered.wait(), timeout=0.5)
+    whole_conflict = await mgr.tick()
+    pulse_conflict = await mgr.pulse_agent("testy")
+    active_status = mgr.get_status()
+
+    check("overlapping whole tick returns busy", whole_conflict.get("status") == "busy")
+    check("overlapping agent pulse returns busy", pulse_conflict.get("status") == "busy")
+    check("busy result names active tick", whole_conflict.get("active_entry") == "tick")
+    check("status exposes active tick for UI",
+          active_status.get("tick_in_progress") is True
+          and active_status.get("active_tick_entry") == "tick")
+
+    release.set()
+    check("first tick completes", (await first)["ticked"] == 1)
+    check("status clears active tick", mgr.get_status().get("tick_in_progress") is False)
+    check("lock releases for later pulse", (await mgr.pulse_agent("testy"))["agent_id"] == "testy")
+
+
+async def run_invalid_cadence() -> None:
+    mgr = AgentManager(worlds_dir=Path("."), llm_router=None,
+                       unreal_bridge=None, memory_store=None)
+    zero = await mgr.start_simulation(tick_seconds=0)
+    negative = await mgr.start_simulation(tick_seconds=-1)
+    check("manager rejects zero tick interval",
+          zero.get("status") == "error" and "positive" in zero.get("error", ""))
+    check("manager rejects negative tick interval",
+          negative.get("status") == "error" and "positive" in negative.get("error", ""))
+
+
+# ── 3. reset_agents ───────────────────────────────────────────────────────────
 
 class ResetBridge:
     def __init__(self):
@@ -157,6 +211,9 @@ async def run_reset() -> None:
             json.dumps({"agent_id": "testy", "memories": [{"timestamp": "t1", "importance": 0.5, "text": "runtime junk"}]}),
             encoding="utf-8")
         (d / "spatial_map.json").write_text("{}", encoding="utf-8")
+        (d / "episodes.jsonl").write_text(
+            json.dumps({"world_time": "Day 1, 08:00", "place": "stale place"}) + "\n",
+            encoding="utf-8")
 
         bridge = ResetBridge()
         mgr = AgentManager(worlds_dir=worlds, llm_router=None,
@@ -185,7 +242,18 @@ async def run_reset() -> None:
         mem = json.loads((d / "memory.json").read_text(encoding="utf-8"))
         check("memories restored from seed",
               entry["memories"] == "seeded" and [m["text"] for m in mem["memories"]] == ["seed"])
+        check("episodic recall cleared",
+              entry["episodes"] == 1 and (d / "episodes.jsonl").read_text(encoding="utf-8") == "")
         check("spatial map deleted", not (d / "spatial_map.json").exists())
+
+        # Explicit editor-authoring operation: adopt the currently placed actor
+        # transform as the new reset/start point instead of deleting JSON keys.
+        bridge.loc = {"x": -700.0, "y": 321.0, "z": 90.0}
+        captured = mgr.capture_start_transforms()
+        state = json.loads((d / "state.json").read_text(encoding="utf-8"))
+        check("capture starts updates the configured start",
+              captured["captured"] == ["testy"]
+              and state["start_location"] == bridge.loc)
 
         # Second run after reset records nothing new (transform already known).
         started = await mgr.start_simulation(tick_seconds=1, active_agents=["testy"])
@@ -195,6 +263,8 @@ async def run_reset() -> None:
 
 async def main() -> None:
     await run_pacing()
+    await run_tick_serialization()
+    await run_invalid_cadence()
     await run_reset()
     print("\nAll pacing + reset checks passed.")
 

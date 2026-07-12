@@ -21,7 +21,7 @@ debugging.</small></p>
 </article>
 
 <div class="grid">
-  <label>Tick seconds <input type="number" id="tick_seconds" value="2" min="0"></label>
+  <label>Tick seconds <input type="number" id="tick_seconds" value="2" min="1"></label>
   <label>Mode
     <select id="mode"><option value="live">live</option><option value="explore">explore</option></select>
   </label>
@@ -32,6 +32,7 @@ debugging.</small></p>
   <button id="btn-restart-day" class="secondary outline">☀ Restart day</button>
   <button id="btn-reset-agents" class="secondary outline">🧠 Reset agents</button>
   <button id="btn-reset-places" class="secondary outline">🗺 Reset places</button>
+  <button id="btn-capture-starts" class="secondary outline">📍 Capture starts</button>
   <button id="btn-stop" class="danger">■ Stop</button>
 </div>
 <small style="color:#666;">Restart day = fresh morning (new schedules); memories + place cells kept.</small>
@@ -83,6 +84,12 @@ document.getElementById('btn-reset-agents').onclick = async () => {
 document.getElementById('btn-reset-places').onclick = async () => {
   if(!confirm('Reset places: wipe the shared world map DB (landmarks re-apply on next sim start)')) return;
   await postJSON('/api/sim/reset_places'); refresh();
+};
+document.getElementById('btn-capture-starts').onclick = async () => {
+  if(!confirm('Capture starts: use every APC current Unreal position as its future reset/start point? Stop the sim and place APCs first.')) return;
+  const result = await postJSON('/api/sim/capture_starts');
+  alert(result.error || `Captured: ${(result.captured||[]).join(', ') || 'none'}`);
+  refresh();
 };
 document.getElementById('btn-clear').onclick = async () => {
   await postJSON('/api/sim/events/clear');

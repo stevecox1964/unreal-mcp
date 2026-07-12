@@ -704,6 +704,12 @@ def api_sim_reset_places():
     return JSONResponse(get_runner().reset_places())
 
 
+@app.post("/api/sim/capture_starts")
+def api_sim_capture_starts():
+    """Adopt current placed APC transforms as future reset/start positions."""
+    return JSONResponse(get_runner().capture_starts())
+
+
 async def _maybe_json(request: Request) -> dict:
     try:
         data = await request.json()

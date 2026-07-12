@@ -1,0 +1,4 @@
+interface:
+  display_name: "Add Backlog Item"
+  short_description: "Capture a new item in the canonical backlog"
+  default_prompt: "Use $add-backlog-item to add this request to the project backlog."

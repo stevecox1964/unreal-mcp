@@ -59,6 +59,21 @@ def test_clear_empties_feed_but_keeps_path():
         check("recording works after clear", len(ms.get_recent_events(10)) == 1)
 
 
+def test_feed_can_show_only_the_active_run():
+    with tempfile.TemporaryDirectory() as t:
+        ms = _store(Path(t))
+        ms.sim_run_id = "SR12"
+        ms.record("dufus", {"_thought": "old"}, {"type": "walk_to"}, {"status": "success"})
+        ms.sim_run_id = "SR13"
+        ms.record("maren", {"_thought": "new"}, {"type": "idle"}, {"status": "accepted"})
+
+        current = ms.get_recent_events(20, sim_run_id="SR13")
+        check("active-run feed excludes previous decisions",
+              len(current) == 1 and current[0]["sim_run"] == "SR13")
+        check("durable decision log keeps both runs", len(ms.get_recent_events(20)) == 2)
+        check("zero limit returns an empty feed", ms.get_recent_events(0) == [])
+
+
 def test_clear_on_empty_is_safe():
     with tempfile.TemporaryDirectory() as t:
         ms = _store(Path(t))
@@ -68,6 +83,7 @@ def test_clear_on_empty_is_safe():
 def main():
     test_record_then_read_with_timestamp()
     test_clear_empties_feed_but_keeps_path()
+    test_feed_can_show_only_the_active_run()
     test_clear_on_empty_is_safe()
     print("\nAll decision-feed checks passed.")
 
