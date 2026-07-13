@@ -104,7 +104,7 @@ class StubAgent:
         pass
 
 
-async def test_grid_reported_without_perception():
+def test_grid_reported_without_perception():
     """Even when the diff gate skips the LLM, the tick reports grid + place."""
     with tempfile.TemporaryDirectory() as tmp:
         agents_dir = Path(tmp) / "agents"
@@ -122,25 +122,24 @@ async def test_grid_reported_without_perception():
         smap = mgr._spatial_map("testy")
         smap.ingest(100, 200, [{"label": "pawn shop", "confidence": 0.9, "distance": "near"}])
 
-        r1 = mgr.pulse_agent("testy")
-        r1 = await r1
-        check("skipped LLM (scene unchanged)", r1["reason"] == "scene_unchanged")
-        check("grid reported anyway", r1["grid"]["key"] == "0,0")
-        check("grid has fixed col/row", (r1["grid"]["col"], r1["grid"]["row"]) == (5, 5))
-        check("place reported anyway", r1["place"] == ["pawn shop"])
+        check("skipped LLM (scene unchanged)", mgr._observe_agent(agent) is None)
+        grid1, place1 = mgr._last_grid_place["testy"]
+        check("grid reported anyway", grid1["key"] == "0,0")
+        check("grid has fixed col/row", (grid1["col"], grid1["row"]) == (5, 5))
+        check("place reported anyway", place1 == ["pawn shop"])
 
         # Avatar moves a cell over — grid follows position, place is unknown there.
         bridge.loc = {"x": 500.0, "y": 200.0, "z": 90.0}
-        r2 = await mgr.pulse_agent("testy")
-        check("grid tracks movement without new sights", r2["grid"]["key"] == "1,0")
-        check("unmapped cell has unknown place", r2["place"] == [])
+        check("moved unchanged view still skips LLM", mgr._observe_agent(agent) is None)
+        grid2, place2 = mgr._last_grid_place["testy"]
+        check("grid tracks movement without new sights", grid2["key"] == "1,0")
+        check("unmapped cell has unknown place", place2 == [])
 
 
 def main():
-    import asyncio
     test_grid_math()
     test_place_labels()
-    asyncio.run(test_grid_reported_without_perception())
+    test_grid_reported_without_perception()
     print("\nAll world-grid checks passed.")
 
 

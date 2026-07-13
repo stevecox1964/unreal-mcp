@@ -178,6 +178,7 @@ class AgentManager:
         self._last_cell: dict[str, str] = {}        # agent_id -> previous cell key, for nav edges
         self._frontier_failures: dict[str, dict[str, int]] = {}  # agent_id -> cell key -> consecutive failed walks
         self._scene_skips: dict[str, int] = {}      # agent_id -> consecutive scene-unchanged skips (gate liveness)
+        self._nearby_ids: dict[str, frozenset[str]] = {}  # agent_id -> nearby APC ids on prior cheap sample
         self._last_pos: dict[str, tuple] = {}       # agent_id -> last (x, y), for stuck detection
         self._no_progress: dict[str, int] = {}      # agent_id -> consecutive "moving but didn't advance" ticks
         self._last_grid_place: dict[str, tuple] = {}  # agent_id -> (grid, place), reported even when LLM skipped
@@ -240,6 +241,7 @@ class AgentManager:
         self._last_cell.clear()
         self._frontier_failures.clear()
         self._scene_skips.clear()
+        self._nearby_ids.clear()
         self._last_pos.clear()
         self._no_progress.clear()
         self._routes.clear()
@@ -859,7 +861,7 @@ class AgentManager:
         # Phase 1: observe (sequential, bridge)
         observations: dict[str, dict | None] = {}
         for agent in ready:
-            self._set_activity(agent, "observing")
+            self._set_activity(agent, "sampling")
             observations[agent.agent_id] = self._observe_agent(agent)
         self._attach_nearby_characters(observations)
 
@@ -902,18 +904,22 @@ class AgentManager:
             return self._pulse_sweep(agent)
         if self.mode == "explore":
             return self._pulse_explore(agent)
-        obs = self._observe_agent(agent)
+        self._set_activity(agent, "sampling")
+        # This endpoint is an explicit operator pulse. It intentionally bypasses
+        # settled-agent suppression so "pulse" still means "think now".
+        obs = self._observe_agent(agent, force_cognition=True)
         if obs is None:
             grid, place = self._last_grid_place.get(agent_id, (None, []))
             return {"agent_id": agent_id, "action": "idle", "reason": "scene_unchanged",
                     "grid": grid, "place": place}
         self._attach_nearby_characters({agent_id: obs})
+        self._set_activity(agent, "thinking")
         decision = await asyncio.to_thread(self._perceive_and_decide, agent, obs)
         return self._act_agent(agent, decision, obs)
 
     # ── Tick phases ──────────────────────────────────────────────────────────
 
-    def _observe_agent(self, agent: Agent) -> dict | None:
+    def _observe_agent(self, agent: Agent, force_cognition: bool = False) -> dict | None:
         """Phase 1: gather world state via bridge.
 
         Returns an observation dict, or None if the scene is unchanged
@@ -949,6 +955,14 @@ class AgentManager:
 
         # Live map telemetry (#18): remember where this agent was last observed.
         self._record_live_pos(agent_id, observation)
+
+        # Proximity is a cheap deterministic event source. It must run before
+        # the visual-diff gate because _attach_nearby_characters normally runs
+        # after this method, when a suppressed observation is already gone.
+        nearby_now = self._nearby_agent_ids(agent_id, _loc_xyz(observation.get("location")))
+        nearby_before = self._nearby_ids.get(agent_id)
+        nearby_changed = nearby_before is not None and nearby_now != nearby_before
+        self._nearby_ids[agent_id] = nearby_now
 
         # Stuck detection: "moving" but not actually advancing (wedged on an
         # obstacle the navmesh doesn't route around). Attach to the observation so
@@ -1002,7 +1016,37 @@ class AgentManager:
             skips = self._scene_skips.get(agent_id, 0) + 1
             self._scene_skips[agent_id] = skips
             blocked = "blocker" in observation
-            if not stuck and not blocked and (moving or skips % _STATIONARY_REDECIDE_TICKS != 0):
+            try:
+                schedule = self._existing_schedule_directive(agent, observation)
+            except Exception as e:
+                logger.warning(f"[{agent_id}] cheap schedule gate failed: {e}")
+                schedule = None
+            block = (schedule or {}).get("block") or {}
+            settled = bool(
+                schedule
+                and schedule.get("status") == "act"
+                and block.get("place")
+                and not schedule.get("transition")
+                and not moving
+            )
+            schedule_event = bool(
+                schedule
+                and (schedule.get("transition")
+                     or schedule.get("status") == "travel"
+                     or (schedule.get("status") == "act" and moving))
+            )
+            event = force_cognition or nearby_changed or schedule_event
+            if (settled and not stuck and not blocked and not event):
+                agent.mark_ticked(self._agents_dir)
+                logger.info(
+                    f"[{agent_id}] grid={grid.get('key') if grid else '?'} "
+                    f"place={observation.get('place_context', {}) or place or 'unknown'} "
+                    "— settled at scheduled place, state sampled; cognition sleeping"
+                )
+                self._pie_activity(agent_id, "state sampled (settled)")
+                return None
+            if (not stuck and not blocked and not event
+                    and (moving or skips % _STATIONARY_REDECIDE_TICKS != 0)):
                 agent.mark_ticked(self._agents_dir)
                 reason = "moving" if moving else f"idle {skips}/{_STATIONARY_REDECIDE_TICKS}"
                 logger.info(
@@ -1016,6 +1060,12 @@ class AgentManager:
                 why = "stuck on an obstacle"
             elif blocked:
                 why = f"{observation['blocker']['category']} directly ahead"
+            elif force_cognition:
+                why = "manual pulse"
+            elif nearby_changed:
+                why = "nearby characters changed"
+            elif schedule_event:
+                why = "schedule or place state changed"
             else:
                 why = f"stationary {skips} ticks"
             logger.info(
@@ -1024,6 +1074,51 @@ class AgentManager:
 
         self._scene_skips[agent_id] = 0
         return observation
+
+    def _nearby_agent_ids(self, agent_id: str, xyz) -> frozenset[str]:
+        """Nearby APC ids from cached transforms; no bridge or model work."""
+        if xyz is None:
+            return frozenset()
+        return frozenset(
+            other_id for other_id, pos in self._live_pos.items()
+            if other_id != agent_id
+            and math.hypot(pos["x"] - xyz[0], pos["y"] - xyz[1]) <= _NEARBY_CHARACTER_CM
+        )
+
+    def _existing_schedule_directive(self, agent: Agent,
+                                     observation: dict) -> dict | None:
+        """Resolve the persisted schedule against current geometry, model-free.
+
+        This is only a cognition gate. It never calls ``ensure_daily_plan`` and
+        never wake-seeds a missing place. The full schedule attachment remains
+        in the cognition phase, where a missing/new-day plan may be generated.
+        """
+        world_time = observation.get("world_time", "")
+        day = planner.day_of(world_time)
+        schedule = getattr(agent, "daily_schedule_blocks", None)
+        if not schedule or getattr(agent, "daily_schedule_day", "") != day:
+            return None
+        minute = planner.minute_of_day(world_time)
+        block = planner.current_block(schedule, minute)
+        if block is None:
+            return planner.step(
+                schedule, minute, current_place=None,
+                prev_activity=getattr(agent, "last_activity", None), at_place=None,
+            )
+        if not block.get("place"):
+            return None
+        at_place = self._at_scheduled_place(
+            agent.agent_id, block, observation, seed_if_unknown=False,
+        )
+        if at_place is None:
+            return None
+        place_context = observation.get("place_context") or {}
+        place_names = observation.get("place") or []
+        current_place = place_context.get("name") or (place_names[0] if place_names else None)
+        return planner.step(
+            schedule, minute, current_place=current_place,
+            prev_activity=getattr(agent, "last_activity", None), at_place=at_place,
+        )
 
     def _detect_stuck(self, agent_id: str, xyz, moving: bool) -> bool:
         """True when the avatar reports moving but isn't actually advancing.
@@ -2249,6 +2344,7 @@ class AgentManager:
         self._last_cell.clear()
         self._frontier_failures.clear()
         self._scene_skips.clear()
+        self._nearby_ids.clear()
         self._last_pos.clear()
         self._no_progress.clear()
         self._routes.clear()

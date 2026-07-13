@@ -3,25 +3,25 @@
 Rolling list of outstanding work — add items as they come up, check off or
 delete them as they land. Not session-scoped; this is the durable home for
 approved scope and priority. Handoffs are chronological session state.
-Newest grooming: **2026-07-11**.
+Newest grooming: **2026-07-13**.
 
-## Active view — groomed 2026-07-11
+## Active view — groomed 2026-07-13
 
 ### Now
 
-1. **#29 Contain cockpit world/agent paths** before any read, write, or recursive delete.
+1. **#32 Design the visual cortex + two-tier image lifecycle** before extending capture/replay code:
+   transient APC gaze frames are not durable four-direction place surveys.
 
 ### Next
 
-1. **#20 Add movement/decision timing instrumentation** so the reported slow start can
-   be diagnosed from evidence instead of tuned blindly.
-2. **#30 Declare `httpx` directly** and pin the runner-client dependency contract in a test.
-3. **#27:** continue the approved navigation-ticket/controller work after the SR11 live check.
+1. **#33 Add a configurable logical grid origin/offset** so districts align intentionally with
+   streets, buildings, landmarks, and owned-place extents—not just with world-zero multiples.
+2. **#27 Decide and build community-landmark final approach:** entering the correct 30 m district
+   should not necessarily mean arriving at the physical landmark actor inside it.
+3. **#29 Contain cockpit world/agent paths** before any read, write, or recursive delete.
 
 ### Waiting
 
-- **#27 Navigation executive + deterministic movement controller:** first robustness slice built
-  offline; waiting on the SR11 follow-up PIE run before the persistent-ticket slice continues.
 - **PIE/live verification bundle:** #17 routed travel, #23 landmarks, #24 launcher,
   #13.2/#13.3 cockpit controls, #14 replay, B7b personal space, and the sweep/map checks.
 - **Child Blueprint meshes:** actor rebind is done; mesh selection remains an editor choice.
@@ -29,7 +29,8 @@ Newest grooming: **2026-07-11**.
 
 ### Loop-safe
 
-In execution order: **#29**, **#20 instrumentation only**, **#30**. Each requires
+In execution order while #32/#33 design gates are being resolved: **#29**, **#20 instrumentation
+only**, **#30**. Each requires
 a failing offline test first and the full suite green. No product code is authorized by
 this grooming pass; use `$autonomous-loop` only after the queue is reviewed.
 
@@ -459,6 +460,20 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
    - **Offline test:** `test_sim_run.py` (counter increment/persist/corruption/per-world, bridge
      filename prefix, decision-log field). **Live verify:** `SR<n>_` filenames + the `sim_run` field
      appear in a real PIE run.
+   - [~] **Observation/image artifact strategy review — promoted to canonical #32.**
+     *(user, 2026-07-13: “rethink the whole observation and images having sim runs on them”)*
+     Re-evaluate the full lifecycle before adding more replay features: which cheap samples need no
+     image, which cognition events need an image for the VLM, which frames are worth retaining for
+     debugging/replay, and whether `SR<n>` belongs in every filename versus run directories or indexed
+     metadata. Include retention/pruning, storage growth, failed/aborted runs, wake/sweep/route-map
+     images, and the ability to reconstruct “what the APC saw when it decided.” Preserve decision/log
+     run attribution unless the review finds a better trace key; do not delete existing artifacts as
+     part of the design pass. **Acceptance:** document one coherent capture + attribution + retention
+     policy, show how #14 replay consumes it, estimate artifacts for a representative run, and identify
+     a migration path for existing `SR<n>_observation_*.png` files. **Classification:** design decision;
+     implementation classification depends on the chosen storage/replay policy.
+     The 2026-07-13 stopping-point review supplied the durable-place-image direction and visual-cortex
+     boundary; #32 now owns the remaining transient-frame retention decision and implementation plan.
 
 10. **Daily-schedule planner + sequencer — MASTER_PLAN Milestone 1 (the cognitive-loop spine).**
     *(Claude-driven, 2026-06-28. The biggest behavioral gap: agents decide tick-by-tick with no
@@ -581,6 +596,11 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
           (revisit later):* the re-observation path — when an APC enters a stale cell it needs, re-run the
           360 and **refresh `updated_at`** (today `mark_swept` is first-wins; would need a `refresh_sweep`),
           and the eager-on-entry vs. lazy decision. Not needed for now.
+    - [ ] **11.4 Durable cardinal place surveys — canonical design in #32.** A place/grid survey should
+          retain four shared N/E/S/W source images + grid/place/world metadata until a complete geographic
+          DB reset. This is distinct from transient APC gaze frames. Reconcile the existing 8-heading
+          semantic sweep with the four-image artifact contract during #32 design; do not duplicate storage
+          policy here.
     - **Loop-safe (offline-testable):** the PlaceDB schema/ownership change (11.2), `is_stale` + the
       freshness query (11.3), and the decision logic for "enter cell → central missing/stale → sweep" as a
       pure planner step (11.1's logic). Live verify (PIE): a personality APC actually detours to center and
@@ -747,7 +767,8 @@ click-authoring is fallback only)**, #24 (`start_sim.bat`, step 1's one-click).
 
 ## 14. Run replay — single-step through a sim run's observations
 
-**Status:** BUILT (offline) 2026-07-03 · live verify pending · **Depends on:** #9 (SR<n> tag) · *(user, 2026-07-03)*
+**Status:** BUILT (offline) 2026-07-03; further replay expansion paused behind #32 image-lifecycle
+design · **Depends on:** #9 attribution + #32 artifact policy · *(user, 2026-07-03)*
 
 > **✓ Landed 2026-07-03:** `agent_runtime/run_replay.py` (pure index/join —
 > `list_runs`/`list_agents`/`list_frames`, joining each observation frame to its nearest
@@ -776,6 +797,7 @@ Loop-safe core: the run/frame indexing + the log-join are pure and offline-testa
 `TestClient` route like the other `web_ui` pages. Live value: watch a real run back frame by frame.
 
 Relates to: #9 (the tag it consumes), #6/#6b (map + route images), the `web_ui` cockpit (`/sim`).
+The deferred #9 observation/image artifact review is the design gate for further replay expansion.
 
 ---
 
@@ -858,7 +880,9 @@ Relates to: #15 (writes its manifest), #6c (the map surface), #2 (web app), #13 
 
 ## 17. Grid-first navigation — multi-leg routing between grid cells
 
-**Status:** ✅ **DONE 2026-07-07** (built per `plan/specs/WP8-grid-first-routing.md`; suite
+**Status:** ✅ **DONE 2026-07-07; LIVE VERIFIED SR15 2026-07-13** — Dufus traveled from his authored
+start to the authored village-square community cell and began greeting there. (Built per
+`plan/specs/WP8-grid-first-routing.md`; suite
 38/38). `route_planner.py` (pinned Bresenham cell line + leg state machine w/ skip-ahead +
 B7b box-edge fine-approach), `_execute_routed_walk` leg executor (stuck replans, arrival idles),
 en-route prompt narration, route-map path dots. LLM contract unchanged. v1 = straight-line legs;
@@ -931,7 +955,8 @@ Pieces:
   live-verify.
 
 Relates to: #6c (the overlay engine this feeds), #16 (authoring needs a trustworthy map), #21
-(same "world changed" workflow), #9 (dev-mode observability).
+(same "world changed" workflow), #9 (dev-mode observability), #33 (logical grid offset; distinct
+from image registration).
 
 ---
 
@@ -1220,9 +1245,11 @@ cognitive, not a navmesh patch:
 
 ## 27. Navigation executive + deterministic movement controller
 
-**Status:** **APPROVED / IN PROGRESS 2026-07-11** — first SR11 robustness slice built offline,
-full suite 42/42; PIE verification pending. · **Canonical for:** #19 road/sidewalk preference and #26 dead-end recognition ·
-**Builds on:** #17 routed semantic travel (built offline; PIE verify pending)
+**Status:** **APPROVED / IN PROGRESS** — first robustness slice built offline; SR14 proved correct
+semantic destination choice and progress, and SR15 (2026-07-13) proved arrival at the authored village
+square with no stuck event. Persistent navigation-ticket, road preference, and deliberate obstacle/
+dead-end recovery remain. · **Canonical for:** #19 road/sidewalk preference and #26 dead-end recognition ·
+**Builds on:** #17 routed semantic travel (live arrival verified in SR15)
 
 The current navigation path mixes two control models. A scheduled destination creates a routed
 semantic trip, but the decision prompt still encourages frame-by-frame directional `walk_to`
@@ -1257,6 +1284,17 @@ deterministic nearby-APC distance facts in addition to VLM sightings; the latest
 result persists as `last_perception.json`; and the cockpit gained **Capture starts** so deliberate
 editor placement can replace stale reset coordinates without hand-editing JSON. These are seams
 toward the proposed controller, not the persistent navigation ticket itself.
+
+**SR15 arrival finding (user visual acceptance, 2026-07-13):** Dufus traveled down the street and
+stopped near the lower-left corner of the destination grid cell, not near the physical
+`Landmark_Community_village_square` actor. That matches current code: community landmarks name a
+30 m district, `_resolve_place_endpoint` returns `extent_cm=0`, and entering anywhere in the cell is
+arrival. This proves coarse routing but exposes the missing fine leg. Design decision for the next
+slice: a community landmark should continue naming the broad district while also retaining its actor
+XY/extent as the scheduled-trip endpoint; shifting the whole grid (#33) may improve layout but must not
+stand in for landmark-level arrival semantics. Acceptance: a trip first reaches the correct district,
+then approaches the landmark extent, while generic community exploration may still treat cell entry as
+sufficient.
 
 Acceptance for the eventual umbrella item: a named-place trip cannot be replaced accidentally by
 directional steering; local avoidance does not discard the destination; progress/failure is
@@ -1325,16 +1363,164 @@ environment can import and construct `RunnerClient` without relying on test-only
 
 ---
 
+## 31. Event-driven cognition for agents settled at a known place
+
+**Status:** ✅ **LIVE VERIFIED SR15 2026-07-13 — 43/43 offline green** · **Source:** user after SR14:
+“Maren was observing a lot… if she is at a place / landmark and she knows she should stay put” ·
+**Touches:** `agent_manager.py`, activity-state wording, and offline tick/pacing tests
+
+The scene-diff gate currently forces every fourth stationary tick through the full perception and
+decision path so an aimless stopped agent cannot freeze forever. That fallback is too broad for an
+agent whose deterministic schedule and landmark geometry already say it should remain where it is.
+In SR14, Maren was correctly at the authored vegetable truck but still produced five repeated
+`idle` decisions. With both active roles on Anthropic, those decisions imply five paid vision calls
+plus five paid decision calls, in addition to wake orientation.
+
+Desired behavior:
+
+- keep cheap engine/state sampling (position, movement, schedule time, place containment, nearby APC
+  facts), but do not invoke vision or the decision LLM merely because a stationary-tick counter elapsed;
+- suppress recurring model work when the current schedule says `act`, geometric place resolution
+  confirms the APC is at the scheduled authored/known place, it is intentionally stationary, the scene
+  is unchanged, and no relevant event is present;
+- wake cognition immediately for a schedule/block transition, displacement/place change, movement or
+  stuck/blocker state, a nearby APC arriving/leaving or interaction signal, a genuinely changed scene,
+  or an explicit manual pulse; no paid periodic heartbeat by default for a settled routine;
+- keep the anti-freeze fallback for agents that are idle without a grounded routine or whose place is
+  unknown, so cost control cannot strand an agent that still needs to choose what to do;
+- make cockpit/in-world activity truthful: distinguish cheap state sampling from an actual paid
+  perception/decision phase rather than showing every eligibility check as `observing`.
+
+Acceptance evidence (offline): a test runs a settled, at-landmark `act` agent beyond the old four-tick
+threshold and proves the perceiver/decision router are not called; companion tests prove a schedule
+transition and a relevant nearby/scene event re-enable cognition, while an ungrounded stationary agent
+still receives the anti-freeze re-decision. The full offline suite must remain green. Final PIE
+acceptance: in a short run Maren stays at the truck with no repeated `idle` decision rows until an
+event or schedule transition occurs.
+
+**Built:** `_observe_agent` now uses the persisted schedule and place geometry as a model-free sleep
+gate; schedule/place/movement/scene/proximity events wake cognition, and explicit operator pulses bypass
+the gate. Ungrounded agents retain the four-tick anti-freeze fallback. Cheap bridge checks now display
+`sampling`, with `thinking` reserved for actual cognition. Regression coverage lives in
+`test_event_driven_cognition.py`; `test_world_grid.py` now exercises its no-perception report directly
+because manual pulse intentionally means “think now.” Full offline suite: **43/43 passed**.
+
+**Live acceptance (SR15):** the run stopped at tick 8. Maren woke at the authored vegetable truck and
+made two early `idle` decisions while Dufus was nearby/moving through her scene, then made **zero**
+additional decisions from ticks 3–8 while she remained settled. Dufus continued independently, reached
+the authored village square, and began greeting there. This is the intended event-driven result: paid
+cognition occurred for the nearby/changed-scene events and slept once the settled scene stabilized.
+
+**Classification:** loop-safe implementation with a focused live/PIE cost verification.
+
+---
+
+## 32. Visual cortex + two-tier image lifecycle
+
+**Status:** **NOW — design direction approved; transient retention choice still open** (2026-07-13) ·
+**Source:** user stopping-point review: “rebuild this image scene capture code so that a place image is
+actually 4 images with north east south west as well as grid/place xy data” · **Canonical for:** the
+#9 observation-artifact review, #14 replay inputs, #7/#11 place surveys, and #31 event-driven cognition
+
+The current capture path conflates three different things in one per-agent `observations/` directory:
+ordinary forward-view samples, wake/sweep views, and replay evidence. `get_observation` writes a new
+`SR<n>_observation_<timestamp>.png` before the image hash decides whether the scene changed, so identical
+stationary scenes accumulate even when no VLM or decision call follows. Meanwhile `place_observations`
+stores compass labels but not the durable source images that describe shared geography.
+
+### Locked direction
+
+- Introduce an engine-neutral **visual cortex** between the Unreal adapter and cognition. The engine
+  port supplies raw pose/movement/proximity/capture facts; the visual cortex owns change detection,
+  cached perception, image lifecycle, and the decision to request a VLM interpretation. Lizard brain
+  consumes engine-neutral facts/reflex events; the executive LLM never sees Unreal actors, sockets,
+  traces, capture commands, or raw coordinate plumbing.
+- Separate **APC gaze/decision frames** from **place survey images**. A frame showing what Dufus or
+  Maren looked at is transient evidence tied to a cognition event; it is not shared geographic memory.
+- A durable place survey is one logical record backed by exactly **four cardinal images: N, E, S, W**,
+  plus level, grid `(col,row)`, world `(x,y)`, place identity/source, heading, capture time, and content
+  hash/revision metadata. These are shared world facts, not owned by the APC that happened to capture
+  them and not named by sim run.
+- Place-survey images survive agent resets, day restarts, and ordinary sim runs. A full PlaceDB clean-out
+  deletes their DB index and files together. An explicit refresh/re-sweep may replace a direction, but
+  ordinary visits must reuse the existing set.
+- Cheap event sampling should precede image capture where engine-neutral facts are sufficient. When a
+  pixel sample is still needed for change detection, it may use a rolling scratch frame; durable storage
+  occurs only under an explicit gaze/replay or place-survey policy.
+
+### Open decisions before implementation
+
+- **Transient gaze retention:** (a) overwrite one latest frame per APC, (b) keep a bounded ring per APC,
+  or (c) content-address/deduplicate image blobs while decision/run metadata references the hash.
+  **Recommendation:** (c), with a rolling scratch capture—identical pixels are stored once, replay can
+  still prove what an APC saw in multiple runs, and `SR<n>` remains metadata rather than multiplying
+  filenames. The user has not locked this choice yet.
+- Does every community grid cell receive a cardinal survey, or do authored/owned landmark places also
+  receive their own four-image set at their anchor/extent? Define this explicitly so “place image” has
+  one stable meaning.
+- Retention for unique transient decision frames: forever, last N runs, size/time budget, or manual
+  promotion. Place surveys are already decided: retain until full geographic DB reset.
+- #14 replay must be redesigned around decision→image references rather than assuming every timestamped
+  file in an agent directory is a meaningful frame. Existing SR-tagged files need a non-destructive
+  migration/compatibility path.
+
+**Acceptance:** a written capture/state model names every image class and owner; an offline fake engine
+proves unchanged samples cause neither a new durable file nor a VLM call; repeated identical decision
+frames deduplicate under the chosen policy; a cardinal survey is complete only with N/E/S/W + metadata;
+PlaceDB reset removes survey rows/files; agent reset does not; and the same visual-cortex contract runs
+against a headless adapter and Unreal. Instrument image writes, cache hits, VLM calls, and trigger reason
+so #20 can measure cost. **Classification:** design decision now; then loop-safe Python/storage tests +
+focused live/PIE capture verification. Existing bridge primitives appear sufficient; no C++ is assumed.
+
+---
+
+## 33. Configurable logical grid origin aligned to the authored world
+
+**Status:** **NEXT — problem confirmed; offset-selection UX is a design decision** (2026-07-13) ·
+**Source:** user map review: Maren’s place cell/landmark nearly crosses two cells and the grid should
+align with streets/buildings · **Depends on:** #18 registered map; invalidates grid-keyed #11/#32 data
+
+This is not another image-registration fix. `image_bounds` correctly maps the captured world image to
+world coordinates but intentionally does not affect navigation. `WorldGrid` currently computes
+`floor(world_coord / 3000)`; for MCP_World that forces the logical grid origin to approximately
+`(-27000,-18000)` cm. The lattice therefore follows arbitrary world-zero multiples rather than the
+authored street/building layout, which can put one semantic place or 9 m owned extent across a district
+edge even while the overlay is pixel-perfect.
+
+Desired behavior:
+
+- `world_grid.json` can pin an explicit logical `origin_x/origin_y` (or equivalent offset modulo cell
+  size), independent of world/image bounds; `locate`, `origin`, `cell_center`, route planning, place
+  offsets, SpatialMap keys, web overlays, cursor readout, and generation all use the same transform;
+- `/map` provides a preview-first way to adjust the lattice over the registered image and inspect which
+  landmarks/owned extents straddle boundaries before applying it;
+- applying an offset is treated as a **regrid**, never a cosmetic CSS shift: require confirmation, clear
+  all grid-keyed PlaceDB/spatial/route data and #32 place-survey images, then rescan authored landmarks;
+- world/grid round trips remain stable for negative UE coordinates and edge cells; image registration
+  remains unchanged when only the logical grid offset moves.
+
+Open decision: manual numeric offset, drag-the-grid UI, landmark/street-assisted suggestion, or a blend.
+**Recommendation:** direct drag/numeric controls with snap + a preview report, optionally offering a
+non-authoritative heuristic; the world author—not an algorithm—chooses which streets/buildings define
+good district boundaries. Acceptance: offline transform/round-trip tests, map/API parity tests, a reset
+transaction test proving no old `(col,row)` data survives, and PIE visual acceptance that Maren’s chosen
+place/landmark grouping lies inside the intended cell. **Classification:** design decision + loop-safe
+grid/map/storage work; final alignment is live/editor acceptance.
+
+---
+
 ## Outstanding — human / editor / live (not loop-safe)
 
-- **#27:** approve, reject, or revise the navigation executive / deterministic-controller boundary.
+- **#32:** choose transient gaze retention/dedup policy and whether owned landmarks receive their own
+  four-image survey sets in addition to community cells.
+- **#33:** choose manual/drag/assisted offset selection; applying it requires a deliberate full regrid.
+- **#27:** choose community-landmark anchor/extent semantics, then continue persistent-ticket and
+  obstacle/dead-end work; coarse routed arrival itself passed in SR15.
 - **PIE verification bundle:** #17 routed travel, #23 landmarks, #24 launcher, #13.2/#13.3 cockpit
   controls, #14 replay, B7b personal space, and sweep/map behavior. Record each result against its
   canonical item; do not create another status banner.
 - **Child Blueprints:** choose and apply Maren/Dufus meshes in the editor; bindings already landed.
 - **#12.2:** decide whether interaction content belongs in the episodic log or a dedicated store.
-- **Process changes:** review and commit the `.agents/skills/*`, `plan/autonomous_loop.md`, backlog
-  grooming, and handoff updates as one project-workflow change if accepted.
 
 ## Recently landed
 
@@ -1501,8 +1687,8 @@ process. The standalone launcher likely belongs in the same web app as #2.
 > so it's cheap on cloud. **#4b — running the *live* sim unattended** is what's gated by #3 + local models
 > (per-tick inference cost). Don't let #4b's blockers stall #4a.
 
-**Status:** **Harness built; Codex workflow refresh in progress** — test runner/preflight exist;
-five project-local skills and the revised contract are uncommitted as of 2026-07-11. Live-sim
+**Status:** **Harness built; Codex workflow refresh landed** — test runner/preflight and the five
+project-local skills are committed on `main` as of `0d64b21`. Live-sim
 autonomy remains gated by cost and Unreal/PIE. · **Size:** Process/setup, not a code feature ·
 **Depends on:** #3 live verification for live-sim autonomy
 
@@ -1908,7 +2094,9 @@ before driving it (health endpoint vs port check)? guardrails for unsupervised U
 
 - **Current priority and classification live only in the Active view at the top.** Dated
   banners and old queues are evidence, not instructions.
-- **The next offline queue is #29 → #20 instrumentation → #30.** The prior claim
+- **Next-session product direction is #32 design → #33 design → #27 landmark final approach.**
+  While those design gates are unresolved, the offline implementation queue remains
+  **#29 → #20 instrumentation → #30.** The prior claim
   that no loop-safe work remained was superseded by the 2026-07-11 correctness audit.
 - **#4's harness is built** (`run_tests.py`, `preflight.py`, `autonomous_loop.md`);
   running the live sim autonomously is still gated by Unreal/PIE reliability and inference cost.
