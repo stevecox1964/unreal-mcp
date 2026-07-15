@@ -53,12 +53,22 @@ class StubBridge:
         self.current_action = current_action
         self.changed = changed
         self.ai_states = []
+        self.capture_calls = 0
 
-    def get_observation(self, name, agent_id, agents_dir):
+    def get_character_state(self, name):
         return {"actor_name": name, "image_path": None,
                 "location": {"x": self.x, "y": self.y, "z": 90.0},
                 "rotation": {"y": 0.0}, "current_action": self.current_action,
                 "ai_state": None}
+
+    def capture_routine_observation(self, name, agent_id, agents_dir, state=None):
+        self.capture_calls += 1
+        observation = dict(state or self.get_character_state(name))
+        observation["image_path"] = f"observation-{self.capture_calls}.png"
+        return observation
+
+    def get_observation(self, name, agent_id, agents_dir):
+        return self.capture_routine_observation(name, agent_id, agents_dir)
 
     def is_scene_changed(self, agent_id, image_path):
         return self.changed
@@ -172,6 +182,29 @@ def test_movement_and_nearby_arrival_resume_cognition():
         check("nearby APC arrival bypasses suppression", mgr._observe_agent(agent) is not None)
 
 
+def test_mapped_place_suppresses_routine_pixel_change():
+    with tempfile.TemporaryDirectory() as tmp:
+        changed = StubBridge(changed=True)
+        mgr, agent, _ = _manager(tmp, bridge=changed)
+        mgr.place_db.record_place_image(
+            "maren", 5, 5, "places/images/truck.png",
+            {"N": "n.png", "S": "s.png", "E": "e.png", "W": "w.png"},
+            description="Maren's vegetable truck", place_name="vegetable truck",
+        )
+        check("saved place visual replaces routine changed-scene VLM calls",
+              mgr._observe_agent(agent) is None)
+        check("settled mapped place creates no routine observation image",
+              changed.capture_calls == 0)
+
+        mgr._live_pos["dufus"] = {"x": 400.0, "y": 120.0, "yaw": 0.0}
+        check("nearby event remains a separate cognition path",
+              mgr._observe_agent(agent) is not None)
+        check("nearby event captures exactly one observation image",
+              changed.capture_calls == 1)
+        check("cognition sleeps again after the one event tick",
+              mgr._observe_agent(agent) is None and changed.capture_calls == 1)
+
+
 async def test_manual_pulse_bypasses_settled_suppression():
     with tempfile.TemporaryDirectory() as tmp:
         mgr, agent, _ = _manager(tmp)
@@ -195,6 +228,7 @@ def main():
     test_ungrounded_agent_keeps_anti_freeze_heartbeat()
     test_schedule_transition_and_displacement_resume_cognition()
     test_movement_and_nearby_arrival_resume_cognition()
+    test_mapped_place_suppresses_routine_pixel_change()
     asyncio.run(test_manual_pulse_bypasses_settled_suppression())
     asyncio.run(test_activity_label_says_sampling_for_cheap_tick())
     print("\nAll event-driven cognition checks passed.")

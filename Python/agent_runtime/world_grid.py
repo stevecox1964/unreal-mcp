@@ -32,10 +32,13 @@ class WorldGrid:
     """
 
     def __init__(self, cell_size: float = 400.0, bounds: dict | None = None,
-                 image_bounds: dict | None = None):
+                 image_bounds: dict | None = None,
+                 origin_x: float = 0.0, origin_y: float = 0.0):
         self.cell_size = float(cell_size)
         self.bounds = bounds or None
         self.image_bounds = image_bounds or None
+        self.origin_x = float(origin_x)
+        self.origin_y = float(origin_y)
 
     @classmethod
     def load(cls, path: Path) -> "WorldGrid":
@@ -44,7 +47,9 @@ class WorldGrid:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             return cls(cell_size=data.get("cell_size", 400.0), bounds=data.get("bounds"),
-                       image_bounds=data.get("image_bounds"))
+                       image_bounds=data.get("image_bounds"),
+                       origin_x=data.get("origin_x", 0.0),
+                       origin_y=data.get("origin_y", 0.0))
         except Exception as e:
             logger.error(f"Bad world grid file {path}: {e} — using unbounded default")
             return cls()
@@ -53,8 +58,8 @@ class WorldGrid:
     def has_bounds(self) -> bool:
         return bool(self.bounds)
 
-    def _index(self, coord: float) -> int:
-        return math.floor(coord / self.cell_size)
+    def _index(self, coord: float, origin: float = 0.0) -> int:
+        return math.floor((coord - origin) / self.cell_size)
 
     def locate(self, x: float, y: float) -> dict:
         """Return the fixed grid cell containing world (x, y).
@@ -63,15 +68,16 @@ class WorldGrid:
         With bounds also includes ``col``/``row`` (0-based from the min corner),
         the grid dimensions ``cols``/``rows``, and ``in_bounds``.
         """
-        gx, gy = self._index(x), self._index(y)
+        gx = self._index(x, self.origin_x)
+        gy = self._index(y, self.origin_y)
         out: dict = {"key": f"{gx},{gy}", "cell_size": self.cell_size}
         if not self.bounds:
             return out
 
-        min_gx = self._index(self.bounds["min_x"])
-        min_gy = self._index(self.bounds["min_y"])
-        max_gx = self._index(self.bounds["max_x"])
-        max_gy = self._index(self.bounds["max_y"])
+        min_gx = self._index(self.bounds["min_x"], self.origin_x)
+        min_gy = self._index(self.bounds["min_y"], self.origin_y)
+        max_gx = self._index(self.bounds["max_x"], self.origin_x)
+        max_gy = self._index(self.bounds["max_y"], self.origin_y)
         out["col"] = gx - min_gx
         out["row"] = gy - min_gy
         out["cols"] = max_gx - min_gx + 1
@@ -90,8 +96,10 @@ class WorldGrid:
         """
         if not self.bounds:
             return None
-        return (self._index(self.bounds["min_x"]) * self.cell_size,
-                self._index(self.bounds["min_y"]) * self.cell_size)
+        return (self.origin_x
+                + self._index(self.bounds["min_x"], self.origin_x) * self.cell_size,
+                self.origin_y
+                + self._index(self.bounds["min_y"], self.origin_y) * self.cell_size)
 
     def cell_center(self, col: int, row: int) -> tuple[float, float] | None:
         """Return the world (x, y) center of the cell at (col, row).
@@ -102,14 +110,15 @@ class WorldGrid:
         """
         if not self.bounds:
             return None
-        min_gx = self._index(self.bounds["min_x"])
-        min_gy = self._index(self.bounds["min_y"])
-        cx = (min_gx + col + 0.5) * self.cell_size
-        cy = (min_gy + row + 0.5) * self.cell_size
+        min_gx = self._index(self.bounds["min_x"], self.origin_x)
+        min_gy = self._index(self.bounds["min_y"], self.origin_y)
+        cx = self.origin_x + (min_gx + col + 0.5) * self.cell_size
+        cy = self.origin_y + (min_gy + row + 0.5) * self.cell_size
         return cx, cy
 
     def describe(self) -> str:
         if self.bounds:
             probe = self.locate(self.bounds["min_x"], self.bounds["min_y"])
-            return f"cell_size={self.cell_size:.0f}cm, {probe['cols']}x{probe['rows']} cells (bounded)"
+            return (f"cell_size={self.cell_size:.0f}cm, {probe['cols']}x{probe['rows']} cells "
+                    f"(bounded, logical_origin=({self.origin_x:.0f},{self.origin_y:.0f}))")
         return f"cell_size={self.cell_size:.0f}cm, unbounded (no world_grid.json)"

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import sqlite3
+import shutil
 import threading
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +27,7 @@ CREATE TABLE IF NOT EXISTS place_cells (
     swept_by TEXT,          -- agent_id that first swept this cell
     updated_at TEXT,        -- real UTC of last name/sweep/refresh (staleness basis)
     source   TEXT,          -- 'authored' when named by places.json; NULL = legacy/runtime
+    place_image_id TEXT,    -- current durable N/S/E/W visual-memory revision
     PRIMARY KEY (col, row)
 );
 
@@ -68,7 +71,40 @@ CREATE TABLE IF NOT EXISTS owned_place_cells (
     created_at TEXT,
     updated_at TEXT,
     source     TEXT    NOT NULL DEFAULT 'runtime',  -- authored | runtime | wake-seed
+    place_image_id TEXT,    -- current durable N/S/E/W visual-memory revision
     PRIMARY KEY (col, row, owner, name)
+);
+
+-- Immutable place-image revisions. Coordinates remain metadata and are never
+-- rendered into the VLM-facing composite.
+CREATE TABLE IF NOT EXISTS place_images (
+    place_image_id TEXT PRIMARY KEY,
+    place_key      TEXT    NOT NULL,
+    place_kind     TEXT    NOT NULL,
+    col            INTEGER NOT NULL,
+    row            INTEGER NOT NULL,
+    owner          TEXT,
+    name           TEXT,
+    revision       INTEGER NOT NULL,
+    image_path     TEXT    NOT NULL,
+    north_path     TEXT    NOT NULL,
+    south_path     TEXT    NOT NULL,
+    east_path      TEXT    NOT NULL,
+    west_path      TEXT    NOT NULL,
+    description    TEXT    NOT NULL DEFAULT '',
+    captured_by    TEXT    NOT NULL,
+    captured_at    TEXT    NOT NULL,
+    UNIQUE (place_key, revision)
+);
+
+-- Per-APC living visual history linked to exact shared image revisions.
+CREATE TABLE IF NOT EXISTS agent_visual_history (
+    agent_id       TEXT NOT NULL,
+    place_image_id TEXT NOT NULL,
+    first_seen     TEXT NOT NULL,
+    last_seen      TEXT NOT NULL,
+    visit_count    INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (agent_id, place_image_id)
 );
 """
 
@@ -155,7 +191,7 @@ class PlaceDB:
         # basis for staleness. Real time, not world time: the WorldClock resets
         # every run, so sim-time can't express cross-run "how long since we last
         # looked at this cell". See is_stale.
-        for col in ("swept_at", "swept_by", "updated_at", "source"):
+        for col in ("swept_at", "swept_by", "updated_at", "source", "place_image_id"):
             if col not in have:
                 conn.execute(f"ALTER TABLE place_cells ADD COLUMN {col} TEXT")
         # source: authored (places.json) / runtime (LLM-discovered) / wake-seed.
@@ -164,6 +200,8 @@ class PlaceDB:
         if "source" not in have:
             conn.execute("ALTER TABLE owned_place_cells "
                          "ADD COLUMN source TEXT NOT NULL DEFAULT 'runtime'")
+        if "place_image_id" not in have:
+            conn.execute("ALTER TABLE owned_place_cells ADD COLUMN place_image_id TEXT")
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
@@ -186,34 +224,51 @@ class PlaceDB:
     def reset(self) -> dict:
         """Wipe all geographic knowledge — start the world map from scratch.
 
-        Clears place_cells (names), place_observations (landmarks), agent_visits
-        (per-agent history), and owned_place_cells (APC-owned 9 m spots). The
-        schema is preserved; only rows are deleted. Returns the row count removed
-        from each table. All of these are keyed by grid (col, row), so a change
-        in the grid's cell_size invalidates every row — reset after regridding.
+        Clears geography, place-image revisions, and APC visual-history links.
+        Generated shared images and per-agent ``observations/place_history``
+        links are removed with the DB rows. The schema is preserved. Returns
+        row counts for every cleared table.
         """
         with self._lock, self._connect() as conn:
+            image_paths = [r[0] for r in conn.execute("SELECT image_path FROM place_images")]
+            tables = ("agent_visual_history", "place_images", "place_cells",
+                      "place_observations", "agent_visits", "owned_place_cells")
             counts = {
                 table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                for table in ("place_cells", "place_observations", "agent_visits",
-                              "owned_place_cells")
+                for table in tables
             }
-            for table in counts:
+            for table in tables:
                 conn.execute(f"DELETE FROM {table}")
+        self._delete_visual_files(image_paths)
         return counts
+
+    def _delete_visual_files(self, relative_paths: list[str]) -> None:
+        """Delete only generated visual-memory files contained by this world."""
+        world_root = self._path.parent.resolve()
+        for relative in relative_paths:
+            candidate = (world_root / relative).resolve()
+            if candidate != world_root and world_root in candidate.parents and candidate.is_file():
+                candidate.unlink()
+        agents_dir = world_root / "agents"
+        if agents_dir.is_dir():
+            for history in agents_dir.glob("*/observations/place_history"):
+                resolved = history.resolve()
+                if agents_dir.resolve() in resolved.parents and resolved.is_dir():
+                    shutil.rmtree(resolved)
 
     # ── Read ──────────────────────────────────────────────────────────────────
 
     def get_place(self, col: int, row: int) -> dict | None:
         """Return shared place context if the cell has a name, else None.
 
-        Returns: {"name": str, "compass": {"N": [str,...], ...}}
+        Returns place name, compass facts, and current visual-memory reference.
         Only landmarks with confidence >= _CONFIDENCE_FLOOR are included,
         capped at _MAX_LABELS_PER_DIRECTION per compass direction.
         """
         with self._connect() as conn:
             cell = conn.execute(
-                "SELECT name FROM place_cells WHERE col=? AND row=? AND name IS NOT NULL",
+                "SELECT name, place_image_id FROM place_cells "
+                "WHERE col=? AND row=? AND name IS NOT NULL",
                 (col, row),
             ).fetchone()
             if not cell:
@@ -224,6 +279,12 @@ class PlaceDB:
                 "ORDER BY observation_count DESC, confidence DESC",
                 (col, row, _CONFIDENCE_FLOOR),
             ).fetchall()
+            visual = None
+            if cell["place_image_id"]:
+                visual = conn.execute(
+                    "SELECT image_path, description, revision FROM place_images "
+                    "WHERE place_image_id=?", (cell["place_image_id"],)
+                ).fetchone()
 
         compass: dict[str, list[str]] = {d: [] for d in COMPASS}
         for o in obs:
@@ -231,7 +292,14 @@ class PlaceDB:
             if d in compass and o["landmark"] not in compass[d]:
                 compass[d].append(o["landmark"])
         compass = {d: labels[:_MAX_LABELS_PER_DIRECTION] for d, labels in compass.items()}
-        return {"name": cell["name"], "compass": compass}
+        return {
+            "name": cell["name"],
+            "compass": compass,
+            "place_image_id": cell["place_image_id"],
+            "place_image_path": visual["image_path"] if visual else None,
+            "description": visual["description"] if visual else "",
+            "place_image_revision": visual["revision"] if visual else None,
+        }
 
     # ── Write ─────────────────────────────────────────────────────────────────
 
@@ -615,6 +683,139 @@ class PlaceDB:
                 (col, row),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def _visual_place_ref(self, agent_id: str, col: int, row: int,
+                          place_name: str = None) -> dict:
+        """Resolve a visual-memory owner without using image pixels for identity."""
+        if place_name:
+            owned = self.find_owned_place(place_name, preferred_owner=agent_id)
+            if owned and (owned["col"], owned["row"]) == (col, row):
+                key = f"owned:{col}:{row}:{owned['owner']}:{_place_key(owned['name'])}"
+                return {"kind": "owned", "key": key, "owner": owned["owner"],
+                        "name": owned["name"]}
+        with self._connect() as conn:
+            cell = conn.execute(
+                "SELECT name FROM place_cells WHERE col=? AND row=?", (col, row)
+            ).fetchone()
+        return {"kind": "community", "key": f"community:{col}:{row}",
+                "owner": None, "name": cell["name"] if cell else None}
+
+    def current_place_image(self, agent_id: str, col: int, row: int,
+                            place_name: str = None) -> dict | None:
+        """Return the current place-image revision for a community or owned place.
+
+        ``place_name`` selects an owned place when it resolves inside this cell;
+        otherwise the community cell is selected. Example valid input:
+        ``current_place_image("maren", 5, 5, "the vegetable truck")``.
+        """
+        ref = self._visual_place_ref(agent_id, col, row, place_name)
+        with self._connect() as conn:
+            if ref["kind"] == "owned":
+                pointer = conn.execute(
+                    "SELECT place_image_id FROM owned_place_cells "
+                    "WHERE col=? AND row=? AND owner=? AND name=?",
+                    (col, row, ref["owner"], ref["name"]),
+                ).fetchone()
+            else:
+                pointer = conn.execute(
+                    "SELECT place_image_id FROM place_cells WHERE col=? AND row=?",
+                    (col, row),
+                ).fetchone()
+            if not pointer or not pointer["place_image_id"]:
+                return None
+            image = conn.execute(
+                "SELECT * FROM place_images WHERE place_image_id=?",
+                (pointer["place_image_id"],),
+            ).fetchone()
+        return dict(image) if image else None
+
+    def record_place_image(self, agent_id: str, col: int, row: int,
+                           image_path: str, views: dict[str, str],
+                           description: str = "", place_name: str = None) -> dict:
+        """Create an immutable place-image revision and make it current.
+
+        Paths are stored relative to the world directory. ``views`` must contain
+        N/S/E/W source paths. The capturing APC is linked to the exact revision.
+        Example valid input::
+
+            record_place_image("maren", 5, 5, "places/images/id.png",
+                               {"N": "n.png", "S": "s.png", "E": "e.png", "W": "w.png"})
+        """
+        normalized = {str(k).upper(): str(v) for k, v in views.items()}
+        missing = [d for d in ("N", "S", "E", "W") if not normalized.get(d)]
+        if missing:
+            raise ValueError(f"place image missing cardinal views: {missing}")
+        ref = self._visual_place_ref(agent_id, col, row, place_name)
+        image_id = uuid.uuid4().hex
+        now = _iso_now()
+        with self._lock, self._connect() as conn:
+            revision = conn.execute(
+                "SELECT COALESCE(MAX(revision), 0) + 1 FROM place_images WHERE place_key=?",
+                (ref["key"],),
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO place_images "
+                "(place_image_id, place_key, place_kind, col, row, owner, name, revision, "
+                " image_path, north_path, south_path, east_path, west_path, description, "
+                " captured_by, captured_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (image_id, ref["key"], ref["kind"], col, row, ref["owner"], ref["name"],
+                 revision, str(image_path), normalized["N"], normalized["S"],
+                 normalized["E"], normalized["W"], str(description or ""), agent_id, now),
+            )
+            if ref["kind"] == "owned":
+                conn.execute(
+                    "UPDATE owned_place_cells SET place_image_id=? "
+                    "WHERE col=? AND row=? AND owner=? AND name=?",
+                    (image_id, col, row, ref["owner"], ref["name"]),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO place_cells (col, row, place_image_id, updated_at) "
+                    "VALUES (?, ?, ?, ?) ON CONFLICT(col,row) DO UPDATE SET "
+                    "place_image_id=excluded.place_image_id, updated_at=excluded.updated_at",
+                    (col, row, image_id, now),
+                )
+            conn.execute(
+                "INSERT INTO agent_visual_history "
+                "(agent_id, place_image_id, first_seen, last_seen, visit_count) "
+                "VALUES (?, ?, ?, ?, 1)", (agent_id, image_id, now, now),
+            )
+            image = conn.execute(
+                "SELECT * FROM place_images WHERE place_image_id=?", (image_id,)
+            ).fetchone()
+        return dict(image)
+
+    def link_agent_to_place_image(self, agent_id: str, place_image_id: str) -> dict | None:
+        """Link an APC visit to an existing shared visual-memory revision."""
+        now = _iso_now()
+        with self._lock, self._connect() as conn:
+            image = conn.execute(
+                "SELECT * FROM place_images WHERE place_image_id=?", (place_image_id,)
+            ).fetchone()
+            if not image:
+                return None
+            conn.execute(
+                "INSERT INTO agent_visual_history "
+                "(agent_id, place_image_id, first_seen, last_seen, visit_count) "
+                "VALUES (?, ?, ?, ?, 1) ON CONFLICT(agent_id, place_image_id) DO UPDATE SET "
+                "last_seen=excluded.last_seen, visit_count=visit_count+1",
+                (agent_id, place_image_id, now, now),
+            )
+        return dict(image)
+
+    def agent_visual_history(self, agent_id: str) -> list[dict]:
+        """Return an APC's chronological place-image history, oldest first."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT h.first_seen, h.last_seen, h.visit_count, p.* "
+                "FROM agent_visual_history h JOIN place_images p USING(place_image_id) "
+                "WHERE h.agent_id=? ORDER BY h.first_seen, p.place_image_id", (agent_id,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def absolute_image_path(self, image: dict) -> Path:
+        """Resolve a stored generated-image path against the world directory."""
+        return self._path.parent / str(image["image_path"])
 
     def agent_familiarity(self, agent_id: str, col: int, row: int) -> dict:
         """Return this agent's personal relationship with a grid cell.

@@ -176,6 +176,8 @@ def build_map(level: str) -> dict:
         "image_bounds": grid.image_bounds,
         "origin_x": origin[0] if origin else None,
         "origin_y": origin[1] if origin else None,
+        "logical_origin_x": grid.origin_x,
+        "logical_origin_y": grid.origin_y,
         "image_url": _map_image_url(level),
         "stale_after_hours": MAP_STALE_SECONDS // 3600,
         "cells": cells,
@@ -739,6 +741,30 @@ async def api_world_grid(request: Request):
         return JSONResponse({"ok": False, "error": "no sim runner running"}, status_code=503)
     if result.get("status") == "error":
         return JSONResponse({"ok": False, "error": result.get("error", "grid generation failed")},
+                            status_code=400)
+    return JSONResponse({"ok": True, **result})
+
+
+@app.post("/api/world/regrid")
+async def api_world_regrid(request: Request):
+    """Commit a previewed logical origin through the runner's reset transaction."""
+    body = await _maybe_json(request)
+    if body.get("confirm") is not True:
+        return JSONResponse({"ok": False, "error": "explicit confirmation required"},
+                            status_code=400)
+    try:
+        level = str(body.get("level", ""))
+        origin_x = float(body.get("origin_x"))
+        origin_y = float(body.get("origin_y"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "origin_x/origin_y must be numbers"},
+                            status_code=400)
+    try:
+        result = get_runner().regrid(level, origin_x, origin_y)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "no sim runner running"}, status_code=503)
+    if result.get("status") == "error":
+        return JSONResponse({"ok": False, "error": result.get("error", "regrid failed")},
                             status_code=400)
     return JSONResponse({"ok": True, **result})
 

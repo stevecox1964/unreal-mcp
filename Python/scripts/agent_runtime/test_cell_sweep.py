@@ -79,8 +79,8 @@ def test_swept_migration_on_existing_db():
 
 def test_compass_headings():
     h = cell_sweep.compass_headings()
-    check("a full 360 in 8 steps", len(h) == 8)
-    check("evenly spaced 45deg", h == [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0])
+    check("a full 360 in 4 steps", len(h) == 4)
+    check("cardinal headings are 90deg apart", h == [0.0, 90.0, 180.0, 270.0])
 
 
 def test_default_sweep_needs_bounds():
@@ -146,11 +146,12 @@ def _obs(x, y, col=5, row=5, schedule=None):
             "schedule": schedule}
 
 
-def test_sweep_step_skips_explored_cell():
+def test_sweep_step_requires_place_visual_even_when_named():
     with tempfile.TemporaryDirectory() as tmp:
         mgr = _manager(tmp)
         mgr.place_db.set_name("maren", 5, 5, "Village Square", "T0")
-        check("explored cell -> nothing to sweep", mgr._sweep_step("sweeper", _obs(0.0, 0.0)) is None)
+        check("named cell without a place image still needs a survey",
+              mgr._sweep_step("sweeper", _obs(0.0, 0.0)) is not None)
 
 
 def test_sweep_step_start_false_never_starts():
@@ -178,31 +179,30 @@ def test_sweep_step_runs_then_drops_breadcrumb():
                 break
             actions.append(a)
         observes = [a for a in actions if a["type"] == "observe_heading"]
-        check("ran a full 8-heading sweep", len(observes) == 8)
-        check("breadcrumb dropped at the swept cell", mgr.place_db.is_explored(5, 5))
-        check("breadcrumb is a community marker (unnamed)", mgr.place_db.get_swept(5, 5)["name"] is None)
+        check("ran a full 4-heading survey", len(observes) == 4)
+        check("no breadcrumb without four successful image captures",
+              not mgr.place_db.is_explored(5, 5))
         check("sweep cleared when done", "sweeper" not in mgr._cell_sweeps)
 
 
 def test_should_sweep_here_gate():
-    # Sweep-on-entry (user, 2026-07-03): any un-swept cell the agent is in gets
-    # mapped — traveling OR stopped, with or without a schedule. Only an already-
-    # explored cell (or no grid/PlaceDB) is skipped. (_should_sweep_here itself
-    # ignores the schedule — the "act tick" exemption is applied in _act_agent.)
+    # This low-level gate answers only whether the cell needs a survey. Schedule
+    # priority is applied by _act_agent (#34), so these raw results intentionally
+    # do not vary with schedule status.
     with tempfile.TemporaryDirectory() as tmp:
         mgr = _manager(tmp)   # cell (5,5) unexplored
         check("raw gate ignores schedule status (act)",
               mgr._should_sweep_here(_obs(200.0, 200.0, schedule={"status": "act"})))
         check("idle in an unexplored cell -> sweep",
               mgr._should_sweep_here(_obs(200.0, 200.0, schedule={"status": "idle"})))
-        check("travel (entering a new cell) -> sweep on entry",
+        check("raw gate ignores schedule status (travel)",
               mgr._should_sweep_here(_obs(200.0, 200.0, schedule={"status": "travel"})))
         check("missing schedule -> still sweep an unexplored cell",
               mgr._should_sweep_here(_obs(200.0, 200.0, schedule=None)))
 
         mgr.place_db.mark_swept("someone", 5, 5, "T0")
-        check("explored cell -> no re-sweep",
-              not mgr._should_sweep_here(_obs(200.0, 200.0, schedule={"status": "travel"})))
+        check("breadcrumb without visual -> survey still required",
+              mgr._should_sweep_here(_obs(200.0, 200.0, schedule={"status": "travel"})))
 
         mgr.place_db = None
         check("no PlaceDB -> no sweep",
@@ -242,7 +242,11 @@ class _StubBridge:
         return {"status": "success"}
 
     def capture_view(self, actor_name, agent_id, agents_dir, tag):
-        return f"{tag}.png"
+        from PIL import Image
+        path = Path(agents_dir) / agent_id / "observations" / f"{tag}.png"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (80, 45), "navy").save(path)
+        return str(path)
 
     def set_ai_state(self, actor_name, state):
         pass
@@ -287,6 +291,12 @@ def _idle_decision(agent_id):
             "action": {"type": "idle"}, "importance": 0.5}
 
 
+def _named_walk_decision(agent_id, place):
+    return {"agent_id": agent_id, "thought_summary": "keep traveling",
+            "action": {"type": "walk_to", "target_location": place},
+            "importance": 0.5}
+
+
 def test_act_agent_starts_sweep_interrupt():
     """An APC idling in an unexplored cell has its LLM action replaced by
     the sweep's first step; the sweep goes active for the next ticks."""
@@ -327,23 +337,25 @@ def test_act_agent_act_tick_is_sweep_exempt():
         check("no sweep went active on an act tick", "dufus" not in mgr._cell_sweeps)
 
 
-def test_act_agent_travel_sweeps_on_entry():
-    """Entering an unexplored cell mid-travel now DOES detour to sweep it (user,
-    2026-07-03) — the walk_to intent is interrupted, the cell is mapped, then the
-    routine resumes. Inverts the old travel-silent behavior."""
+def test_act_agent_travel_defers_sweep_on_entry():
+    """SR18/#34: a transient unexplored-cell entry must not replace scheduled
+    travel with a walk back to that cell's center.  The route keeps priority and
+    the unexplored cell remains available for a later non-travel survey."""
     with tempfile.TemporaryDirectory() as tmp:
         bridge = _StubBridge({"x": 1500.0, "y": 1500.0, "z": 90.0})
         mgr = _manager(tmp)
         mgr.bridge = bridge
         agent = _StubAgent("dufus")
         mgr.agents = {"dufus": agent}
+        mgr.place_db.set_name("dufus", 8, 5, "village square", "T0")
 
         obs = _obs(1500.0, 1500.0, schedule={"status": "travel", "place": "village square"})
-        mgr._act_agent(agent, _idle_decision("dufus"), obs)
-        check("travel action replaced by the sweep's walk-to-center",
+        mgr._act_agent(agent, _named_walk_decision("dufus", "village square"), obs)
+        check("travel tick kept the routed walk (no sweep interrupt)",
               bridge.actions[-1]["type"] == "walk_to"
-              and bridge.actions[-1].get("_sweep_interrupt") is True)
-        check("sweep went active on entry", "dufus" in mgr._cell_sweeps)
+              and bridge.actions[-1].get("location") is not None
+              and bridge.actions[-1].get("_sweep_interrupt") is not True)
+        check("no sweep went active on incidental entry", "dufus" not in mgr._cell_sweeps)
 
 
 def test_pulse_routes_active_sweep_without_llm():
@@ -373,9 +385,14 @@ def test_pulse_routes_active_sweep_without_llm():
         check("sweep finished LLM-free", "dufus" not in mgr._cell_sweeps)
         check("last pulse reports sweep_done", results[-1].get("action") == "sweep_done")
         check("breadcrumb dropped", mgr.place_db.is_explored(5, 5))
-        check("turned through all 8 headings", len(bridge.turns) == 8)
+        check("turned through all 4 cardinal headings", len(bridge.turns) == 4)
         cells = mgr.place_db.map_cells()
-        check("every heading ingested its landmark", cells and cells[0]["landmarks"] == 8)
+        check("every heading ingested its landmark", cells and cells[0]["landmarks"] == 4)
+        visual = mgr.place_db.current_place_image("dufus", 5, 5)
+        check("four views produced a durable place image", visual is not None)
+        check("place image appears in APC visual history",
+              (Path(tmp) / "agents/dufus/observations/place_history"
+               / f"{visual['place_image_id']}.png").is_file())
 
 
 def test_observe_heading_direction_and_ingest():
@@ -439,14 +456,14 @@ def main():
     test_sweep_sequence()
     test_arrival_is_sticky()
     test_agent_role_collapsed()
-    test_sweep_step_skips_explored_cell()
+    test_sweep_step_requires_place_visual_even_when_named()
     test_sweep_step_start_false_never_starts()
     test_sweep_step_runs_then_drops_breadcrumb()
     test_should_sweep_here_gate()
     test_explored_cells_set()
     test_act_agent_starts_sweep_interrupt()
     test_act_agent_act_tick_is_sweep_exempt()
-    test_act_agent_travel_sweeps_on_entry()
+    test_act_agent_travel_defers_sweep_on_entry()
     test_pulse_routes_active_sweep_without_llm()
     test_observe_heading_direction_and_ingest()
     test_observe_heading_degrades_on_turn_failure()

@@ -50,7 +50,7 @@ def build_control_app(manager) -> FastAPI:
             "endpoints": ["/health", "/status", "/events", "/start", "/stop", "/tick",
                           "/pause", "/resume", "/agents", "/positions", "/reset_day",
                           "/reset_agents", "/reset_places", "/resync", "/capture_starts",
-                          "/world_grid"],
+                          "/world_grid", "/regrid"],
         }
 
     @app.get("/health")
@@ -153,6 +153,16 @@ def build_control_app(manager) -> FastAPI:
             cell_size=float(body.get("cell_size", 3000.0)),
             padding=float(body.get("padding", 800.0)),
         )
+
+    @app.post("/regrid")
+    async def regrid(request: Request) -> dict:
+        body = await _json_body(request)
+        try:
+            origin_x = float(body.get("origin_x"))
+            origin_y = float(body.get("origin_y"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="origin_x/origin_y must be numbers")
+        return await manager.regrid_world(str(body.get("level", "")), origin_x, origin_y)
 
     return app
 

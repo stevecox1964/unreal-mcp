@@ -128,7 +128,7 @@ def main():
     check("missing world.json gives the default clock",
           WorldClock.load(Path("does/not/exist.json")).now_text() == "Day 1, 08:00")
 
-    # ── Wake-up: 180° sweep, orientation, place naming, first action ──────────
+    # ── Wake-up: cardinal survey, orientation, place naming, first action ─────
     with tempfile.TemporaryDirectory() as d:
         router = StubRouter({
             "agent_id": "maren",
@@ -141,6 +141,12 @@ def main():
         })
         mgr, agent = make_manager(d, router)
         bridge = mgr.bridge
+        wake_action_observations = []
+        execute_world_action = mgr._execute_world_action
+        def capture_wake_action_observation(a, action, observation):
+            wake_action_observations.append(observation)
+            return execute_world_action(a, action, observation)
+        mgr._execute_world_action = capture_wake_action_observation
         mgr.world_clock.start()
         asyncio.run(mgr._wake_agents())
 
@@ -148,12 +154,12 @@ def main():
         ctx = router.calls[0]
         check("wake context carries world time", str(ctx.get("world_time", "")).startswith("Day 1, "))
         check("wake context carries a grid cell", (ctx.get("grid") or {}).get("key") is not None)
-        check("sweep captured five views", len(ctx.get("views") or []) == 5)
-        check("sweep spans 180 degrees left to right",
-              bridge.facings == [-90.0, -45.0, 0.0, 45.0, 90.0])
-        check("sweep views are named with movement directions",
+        check("survey captured four views", len(ctx.get("views") or []) == 4)
+        check("survey uses absolute cardinal headings",
+              bridge.facings == [270.0, 90.0, 0.0, 180.0])
+        check("survey views use cardinal labels",
               [v["direction"] for v in ctx["views"]]
-              == ["left", "forward-left", "forward", "forward-right", "right"])
+              == ["N", "S", "E", "W"])
         check("sweep views carry perceived captions",
               all(v["caption"] == "A truck parked by the roadside." for v in ctx["views"]))
         check("sweep views carry perceived landmarks",
@@ -166,6 +172,8 @@ def main():
         check("first action executed in Unreal", len(bridge.executed) == 1)
         walked = bridge.executed[0]
         check("first action is a resolved walk_to", walked["type"] == "walk_to")
+        check("first wake action carries its true starting grid",
+              wake_action_observations[0]["grid"]["key"] == ctx["grid"]["key"])
         tx, ty, _ = walked["location"]
         check("direction 'right' resolved toward +Y (~1500cm)",
               abs(tx - 50.0) < 1.0 and abs(ty - 1550.0) < 1.0)

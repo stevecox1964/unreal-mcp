@@ -6,6 +6,7 @@ MCPGameProject/build_results.txt
 # Agent runtime artifacts
 Python/worlds/*/logs/
 Python/worlds/*/agents/*/observations/
+Python/worlds/*/places/images/
 Python/worlds/*/world_places.db
 Python/worlds/*/sim_run.json
 # Per-run agent memory + spatial map churn (state.json stays tracked — it holds config)

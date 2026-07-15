@@ -115,6 +115,11 @@ class StubManager:
         self.calls.append(("world_grid", cell_size, padding))
         return {"status": "generated", "level": "TestWorld"}
 
+    async def regrid_world(self, level: str, origin_x: float, origin_y: float) -> dict:
+        self.calls.append(("regrid", level, origin_x, origin_y))
+        return {"status": "regridded", "level": level,
+                "origin_x": origin_x, "origin_y": origin_y}
+
 
 def test_control_app_routes():
     mgr = StubManager()
@@ -175,6 +180,10 @@ def test_director_routes():
     check("world_grid defaults on empty body (30 m district cells)",
           client.post("/world_grid").status_code == 200
           and mgr.calls[-1] == ("world_grid", 3000.0, 800.0))
+    check("regrid forwards level and logical origin",
+          client.post("/regrid", json={"level": "TestWorld", "origin_x": -1000,
+                                       "origin_y": 500}).json()["status"] == "regridded"
+          and mgr.calls[-1] == ("regrid", "TestWorld", -1000.0, 500.0))
 
 
 def test_runner_client_director_methods():
@@ -194,6 +203,9 @@ def test_runner_client_director_methods():
     check("client.generate_world_grid forwards args",
           rc.generate_world_grid(cell_size=250.0)["status"] == "generated"
           and mgr.calls[-1] == ("world_grid", 250.0, 800.0))
+    check("client.regrid forwards the committed origin",
+          rc.regrid("TestWorld", -1000.0, 500.0)["status"] == "regridded"
+          and mgr.calls[-1] == ("regrid", "TestWorld", -1000.0, 500.0))
 
 
 def test_start_defaults():

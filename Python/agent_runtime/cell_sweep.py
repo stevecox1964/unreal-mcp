@@ -4,16 +4,17 @@ import math
 
 from .world_grid import WorldGrid
 
-# A 360 sweep samples 8 compass headings, 45 degrees apart, starting at +X (East).
-_SWEEP_STEPS = 8
+# A place survey samples the four absolute cardinal headings. In UE yaw,
+# East=0, South=90, West=180, North=270.
+_CARDINAL_HEADINGS = [0.0, 90.0, 180.0, 270.0]
 
 
 def compass_headings() -> list[float]:
-    """The absolute yaws for a full 360 sweep — 8 steps, 45 degrees apart.
+    """The absolute yaws for a full 360 place survey — four 90-degree turns.
 
-    Example: ``[0, 45, 90, 135, 180, 225, 270, 315]``.
+    Example: ``[0, 90, 180, 270]`` (E, S, W, N in UE coordinates).
     """
-    return [float(i * (360 // _SWEEP_STEPS)) for i in range(_SWEEP_STEPS)]
+    return list(_CARDINAL_HEADINGS)
 
 
 class CellSweep:

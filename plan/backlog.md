@@ -9,13 +9,14 @@ Newest grooming: **2026-07-13**.
 
 ### Now
 
-1. **#32 Design the visual cortex + two-tier image lifecycle** before extending capture/replay code:
-   transient APC gaze frames are not durable four-direction place surveys.
+1. **#33 Add a configurable logical grid origin/offset** so districts align intentionally with
+   streets, buildings, landmarks, and owned-place extents—not just with world-zero multiples.
 
 ### Next
 
-1. **#33 Add a configurable logical grid origin/offset** so districts align intentionally with
-   streets, buildings, landmarks, and owned-place extents—not just with world-zero multiples.
+1. **#32 Build and live-verify the visual cortex + place-linked visual memory lifecycle:** the
+   first offline slice now creates four-cardinal composites, stable DB image references, and APC
+   visual-history links; live capture, recall-query, and transient-frame cleanup remain.
 2. **#27 Decide and build community-landmark final approach:** entering the correct 30 m district
    should not necessarily mean arriving at the physical landmark actor inside it.
 3. **#29 Contain cockpit world/agent paths** before any read, write, or recursive delete.
@@ -1296,6 +1297,16 @@ stand in for landmark-level arrival semantics. Acceptance: a trip first reaches 
 then approaches the landmark extent, while generic community exploration may still treat cell entry as
 sufficient.
 
+**SR19 controller finding (2026-07-14):** the corrected start and #34 travel-sweep gate both worked.
+Wake issued the correct deterministic eastbound waypoint from `(-10460,-800)` to `(-7500,-850)`, but
+subsequent LLM decisions repeatedly said "east" while emitting relative ~15 m movement steps. Once the
+avatar had turned, relative `forward` physically sent it west and then northwest into woods. The live
+`route_map.png` made the split explicit: A (actual cell `(5,3)`) was disconnected from the still-cached
+row-5 route to B (village square `(8,5)`). Next slice should make a scheduled named-place ticket
+authoritative, reject ordinary relative movement while it is active, allow bounded directional motion
+only for confirmed blocker/stuck recovery, and reconnect/replan when actual position is genuinely off
+route.
+
 Acceptance for the eventual umbrella item: a named-place trip cannot be replaced accidentally by
 directional steering; local avoidance does not discard the destination; progress/failure is
 observable; and the same navigator passes in both the headless adapter and Unreal integration.
@@ -1417,9 +1428,12 @@ cognition occurred for the nearby/changed-scene events and slept once the settle
 
 ## 32. Visual cortex + two-tier image lifecycle
 
-**Status:** **NOW — design direction approved; transient retention choice still open** (2026-07-13) ·
+**Status:** **NOW / IN PROGRESS — core place visual memory built offline, 44/44 green; live PIE and
+recall-query work remain** (2026-07-14) ·
 **Source:** user stopping-point review: “rebuild this image scene capture code so that a place image is
-actually 4 images with north east south west as well as grid/place xy data” · **Canonical for:** the
+actually 4 images with north east south west as well as grid/place xy data”; follow-up: “We are
+building visual memories” and every community or individual place cell needs a corresponding place
+image · **Canonical for:** the
 #9 observation-artifact review, #14 replay inputs, #7/#11 place surveys, and #31 event-driven cognition
 
 The current capture path conflates three different things in one per-agent `observations/` directory:
@@ -1437,10 +1451,27 @@ stores compass labels but not the durable source images that describe shared geo
   traces, capture commands, or raw coordinate plumbing.
 - Separate **APC gaze/decision frames** from **place survey images**. A frame showing what Dufus or
   Maren looked at is transient evidence tied to a cognition event; it is not shared geographic memory.
-- A durable place survey is one logical record backed by exactly **four cardinal images: N, E, S, W**,
-  plus level, grid `(col,row)`, world `(x,y)`, place identity/source, heading, capture time, and content
-  hash/revision metadata. These are shared world facts, not owned by the APC that happened to capture
-  them and not named by sim run.
+- Every durable place, whether a community cell or an individual/authored/owned place, has a stable
+  place identity and a corresponding **place-image record**. The rendered place image is one composite
+  backed by exactly four cardinal source views: **N, S, E, W**. Its header/label band uses a black
+  background with large white direction text so a VLM can reliably distinguish the views. The image
+  itself must not contain grid or world-coordinate overlays.
+- Store level, grid `(col,row)`, world anchor/extent, place identity/source, capture time, content hashes,
+  and image revision as database metadata rather than drawing coordinates into the pixels. The stable
+  place record points to its current `place_image_id`; each place-image revision points back to exactly
+  one place. Filenames and identifiers are place/revision based, never `SR<n>` based.
+- Place images are shared world facts rather than copies owned by whichever APC captured them. APC
+  visual history is represented by visit/observation records linking `(agent, place, visited_at)` to the
+  exact `place_image_id` revision seen then. Refreshing a place creates or promotes a new revision without
+  rewriting the APC's historical visit. This yields a living, chronological record of where each APC
+  has been without duplicating the same composite for every visitor.
+- Place-scoped episodic memories remain distinct records linked to the same stable place identity. A
+  place recall query can return the PlaceDB text description, current or historically seen composite,
+  APC visits, and memories formed there.
+- Semantic intent and routing stay separate: the LLM may resolve “the coffee shop I visited” from known
+  places, descriptions, images, visits, and memories; the deterministic lizard brain then reads the
+  resolved place's stored grid key and returns the grid route array. Coordinates belong in metadata and
+  route facts, not in the VLM-facing composite.
 - Place-survey images survive agent resets, day restarts, and ordinary sim runs. A full PlaceDB clean-out
   deletes their DB index and files together. An explicit refresh/re-sweep may replace a direction, but
   ordinary visits must reuse the existing set.
@@ -1455,22 +1486,71 @@ stores compass labels but not the durable source images that describe shared geo
   **Recommendation:** (c), with a rolling scratch capture—identical pixels are stored once, replay can
   still prove what an APC saw in multiple runs, and `SR<n>` remains metadata rather than multiplying
   filenames. The user has not locked this choice yet.
-- Does every community grid cell receive a cardinal survey, or do authored/owned landmark places also
-  receive their own four-image set at their anchor/extent? Define this explicitly so “place image” has
-  one stable meaning.
 - Retention for unique transient decision frames: forever, last N runs, size/time budget, or manual
   promotion. Place surveys are already decided: retain until full geographic DB reset.
 - #14 replay must be redesigned around decision→image references rather than assuming every timestamped
   file in an agent directory is a meaningful frame. Existing SR-tagged files need a non-destructive
   migration/compatibility path.
 
+### Cleanup and build plan
+
+1. Inventory every image producer, consumer, directory, filename rule, PlaceDB observation field, replay
+   assumption, and reset/delete path; classify each artifact as scratch sample, transient gaze evidence,
+   cardinal source view, rendered place image, or legacy/unknown.
+2. Write the engine-neutral visual-cortex contract and place-image state model. Lock stable place IDs,
+   immutable image revisions, the `place_image_id` relationship, APC visit links, memory links, refresh
+   semantics, and ownership/deletion rules before moving files.
+3. Add schema migrations and repositories for place images, their four source views, APC place visits,
+   and place-scoped memory lookup. Preserve existing PlaceDB descriptions and legacy observation rows;
+   migration must be non-destructive and restartable.
+4. Build and test the N/S/E/W compositor, including deterministic panel ordering, large white headings on
+   black, consistent dimensions, missing-view rejection, content hashes, and no coordinate overlay.
+5. Route capture through the visual cortex: cheap facts first, rolling scratch only when pixels are
+   needed, durable place-image creation/refresh only for a place lifecycle event, and transient gaze
+   persistence only under the separately chosen retention policy.
+6. Expose engine-neutral recall operations for known/visited places, a place's image and memories, and
+   an APC's chronological visual history. Resolve semantic place intent first; pass only the resolved
+   grid key to deterministic route planning.
+7. Update replay, reset, PlaceDB clean-out, cockpit/map inspection, and metrics around the new IDs;
+   migrate or quarantine legacy SR-tagged images only after referential-integrity checks.
+8. Verify offline with a fake engine and then in PIE with one community cell and one individual place,
+   two APC visitors, a refreshed place image, semantic coffee-shop recall, and deterministic grid-route
+   output.
+
+### Implementation progress — 2026-07-14
+
+- Wake surveys and travel-cell surveys now use exactly four absolute cardinal views instead of the old
+  five relative wake views / eight 45-degree cell views. A place becomes survey-complete only when all
+  N/S/E/W captures succeed; a name or breadcrumb alone no longer suppresses the missing visual.
+- `place_images` stores immutable revisions, four source paths, the composite path, scene description,
+  capture attribution, and place identity. Community and owned-place rows carry their current
+  `place_image_id`; `agent_visual_history` links each APC to the exact shared revision it encountered.
+- Pillow renders a deterministic 2x2 composite with large white N/S/E/W headings on black and no
+  coordinate overlay. Shared composites have no sim-run identifier and are exposed under each APC's
+  `observations/place_history/` by hard link when available (copy fallback).
+- Wake reuses an existing place image and its saved textual description instead of re-surveying. A
+  settled APC with a mapped scheduled place suppresses routine changed-pixel VLM work; manual pulses,
+  schedule/movement changes, stuck/blocker state, and APC proximity events remain separate cognition
+  paths.
+- PlaceDB full reset removes place-image rows, shared composites, and APC history links. Agent/day reset
+  preserves them. Focused compositor/schema/history/reset/suppression tests were added; full offline
+  suite: **44/44 passed**.
+- Still required before completion: live PIE proof of real camera composition and wake reuse; cockpit or
+  model-facing semantic recall that can fetch a selected historical composite plus place episodes;
+  migration/quarantine of existing SR-tagged observations; and the transient gaze retention decision.
+
 **Acceptance:** a written capture/state model names every image class and owner; an offline fake engine
 proves unchanged samples cause neither a new durable file nor a VLM call; repeated identical decision
-frames deduplicate under the chosen policy; a cardinal survey is complete only with N/E/S/W + metadata;
-PlaceDB reset removes survey rows/files; agent reset does not; and the same visual-cortex contract runs
-against a headless adapter and Unreal. Instrument image writes, cache hits, VLM calls, and trigger reason
-so #20 can measure cost. **Classification:** design decision now; then loop-safe Python/storage tests +
-focused live/PIE capture verification. Existing bridge primitives appear sufficient; no C++ is assumed.
+frames deduplicate under the chosen policy; both a community cell and an individual place receive a
+valid N/S/E/W composite with readable white-on-black headings and no coordinate overlay; every place
+record resolves its current `place_image_id`; APC visits retain the exact historical image revision;
+place recall returns description + image + visits + memories; semantic recall of a previously visited
+coffee shop resolves its grid and deterministic routing returns a grid array without asking a VLM to
+read coordinates from the image; PlaceDB reset removes place-image rows/files, while agent reset does
+not; and the same visual-cortex contract runs against a headless adapter and Unreal. Instrument image
+writes, cache hits, VLM calls, and trigger reason so #20 can measure cost. **Classification:** design
+decision now; then loop-safe Python/storage tests + focused live/PIE capture verification. Existing
+bridge primitives appear sufficient; no C++ is assumed.
 
 ---
 
@@ -1507,6 +1587,62 @@ transaction test proving no old `(col,row)` data survives, and PIE visual accept
 place/landmark grouping lies inside the intended cell. **Classification:** design decision + loop-safe
 grid/map/storage work; final alignment is live/editor acceptance.
 
+### Implementation progress — 2026-07-14
+
+- `world_grid.json` now accepts `origin_x`/`origin_y`; WorldGrid locate/origin/cell-center math and
+  per-agent SpatialMap use the same offset-aware transform while omitted/zero values preserve the old
+  world-zero behavior.
+- `/map` now has an **Align grid** panel with numeric 100 cm controls and a non-destructive preview.
+  Preview redraws the empty lattice over the registered image and hides old place overlays so stale
+  cell keys cannot be mistaken for the proposed layout.
+- Applying requires an explicit destructive confirmation and runs through the standalone runner. The
+  transaction stops the sim, preserves authored positions/bounds/image calibration, writes the new
+  logical origin, and clears PlaceDB cells/images/history links, agent spatial maps, rendered/cached
+  routes, and in-progress sweeps tied to the old grid.
+- Offset round trips, SpatialMap parity, reset integrity, runner/client transport, confirmation gating,
+  and map controls are covered offline. Full suite: **44/44 passed**.
+- Still required: restart the web app and runner, visually choose/preview MCP_World's offset, apply the
+  confirmed regrid, then live-check cell centers and authored landmarks before rebuilding place images.
+
+---
+
+## 34. Defer community-cell surveys during scheduled travel
+
+**Status:** **IMPLEMENTED OFFLINE 2026-07-14 — live verification pending** · **Source:** SR18 live
+review: Dufus began
+the correct village-square route, briefly entered an adjacent unsurveyed cell while navigating around
+the blue house/car, then the sweep interrupt replaced his route action and sent him backward to that
+cell's center · **Depends on:** #11.1 sweep capability and #17 routed travel
+
+The sweep gate currently fires on entry to any unexplored cell even when the schedule directive is
+`travel`. A transient boundary crossing can therefore replace the deterministic route action, pull the
+APC to an unrelated cell center for a four-view survey, and only resume the route roughly a minute
+later. This makes a correct route look like a motel/house detour and lets exploration override the
+agent's scheduled destination.
+
+Desired behavior: scheduled travel has priority. Entering or clipping an unexplored cell while en
+route must not start a survey or replace the routed movement action. The cell remains unexplored and
+can be surveyed when the APC is no longer traveling (idle/acting where policy permits), deliberately
+settles there, or reaches an explicit exploration target. Existing in-progress sweeps may finish; wake
+surveys and non-travel survey behavior remain unchanged.
+
+Acceptance: an offline regression presents an unexplored current cell with schedule status `travel`
+and proves the LLM's routed `walk_to` survives unchanged and no sweep state starts; companion coverage
+proves a non-travel tick still starts the survey. A fresh PIE run should show Dufus follow the
+village-square route without being pulled to a newly crossed cell center. **Classification:** loop-safe
+Python behavior + live/PIE verification.
+
+### Implementation progress — 2026-07-14
+
+- `_act_agent` now gives both scheduled `travel` and `act` directives priority over starting a new
+  community-cell survey. Unscheduled/idle survey behavior is unchanged, and the separate active-sweep
+  continuation path still finishes a survey already in progress.
+- Regression coverage proves a named-place routed `walk_to` survives entry into an unexplored cell,
+  starts no sweep state, and retains its deterministic waypoint; companion idle and continuation tests
+  remain green. Full offline suite: **44/44 passed**.
+- Still required: a fresh PIE run showing Dufus follows the village-square route without being pulled
+  back to an incidental cell center.
+
 ---
 
 ## Outstanding — human / editor / live (not loop-safe)
@@ -1514,6 +1650,8 @@ grid/map/storage work; final alignment is live/editor acceptance.
 - **#32:** choose transient gaze retention/dedup policy and whether owned landmarks receive their own
   four-image survey sets in addition to community cells.
 - **#33:** choose manual/drag/assisted offset selection; applying it requires a deliberate full regrid.
+- **#34:** live-run Dufus toward village square and confirm incidental unexplored-cell crossings do not
+  interrupt his route with a center survey.
 - **#27:** choose community-landmark anchor/extent semantics, then continue persistent-ticket and
   obstacle/dead-end work; coarse routed arrival itself passed in SR15.
 - **PIE verification bundle:** #17 routed travel, #23 landmarks, #24 launcher, #13.2/#13.3 cockpit

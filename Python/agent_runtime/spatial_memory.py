@@ -36,32 +36,41 @@ class SpatialMap:
     current z, since these worlds are effectively single-storey at street level.
     """
 
-    def __init__(self, cell_size: float = 400.0, cells: dict | None = None):
+    def __init__(self, cell_size: float = 400.0, cells: dict | None = None,
+                 origin_x: float = 0.0, origin_y: float = 0.0):
         self.cell_size = cell_size
         self.cells: dict[str, dict] = cells or {}
+        self.origin_x = float(origin_x)
+        self.origin_y = float(origin_y)
 
     # ── Persistence ───────────────────────────────────────────────────────────
 
     @classmethod
-    def load(cls, path: Path, cell_size: float = 400.0) -> "SpatialMap":
+    def load(cls, path: Path, cell_size: float = 400.0,
+             origin_x: float = 0.0, origin_y: float = 0.0) -> "SpatialMap":
         if path.exists():
             data = json.loads(path.read_text(encoding="utf-8"))
-            return cls(cell_size=data.get("cell_size", cell_size), cells=data.get("cells", {}))
-        return cls(cell_size=cell_size)
+            return cls(cell_size=data.get("cell_size", cell_size), cells=data.get("cells", {}),
+                       origin_x=data.get("origin_x", origin_x),
+                       origin_y=data.get("origin_y", origin_y))
+        return cls(cell_size=cell_size, origin_x=origin_x, origin_y=origin_y)
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"cell_size": self.cell_size, "cells": self.cells}
+        payload = {"cell_size": self.cell_size, "origin_x": self.origin_x,
+                   "origin_y": self.origin_y, "cells": self.cells}
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     # ── Grid math ─────────────────────────────────────────────────────────────
 
     def cell_key(self, x: float, y: float) -> str:
-        return f"{math.floor(x / self.cell_size)},{math.floor(y / self.cell_size)}"
+        return (f"{math.floor((x - self.origin_x) / self.cell_size)},"
+                f"{math.floor((y - self.origin_y) / self.cell_size)}")
 
     def cell_center(self, key: str) -> tuple[float, float]:
         gx, gy = self._parse(key)
-        return ((gx + 0.5) * self.cell_size, (gy + 0.5) * self.cell_size)
+        return (self.origin_x + (gx + 0.5) * self.cell_size,
+                self.origin_y + (gy + 0.5) * self.cell_size)
 
     @staticmethod
     def _parse(key: str) -> tuple[int, int]:

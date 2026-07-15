@@ -155,13 +155,23 @@ class UnrealBridge:
 
     # â”€â”€ Observation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    def get_observation(self, actor_name: str, agent_id: str, agents_dir: Path) -> dict:
-        """Capture a screenshot and gather minimal engine state for one agent.
+    def get_character_state(self, actor_name: str) -> dict:
+        """Gather cheap deterministic state without rendering a camera image."""
+        location = self._send("get_character_location", {"character_name": actor_name})
+        action = self._send("get_character_current_action", {"character_name": actor_name})
+        return {
+            "actor_name": actor_name,
+            "location": location.get("location"),
+            "rotation": location.get("rotation"),
+            "current_action": action.get("current_action"),
+            "ai_state": action.get("ai_state"),
+        }
 
-        Vision is the primary observation channel â€” the NPC sees what its
-        camera sees. Engine queries are kept to the minimum needed for movement
-        planning (own location) and action continuity (current_action).
-        """
+    def capture_routine_observation(self, actor_name: str, agent_id: str,
+                                    agents_dir: Path, state: dict = None) -> dict:
+        """Capture one routine camera image and attach already-sampled state."""
+        observation = dict(state or self.get_character_state(actor_name))
+
         obs_dir = agents_dir / agent_id / "observations"
         obs_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -170,18 +180,18 @@ class UnrealBridge:
             "actor_name": actor_name,
             "file_path":  str(image_file),
         })
-        image_path = str(image_file) if capture.get("success") else None
+        observation["image_path"] = str(image_file) if capture.get("success") else None
+        return observation
 
-        location = self._send("get_character_location",       {"character_name": actor_name})
-        action   = self._send("get_character_current_action", {"character_name": actor_name})
-        return {
-            "actor_name":     actor_name,
-            "image_path":     image_path,
-            "location":       location.get("location"),
-            "rotation":       location.get("rotation"),
-            "current_action": action.get("current_action"),
-            "ai_state":       action.get("ai_state"),
-        }
+    def get_observation(self, actor_name: str, agent_id: str, agents_dir: Path) -> dict:
+        """Capture a screenshot and gather minimal engine state for one agent.
+
+        Callers that can suppress vision from deterministic state should use
+        ``get_character_state`` first, then ``capture_routine_observation`` only
+        when an event actually requires visual cognition.
+        """
+        state = self.get_character_state(actor_name)
+        return self.capture_routine_observation(actor_name, agent_id, agents_dir, state)
 
     def set_facing(self, actor_name: str, location, yaw: float) -> dict:
         """Turn a character in place to face the given world yaw (degrees)."""

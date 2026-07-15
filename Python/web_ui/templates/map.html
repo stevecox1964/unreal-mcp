@@ -21,6 +21,7 @@
     <button type="button" id="shoot-btn" title="Shoot a fresh top-down world capture from the MAP_Camera pawn (registered to the grid by construction).">Re-shoot map</button>
     {# #16: click-to-author places — write places.json without touching Unreal. #}
     <button type="button" id="author-btn" title="Author places: fill the form, then click the map to place. Same name = move/edit.">Author places</button>
+    <button type="button" id="align-grid-btn" title="Preview and apply a logical grid offset over the registered map.">Align grid</button>
   {% endif %}
 </form>
 {% endif %}
@@ -81,6 +82,25 @@
     <span id="pct" style="color:#666"></span>
   </div>
   <p class="breadcrumb" style="margin-top:-.25rem;">stale = not re-observed in over {{ map.stale_after_hours }}h (real time)</p>
+
+  <div id="grid-align-panel" style="display:none; border:1px solid #8b95a1; border-radius:4px;
+       padding:.75rem; margin-bottom:.75rem; max-width:1024px;">
+    <strong>Logical grid alignment</strong>
+    <div style="display:flex; gap:.5rem; align-items:end; flex-wrap:wrap; margin-top:.5rem;">
+      <label>X origin (cm)
+        <input id="grid-origin-x" type="number" step="100" value="{{ map.logical_origin_x }}" style="width:9rem;">
+      </label>
+      <label>Y origin (cm)
+        <input id="grid-origin-y" type="number" step="100" value="{{ map.logical_origin_y }}" style="width:9rem;">
+      </label>
+      <button type="button" id="grid-preview-btn" class="secondary">Preview</button>
+      <button type="button" id="grid-cancel-btn" class="secondary outline">Cancel preview</button>
+      <button type="button" id="grid-apply-btn" class="danger">Apply regrid</button>
+    </div>
+    <small style="color:#666;">Only the offset within one {{ map.cell_size|int }} cm cell matters.
+      Preview moves the empty lattice without changing files. Apply stops the sim and clears old
+      PlaceDB cells/images, visual-history links, spatial maps, and cached routes.</small>
+  </div>
 
   {# The real top-down capture frames a known world rect — image_bounds when
      the grid file calibrates one, else bounds — so world→pixel is linear:
@@ -151,6 +171,8 @@
     const level = wrap.dataset.level;
     const tip = document.getElementById("tip");
     let geo = null;   // {frame, origin, cell} once the first payload arrives; cells built then
+    let latestMapData = null;
+    let previewing = false;
 
     // Zoom + pan (#16 follow-up): scroll to zoom toward the cursor, drag to
     // pan, double-click to reset. The transform lives on #view; every
@@ -217,6 +239,7 @@
     }
 
     function buildCells(data) {
+      cellsEl.innerHTML = "";
       geo = { frame: data.image_bounds || data.bounds,
               origin_x: data.origin_x, origin_y: data.origin_y, cell: data.cell_size };
       const bg = document.getElementById("bg");
@@ -240,7 +263,9 @@
       try {
         data = await (await fetch(`/api/map?level=${encodeURIComponent(level)}`)).json();
       } catch (e) { return; }
+      latestMapData = data;
       if (!data.bounds || data.origin_x === null) return;
+      if (previewing) return;
       if (!geo) buildCells(data);
 
       // Reset every cell, then paint the stateful ones.
@@ -310,6 +335,73 @@
       document.getElementById("pct").textContent =
         `${built}/${total} cells built out (${(100 * built / total).toFixed(1)}%)`;
     }
+
+    // #33: preview a shifted logical lattice against the registered image.
+    const alignBtn = document.getElementById("align-grid-btn");
+    const alignPanel = document.getElementById("grid-align-panel");
+    const originXInput = document.getElementById("grid-origin-x");
+    const originYInput = document.getElementById("grid-origin-y");
+
+    function previewGrid() {
+      if (!latestMapData || !latestMapData.bounds) return;
+      const ox = Number(originXInput.value), oy = Number(originYInput.value);
+      if (!Number.isFinite(ox) || !Number.isFinite(oy)) {
+        tip.textContent = "grid preview needs numeric X and Y origins";
+        return;
+      }
+      const data = {...latestMapData, cells: [], owned: []};
+      const b = data.bounds, size = data.cell_size;
+      const minGX = Math.floor((b.min_x - ox) / size);
+      const minGY = Math.floor((b.min_y - oy) / size);
+      const maxGX = Math.floor((b.max_x - ox) / size);
+      const maxGY = Math.floor((b.max_y - oy) / size);
+      data.origin_x = ox + minGX * size;
+      data.origin_y = oy + minGY * size;
+      data.cols = maxGX - minGX + 1;
+      data.rows = maxGY - minGY + 1;
+      previewing = true;
+      placesEl.innerHTML = "";
+      buildCells(data);
+      tip.textContent = `PREVIEW only — effective first grid line (${data.origin_x.toFixed(0)}, ` +
+                        `${data.origin_y.toFixed(0)}) cm; old place overlays hidden`;
+    }
+
+    alignBtn.addEventListener("click", () => {
+      alignPanel.style.display = alignPanel.style.display === "none" ? "block" : "none";
+    });
+    document.getElementById("grid-preview-btn").addEventListener("click", previewGrid);
+    document.getElementById("grid-cancel-btn").addEventListener("click", () => {
+      previewing = false;
+      geo = null;
+      placesEl.innerHTML = "";
+      refresh();
+      tip.textContent = "grid preview cancelled";
+    });
+    document.getElementById("grid-apply-btn").addEventListener("click", async () => {
+      const ox = Number(originXInput.value), oy = Number(originYInput.value);
+      if (!Number.isFinite(ox) || !Number.isFinite(oy)) {
+        tip.textContent = "grid apply needs numeric X and Y origins";
+        return;
+      }
+      if (!confirm("Apply this logical grid origin? This stops the sim and permanently clears all " +
+                   "place cells/images/history links, spatial maps, and cached routes keyed to the old grid.")) return;
+      tip.textContent = "applying regrid…";
+      let result;
+      try {
+        result = await (await fetch("/api/world/regrid", {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({level, origin_x: ox, origin_y: oy, confirm: true}),
+        })).json();
+      } catch (e) {
+        tip.textContent = "regrid failed — is the runner online?";
+        return;
+      }
+      if (!result.ok) {
+        tip.textContent = `regrid failed: ${result.error}`;
+        return;
+      }
+      location.reload();
+    });
 
     wrap.addEventListener("mouseover", e => {
       if (e.target.dataset && e.target.dataset.tip) tip.textContent = e.target.dataset.tip;

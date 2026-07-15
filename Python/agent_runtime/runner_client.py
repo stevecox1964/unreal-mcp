@@ -99,6 +99,12 @@ class RunnerClient:
             "cell_size": cell_size, "padding": padding,
         }).json()
 
+    def regrid(self, level: str, origin_x: float, origin_y: float) -> dict:
+        """Apply a logical origin and clear state keyed by the old grid."""
+        return self._client.post("/regrid", json={
+            "level": level, "origin_x": origin_x, "origin_y": origin_y,
+        }).json()
+
     # ── Convenience ─────────────────────────────────────────────────────────────
 
     def is_running(self) -> bool:

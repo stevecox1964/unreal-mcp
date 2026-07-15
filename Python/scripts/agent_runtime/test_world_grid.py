@@ -6,6 +6,7 @@ No Unreal, no network. Run:
 from __future__ import annotations
 
 import json
+import asyncio
 import sys
 import tempfile
 from pathlib import Path
@@ -16,6 +17,7 @@ sys.path.insert(0, str(ROOT))
 from agent_runtime.agent_manager import AgentManager   # noqa: E402
 from agent_runtime.spatial_memory import SpatialMap    # noqa: E402
 from agent_runtime.world_grid import WorldGrid         # noqa: E402
+from agent_runtime.place_db import PlaceDB             # noqa: E402
 
 
 def check(label, cond):
@@ -66,6 +68,37 @@ def test_place_labels():
     labels = smap.place_labels(key)
     check("place labels ranked by count x confidence", labels[0] == "red barn")
     check("unknown cell gives empty place", smap.place_labels("99,99") == [])
+
+
+def test_configurable_logical_origin():
+    bounds = {"min_x": -24600.0, "min_y": -15158.6,
+              "max_x": 22400.0, "max_y": 15700.0}
+    grid = WorldGrid(cell_size=3000.0, bounds=bounds,
+                     origin_x=-1000.0, origin_y=500.0)
+    check("configured origin shifts the visible lattice",
+          grid.origin() == (-25000.0, -17500.0))
+    samples = [(-24600.0, -15158.6), (-9445.9, -2429.3),
+               (-1.0, -1.0), (22400.0, 15700.0)]
+    for x, y in samples:
+        located = grid.locate(x, y)
+        center = grid.cell_center(located["col"], located["row"])
+        round_trip = grid.locate(*center)
+        check(f"offset round trip at ({x},{y})",
+              (round_trip["col"], round_trip["row"])
+              == (located["col"], located["row"]))
+
+    smap = SpatialMap(cell_size=3000.0, origin_x=-1000.0, origin_y=500.0)
+    check("offset grid keys still align with spatial memory",
+          grid.locate(-9445.9, -2429.3)["key"] == smap.cell_key(-9445.9, -2429.3))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "world_grid.json"
+        path.write_text(json.dumps({"cell_size": 3000.0, "bounds": bounds,
+                                    "origin_x": -1000.0, "origin_y": 500.0}),
+                        encoding="utf-8")
+        loaded = WorldGrid.load(path)
+        check("logical origin loads from world_grid.json",
+              (loaded.origin_x, loaded.origin_y) == (-1000.0, 500.0))
 
 
 class StubBridge:
@@ -136,10 +169,59 @@ def test_grid_reported_without_perception():
         check("unmapped cell has unknown place", place2 == [])
 
 
+def test_regrid_clears_grid_keyed_state():
+    with tempfile.TemporaryDirectory() as tmp:
+        worlds = Path(tmp)
+        world = worlds / "TestWorld"
+        agents = world / "agents"
+        (agents / "dufus" / "observations").mkdir(parents=True)
+        (agents / "dufus" / "spatial_map.json").write_text("{}", encoding="utf-8")
+        (agents / "dufus" / "observations" / "route_map.png").write_bytes(b"old")
+        grid_path = world / "world_grid.json"
+        grid_path.write_text(json.dumps({
+            "cell_size": 3000.0,
+            "bounds": {"min_x": -9000, "min_y": -6000, "max_x": 3000, "max_y": 6000},
+            "image_bounds": {"min_x": -9500, "min_y": -6500,
+                             "max_x": 3500, "max_y": 6500},
+        }), encoding="utf-8")
+        db = PlaceDB(world / "world_places.db")
+        db.set_name("dufus", 1, 1, "old square", "T0")
+        image_path = world / "places" / "images" / "old.png"
+        image_path.parent.mkdir(parents=True)
+        image_path.write_bytes(b"old image")
+        db.record_place_image(
+            "dufus", 1, 1, "places/images/old.png",
+            {"N": "n.png", "S": "s.png", "E": "e.png", "W": "w.png"},
+        )
+
+        mgr = AgentManager(worlds_dir=worlds, llm_router=None,
+                           unreal_bridge=None, memory_store=None)
+        mgr._agents_dir = agents
+        mgr.place_db = db
+        mgr.world_grid = WorldGrid.load(grid_path)
+        mgr._routes["dufus"] = {"destination": "old square"}
+        result = asyncio.run(mgr.regrid_world("TestWorld", -1000.0, 500.0))
+
+        check("regrid transaction succeeds", result["status"] == "regridded")
+        check("regrid persists the configured logical origin",
+              (WorldGrid.load(grid_path).origin_x, WorldGrid.load(grid_path).origin_y)
+              == (-1000.0, 500.0))
+        check("regrid preserves image calibration",
+              WorldGrid.load(grid_path).image_bounds is not None)
+        check("regrid clears PlaceDB cells and place images",
+              db.map_cells() == [] and not image_path.exists())
+        check("regrid deletes spatial and rendered route maps",
+              not (agents / "dufus" / "spatial_map.json").exists()
+              and not (agents / "dufus" / "observations" / "route_map.png").exists())
+        check("regrid clears cached routes", mgr._routes == {})
+
+
 def main():
     test_grid_math()
     test_place_labels()
+    test_configurable_logical_origin()
     test_grid_reported_without_perception()
+    test_regrid_clears_grid_keyed_state()
     print("\nAll world-grid checks passed.")
 
 

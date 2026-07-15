@@ -5,6 +5,7 @@ import json
 import logging
 import math
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -18,6 +19,7 @@ from .landmarks import merge_entries, scan_landmarks
 from . import map_capture
 from . import places_manifest
 from . import planner
+from . import place_visuals
 from . import route_map
 from . import route_planner
 from . import sim_run
@@ -34,15 +36,13 @@ logger = logging.getLogger("AgentRuntime")
 # attempts — unless the avatar is already adjacent, which is proof enough.
 _MAX_FRONTIER_FAILURES = 3
 
-# Wake-up look-around: yaw offsets (degrees, relative to the facing the avatar
-# woke with) for the 180-degree sweep, left to right. Direction names are the
-# same vocabulary walk_to's "direction" field uses.
+# Wake/new-place survey: absolute UE yaws for the four cardinal views. These
+# labels and yaws are geographic, not relative to the avatar's initial facing.
 _SWEEP_VIEWS = [
-    ("left", -90.0),
-    ("forward-left", -45.0),
-    ("forward", 0.0),
-    ("forward-right", 45.0),
-    ("right", 90.0),
+    ("N", 270.0),
+    ("S", 90.0),
+    ("E", 0.0),
+    ("W", 180.0),
 ]
 
 # walk_to direction → yaw offset from current facing.
@@ -618,15 +618,27 @@ class AgentManager:
                 # truth, whether the agent is already where it should be —
                 # instead of letting the LLM guess and walk off (Maren, SR2).
                 directive = self._wake_directive(agent, loc, grid, world_time)
+                visual_place_name = (
+                    (directive or {}).get("place")
+                    if (directive or {}).get("status") == "act" else None
+                )
+                place_image = None
+                if self.place_db and col is not None:
+                    place_image = self.place_db.current_place_image(
+                        agent.agent_id, col, row, visual_place_name
+                    )
 
-                if known_place:
-                    # Place is on the shared map — skip the expensive 180° sweep.
+                if place_image:
+                    # A complete shared visual memory is the survey gate. A
+                    # name/sweep breadcrumb alone is not enough.
+                    self._link_place_visual_history(agent.agent_id, place_image)
                     # Pass personal familiarity so the orient prompt can tell the
                     # agent whether this is THEIR place or just a place they've
                     # visited, giving them the signal to stay vs. move on.
                     logger.info(
-                        f"[{agent.agent_id}] WAKE {world_time} at known place "
-                        f"'{known_place['name']}' (visits={familiarity.get('visit_count',0)}, "
+                        f"[{agent.agent_id}] WAKE {world_time} at mapped place "
+                        f"'{place_image.get('name') or (known_place or {}).get('name') or visual_place_name or grid.get('key')}' "
+                        f"(visits={familiarity.get('visit_count',0)}, "
                         f"named_by_me={familiarity.get('named_by_me',False)}) — skipping sweep"
                     )
                     memories = self.memory.get_relevant_memories(agent.agent_id)
@@ -634,7 +646,11 @@ class AgentManager:
                         "world_time": world_time, "location": loc, "rotation": rot,
                         "grid": grid, "place": place, "views": [],
                         "directions": self._direction_places(agent.agent_id, loc, rot),
-                        "known_place": known_place["name"],
+                        "known_place": (place_image.get("name")
+                                        or (known_place or {}).get("name")
+                                        or visual_place_name),
+                        "place_image_id": place_image["place_image_id"],
+                        "place_description": place_image.get("description", ""),
                         "familiarity": familiarity,
                         "schedule": directive,
                     }
@@ -647,7 +663,9 @@ class AgentManager:
                     if a.agent_id != agent.agent_id and a.has_unreal_binding
                 ]
                 views = self._wake_sweep(agent, loc, rot, known_chars)
-                self._ingest_wake_views(agent.agent_id, col, row, views, world_time)
+                place_image = self._ingest_wake_views(
+                    agent.agent_id, col, row, views, world_time, visual_place_name
+                )
 
                 memories = self.memory.get_relevant_memories(agent.agent_id)
                 context = {
@@ -655,6 +673,8 @@ class AgentManager:
                     "grid": grid, "place": place, "views": views,
                     "directions": self._direction_places(agent.agent_id, loc, rot),
                     "known_place": None,
+                    "place_image_id": (place_image or {}).get("place_image_id"),
+                    "place_description": (place_image or {}).get("description", ""),
                     "familiarity": familiarity,
                     "schedule": directive,
                 }
@@ -700,10 +720,16 @@ class AgentManager:
                 first_action = validate(agent, orientation, {})
                 first_result = None
                 if first_action:
-                    forward = next((v for v in views if v["direction"] == "forward"), None)
+                    forward = next((v for v in views if v["direction"] == "E"), None)
                     wake_obs = {
                         "location": loc, "rotation": rot,
                         "image_path": forward["image_path"] if forward else None,
+                        # Named-place travel must route from the true wake cell;
+                        # omitting this made _execute_routed_walk fall back to a
+                        # brief direct beeline at the final place anchor.
+                        "grid": grid, "place": place,
+                        "world_time": context.get("world_time"),
+                        "schedule": context.get("schedule"),
                     }
                     first_result = self._execute_world_action(agent, first_action, wake_obs)
 
@@ -712,6 +738,7 @@ class AgentManager:
                     observation={
                         "wake": True, "world_time": context["world_time"], "location": loc,
                         "grid": grid, "place": place,
+                        "place_image_id": context.get("place_image_id"),
                         "views": [v["direction"] for v in views],
                         "_thought": orientation.get("thought_summary"),
                     },
@@ -729,7 +756,8 @@ class AgentManager:
                 logger.error(f"[{agent.agent_id}] Wake orientation failed: {e} — keeping authored goal")
 
     def _ingest_wake_views(self, agent_id: str, col, row,
-                           views: list[dict], world_time: str) -> None:
+                           views: list[dict], world_time: str,
+                           place_name: str = None) -> dict | None:
         """Record a wake sweep's views in the shared PlaceDB.
 
         Each view's landmarks feed the cell's compass-observation table, and a
@@ -742,21 +770,24 @@ class AgentManager:
         (no transform / every heading failed) records nothing.
         """
         if not self.place_db or col is None:
-            return
+            return None
         for v in views:
             if v.get("landmarks"):
                 self.place_db.ingest_compass(
                     agent_id, col, row, yaw_to_compass(v["yaw"]), v["landmarks"]
                 )
+        image = self._save_place_visual(agent_id, col, row, views, place_name)
         if views and self.place_db.mark_swept(agent_id, col, row, world_time):
             logger.info(
                 f"[{agent_id}] wake: community place cell swept at ({col},{row}) "
                 f"— breadcrumb dropped"
             )
+        return image
 
     def _wake_sweep(self, agent: Agent, loc, rot, known_characters: list[str]) -> list[dict]:
-        """The 180-degree look-around: turn in place through five headings
-        (left to right), capture a view at each, perceive it (Gemini turns
+        """Capture the four absolute cardinal views of a new place.
+
+        Turn in 90-degree steps, capture a view at each, perceive it (VLM turns
         pixels into named sightings), then restore the original facing so
         movement directions stay relative to it.
 
@@ -774,8 +805,7 @@ class AgentManager:
         views: list[dict] = []
         sightings: list[dict] = []
         smap = self._spatial_map(agent.agent_id)
-        for direction, offset in _SWEEP_VIEWS:
-            yaw = base_yaw + offset
+        for direction, yaw in _SWEEP_VIEWS:
             turn = self.bridge.set_facing(agent.bound_unreal_actor_name, loc, yaw)
             if turn.get("error"):
                 logger.warning(f"[{agent.agent_id}] sweep turn '{direction}' failed: {turn['error']}")
@@ -806,6 +836,76 @@ class AgentManager:
             smap.ingest(xyz[0], xyz[1], sightings)
             smap.save(self._agents_dir / agent.agent_id / "spatial_map.json")
         return views
+
+    def _world_relative_path(self, path: str | Path) -> str:
+        """Return a world-relative generated-artifact path when possible."""
+        candidate = Path(path).resolve()
+        world_root = self._agents_dir.parent.resolve()
+        try:
+            return str(candidate.relative_to(world_root))
+        except ValueError:
+            return str(candidate)
+
+    def _save_place_visual(self, agent_id: str, col: int, row: int,
+                           views: list[dict], place_name: str = None) -> dict | None:
+        """Compose and register a complete four-view visual memory."""
+        if self.place_db is None or col is None:
+            return None
+        by_direction = {
+            str(view.get("direction", "")).upper(): view
+            for view in views if view.get("image_path")
+        }
+        if any(direction not in by_direction for direction in place_visuals.CARDINAL_DIRECTIONS):
+            logger.warning(
+                f"[{agent_id}] place visual ({col},{row}) incomplete — "
+                f"have {sorted(by_direction)}; needs N/S/E/W"
+            )
+            return None
+
+        shared_dir = self._agents_dir.parent / "places" / "images"
+        composite_path = shared_dir / f"{uuid.uuid4().hex}.png"
+        sources = {d: by_direction[d]["image_path"] for d in place_visuals.CARDINAL_DIRECTIONS}
+        try:
+            place_visuals.build_place_composite(sources, composite_path)
+            description = "\n".join(
+                f"{d}: {str(by_direction[d].get('caption') or '').strip()}"
+                for d in place_visuals.CARDINAL_DIRECTIONS
+                if str(by_direction[d].get("caption") or "").strip()
+            )
+            image = self.place_db.record_place_image(
+                agent_id, col, row,
+                self._world_relative_path(composite_path),
+                {d: self._world_relative_path(sources[d])
+                 for d in place_visuals.CARDINAL_DIRECTIONS},
+                description=description,
+                place_name=place_name,
+            )
+            self._expose_place_visual_history(agent_id, image)
+            logger.info(
+                f"[{agent_id}] place visual saved: {image['place_image_id']} "
+                f"({image['place_kind']} {col},{row} revision {image['revision']})"
+            )
+            return image
+        except Exception as e:
+            if composite_path.exists():
+                composite_path.unlink()
+            logger.error(f"[{agent_id}] place visual save failed: {e}")
+            return None
+
+    def _link_place_visual_history(self, agent_id: str, image: dict) -> None:
+        """Link one shared place image into the APC's inspectable history."""
+        linked = self.place_db.link_agent_to_place_image(agent_id, image["place_image_id"])
+        if not linked:
+            return
+        self._expose_place_visual_history(agent_id, linked)
+
+    def _expose_place_visual_history(self, agent_id: str, image: dict) -> None:
+        """Expose an already-recorded visual-history link as an image file."""
+        place_visuals.expose_in_agent_history(
+            self.place_db.absolute_image_path(image),
+            self._agents_dir / agent_id / "observations",
+            image["place_image_id"],
+        )
 
     async def _run_tick_entry(self, entry: str, operation) -> dict:
         """Run one tick-like operation, or reject it without waiting.
@@ -839,7 +939,8 @@ class AgentManager:
 
         Three phases keep Unreal bridge calls sequential while LLM calls
         run in parallel across agents:
-          1. Observe (sequential, bridge): screenshot + world state queries
+          1. Observe (sequential, bridge): cheap state gate, then screenshot only
+             for agents whose cognition was rearmed
           2. Perceive + decide (parallel, thread pool): Gemini → Haiku
           3. Act (sequential, bridge): execute action + persist memory
         """
@@ -926,9 +1027,18 @@ class AgentManager:
         (scene_unchanged agents are skipped by phases 2 and 3).
         """
         agent_id = agent.agent_id
-        observation = self.bridge.get_observation(
-            agent.bound_unreal_actor_name, agent_id, self._agents_dir
-        )
+        # The lizard-brain gate must run before camera capture. In particular,
+        # a stationary APC at its scheduled mapped place should not create a
+        # duplicate PNG merely to discover that cognition is asleep.
+        state_reader = getattr(self.bridge, "get_character_state", None)
+        if callable(state_reader):
+            observation = state_reader(agent.bound_unreal_actor_name)
+        else:
+            # Compatibility for engine-neutral adapters that have not yet split
+            # cheap state sampling from their observation implementation.
+            observation = self.bridge.get_observation(
+                agent.bound_unreal_actor_name, agent_id, self._agents_dir
+            )
         observation["known_characters"] = [
             a.display_name
             for a in self.agents.values()
@@ -952,6 +1062,10 @@ class AgentManager:
             if col is not None:
                 self.place_db.touch(agent_id, col, row)
                 observation["place_context"] = self.place_db.get_place(col, row)
+                if observation["place_context"]:
+                    observation["place_image_id"] = observation["place_context"].get(
+                        "place_image_id"
+                    )
 
         # Live map telemetry (#18): remember where this agent was last observed.
         self._record_live_pos(agent_id, observation)
@@ -1001,6 +1115,57 @@ class AgentManager:
                             f"{observation['blocker']['distance_cm']:.0f} cm ahead "
                             f"(standoff {_STANDOFF_CM:.0f} cm)"
                         )
+
+        # A completed place survey is durable visual context. While the APC is
+        # intentionally settled there, routine pixel changes do not trigger
+        # another paid VLM observation. Explicit/manual, schedule, proximity,
+        # blocker, and stuck events remain separate transient cognition paths.
+        try:
+            mapped_schedule = self._existing_schedule_directive(agent, observation)
+        except Exception as e:
+            logger.warning(f"[{agent_id}] mapped-place cognition gate failed: {e}")
+            mapped_schedule = None
+        mapped_block = (mapped_schedule or {}).get("block") or {}
+        mapped_settled = bool(
+            mapped_schedule
+            and mapped_schedule.get("status") == "act"
+            and mapped_block.get("place")
+            and not mapped_schedule.get("transition")
+            and not moving
+        )
+        mapped_schedule_event = bool(
+            mapped_schedule
+            and (mapped_schedule.get("transition")
+                 or mapped_schedule.get("status") == "travel"
+                 or (mapped_schedule.get("status") == "act" and moving))
+        )
+        mapped_visual = None
+        col, row = self._cell_col_row(grid)
+        if self.place_db and col is not None and mapped_block.get("place"):
+            mapped_visual = self.place_db.current_place_image(
+                agent_id, col, row, mapped_block["place"]
+            )
+            if mapped_visual:
+                observation["place_image_id"] = mapped_visual["place_image_id"]
+        mapped_event = force_cognition or nearby_changed or mapped_schedule_event
+        if (mapped_visual and mapped_settled and not stuck
+                and "blocker" not in observation and not mapped_event):
+            agent.mark_ticked(self._agents_dir)
+            logger.info(
+                f"[{agent_id}] place visual {mapped_visual['place_image_id']} supplies context — "
+                "settled routine sampled; VLM sleeping"
+            )
+            self._pie_activity(agent_id, "state sampled (mapped place)")
+            return None
+
+        # An event opened cognition (or the place is not yet durably mapped).
+        # Render exactly one routine frame now; no image file exists on the
+        # settled mapped-place return path above.
+        capture_observation = getattr(self.bridge, "capture_routine_observation", None)
+        if callable(capture_observation):
+            observation = capture_observation(
+                agent.bound_unreal_actor_name, agent_id, self._agents_dir, observation
+            )
 
         if not self.bridge.is_scene_changed(agent_id, observation.get("image_path")):
             # The view is unchanged. Skip the LLM if the avatar is still travelling
@@ -1441,15 +1606,16 @@ class AgentManager:
 
         action = self._bound_at_place_movement(agent, action, observation)
 
-        # Sweep interrupt (#11.1): an APC staying in an unexplored cell maps it
+        # Sweep interrupt (#11.1/#34): an APC staying in an unexplored cell maps it
         # before acting — the sweep's first step replaces this tick's LLM action;
         # the following steps run LLM-free via _pulse_sweep until the breadcrumb
-        # drops, then the sequencer resumes the routine. A scheduled "act" tick
-        # is exempt: the agent is AT its place doing its job (e.g. Maren waking
-        # at her stall) — walking off to the cell center to survey the district
-        # would abandon the routine; the cell gets swept on a travel/idle tick.
+        # drops, then the sequencer resumes the routine. Scheduled "act" and
+        # "travel" ticks are exempt. Acting APCs must not abandon their post;
+        # traveling APCs must not have a transient navmesh boundary crossing
+        # replace their route with a trip to the incidental cell center. The
+        # still-unmapped cell remains eligible on a later idle tick.
         sched_status = (observation.get("schedule") or {}).get("status")
-        if sched_status != "act" and self._should_sweep_here(observation):
+        if sched_status not in {"act", "travel"} and self._should_sweep_here(observation, agent_id):
             sweep_action = self._sweep_step(agent_id, observation, start=True)
             if sweep_action is not None:
                 action = sweep_action
@@ -1709,7 +1875,10 @@ class AgentManager:
         if smap is None:
             path = self._agents_dir / agent_id / "spatial_map.json"
             # Tile with the world grid's cell size so map cells and grid keys align.
-            smap = SpatialMap.load(path, cell_size=self.world_grid.cell_size)
+            smap = SpatialMap.load(
+                path, cell_size=self.world_grid.cell_size,
+                origin_x=self.world_grid.origin_x, origin_y=self.world_grid.origin_y,
+            )
             self._spatial[agent_id] = smap
         return smap
 
@@ -1804,40 +1973,50 @@ class AgentManager:
         if active is None:
             if not start:
                 return None
-            # Only start a sweep on a genuinely unexplored cell.
-            if self.place_db is None or self.place_db.is_explored(col, row):
+            # A name/breadcrumb is not visual memory; only a complete place
+            # image makes this community cell survey-ready.
+            if (self.place_db is None
+                    or self.place_db.current_place_image(agent_id, col, row) is not None):
                 return None
             sweep = cell_sweep.default_sweep(self.world_grid, col, row, z=xyz[2])
             if sweep is None:
                 return None
-            active = {"sweep": sweep, "col": col, "row": row}
+            active = {"sweep": sweep, "col": col, "row": row, "views": []}
             self._cell_sweeps[agent_id] = active
             logger.info(f"[{agent_id}] sweep: unexplored cell ({col},{row}) — sweeping")
 
         action = active["sweep"].next_action((xyz[0], xyz[1]))
         if action.get("type") == "sweep_done":
-            self.place_db.mark_swept(agent_id, active["col"], active["row"],
-                                     observation.get("world_time", self.world_clock.now_text()))
+            image = self._save_place_visual(
+                agent_id, active["col"], active["row"], active.get("views", [])
+            )
+            if image:
+                self.place_db.mark_swept(
+                    agent_id, active["col"], active["row"],
+                    observation.get("world_time", self.world_clock.now_text())
+                )
             self._cell_sweeps.pop(agent_id, None)
-            logger.info(f"[{agent_id}] sweep: swept ({active['col']},{active['row']}) — breadcrumb dropped")
+            logger.info(
+                f"[{agent_id}] sweep: ({active['col']},{active['row']}) "
+                + ("visual saved; breadcrumb dropped" if image
+                   else "visual incomplete; cell remains due for survey")
+            )
             return None
         action["_sweep_interrupt"] = True
         return action
 
-    def _should_sweep_here(self, observation: dict) -> bool:
-        """True when the agent's current grid cell has no community place cell yet
-        (#11.1). The sweep fires on **entry to any un-swept cell** — whether the
-        agent is traveling through or stopped — so the world's grid districts get
-        mapped as APCs roam (user, 2026-07-03: "sweep on entry to any new cell,"
-        even mid-travel). The first APC into a cell pays the ~9-tick 360; every
-        APC after reuses the community breadcrumb (``is_explored``), so detours
-        fall off as the map fills in. Needs a bounded grid (a cell center to walk
-        to) + a PlaceDB (somewhere to drop the breadcrumb).
+    def _should_sweep_here(self, observation: dict, agent_id: str = "") -> bool:
+        """True when the current grid cell still needs a community place image.
+
+        This is the schedule-agnostic spatial/storage gate. The act-phase caller
+        applies #34's routine policy: it may start a sweep while unscheduled or
+        idle, but not while scheduled to act or travel. Needs a bounded grid (a
+        cell center to walk to) and a PlaceDB (somewhere to drop the breadcrumb).
         """
         col, row = self._cell_col_row(observation.get("grid"))
         if col is None or self.place_db is None:
             return False
-        return not self.place_db.is_explored(col, row)
+        return self.place_db.current_place_image(agent_id, col, row) is None
 
     def _episodic(self, agent_id: str) -> EpisodicLog:
         """Load (and cache) this agent's append-only episodic event log."""
@@ -1863,6 +2042,7 @@ class AgentManager:
             "world_time": observation.get("world_time", ""),
             "grid_cell": grid.get("key"),
             "place": place_list[0] if place_list else None,
+            "place_image_id": observation.get("place_image_id"),
             "saw": saw,
             "action": action.get("type"),
             "outcome": result.get("status") or result.get("success"),
@@ -2111,8 +2291,19 @@ class AgentManager:
         col, row = self._cell_col_row(observation.get("grid"))
         if self.place_db and col is not None and landmarks:
             self.place_db.ingest_compass(agent_id, col, row, direction, landmarks)
+        active = self._cell_sweeps.get(agent_id)
+        if active is not None:
+            active.setdefault("views", []).append({
+                "direction": direction,
+                "yaw": yaw,
+                "image_path": image_path,
+                "caption": seen.get("caption", ""),
+                "landmarks": landmarks,
+                "characters": seen.get("characters", []),
+            })
         return {"status": "success", "action": "observe_heading", "direction": direction,
-                "yaw": yaw, "landmarks": len(landmarks), "image_path": image_path}
+                "yaw": yaw, "landmarks": len(landmarks), "image_path": image_path,
+                "caption": seen.get("caption", "")}
 
     def _pulse_sweep(self, agent: Agent) -> dict:
         """One tick for an agent mid-sweep — deterministic, no perception LLM.
@@ -2387,6 +2578,86 @@ class AgentManager:
         )
         return {"status": "reset", "stopped_simulation": was_running, "removed": removed}
 
+    async def regrid_world(self, level: str, origin_x: float, origin_y: float) -> dict:
+        """Apply a logical lattice origin and invalidate all grid-keyed state.
+
+        Regridding is deliberately destructive to derived geography: PlaceDB
+        rows/images, per-agent spatial maps, rendered route maps, and in-memory
+        routes/sweeps all refer to the old cell keys. Authored world positions,
+        agent starts, schedules, and ordinary memories are preserved.
+        """
+        if not (math.isfinite(origin_x) and math.isfinite(origin_y)):
+            return {"status": "error", "error": "origin_x/origin_y must be finite numbers"}
+
+        worlds_root = self.worlds_dir.resolve()
+        world_dir = (worlds_root / str(level)).resolve()
+        if (world_dir == worlds_root or worlds_root not in world_dir.parents
+                or not world_dir.is_dir()):
+            return {"status": "error", "error": f"Unknown or unsafe world '{level}'"}
+        grid_path = world_dir / "world_grid.json"
+        if not grid_path.is_file():
+            return {"status": "error", "error": f"{level} has no world_grid.json"}
+        try:
+            raw = json.loads(grid_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            return {"status": "error", "error": f"Could not read world_grid.json: {e}"}
+        if not raw.get("bounds"):
+            return {"status": "error", "error": f"{level} has no bounded grid"}
+
+        was_running = self.running
+        if was_running:
+            await self.stop_simulation()
+
+        db_path = world_dir / "world_places.db"
+        removed = {}
+        if db_path.exists():
+            target_db = (self.place_db if self.place_db is not None
+                         and self.place_db._path.resolve() == db_path.resolve()
+                         else PlaceDB(db_path))
+            removed = target_db.reset()
+
+        deleted_spatial_maps = 0
+        deleted_route_maps = 0
+        agents_dir = world_dir / "agents"
+        if agents_dir.is_dir():
+            for path in agents_dir.glob("*/spatial_map.json"):
+                path.unlink()
+                deleted_spatial_maps += 1
+            for path in agents_dir.glob("*/observations/route_map.png"):
+                path.unlink()
+                deleted_route_maps += 1
+
+        raw["origin_x"] = float(origin_x)
+        raw["origin_y"] = float(origin_y)
+        temp_path = grid_path.with_suffix(".json.tmp")
+        temp_path.write_text(json.dumps(raw, indent=2), encoding="utf-8")
+        temp_path.replace(grid_path)
+        updated_grid = WorldGrid.load(grid_path)
+
+        if self._agents_dir is not None and self._agents_dir.parent.resolve() == world_dir:
+            self.world_grid = updated_grid
+        self._spatial.clear()
+        self._last_cell.clear()
+        self._last_grid_place.clear()
+        self._frontier_failures.clear()
+        self._routes.clear()
+        self._cell_sweeps.clear()
+        self._live_pos.clear()
+
+        logger.info(
+            f"=== WORLD REGRID === level={level} logical_origin=({origin_x:.0f},{origin_y:.0f}) "
+            f"places={removed} spatial_maps={deleted_spatial_maps}"
+            f"{', sim stopped first' if was_running else ''}"
+        )
+        return {
+            "status": "regridded", "level": level,
+            "origin_x": updated_grid.origin_x, "origin_y": updated_grid.origin_y,
+            "effective_origin": list(updated_grid.origin() or ()),
+            "stopped_simulation": was_running, "removed": removed,
+            "deleted_spatial_maps": deleted_spatial_maps,
+            "deleted_route_maps": deleted_route_maps,
+        }
+
     def resync(self) -> dict:
         """Re-query the world and rebind agents without a full stop/restart cycle."""
         was_paused = self.paused
@@ -2526,7 +2797,8 @@ class AgentManager:
         # A regrid invalidates any previous image_bounds calibration — write
         # only the new grid; the capture below re-derives the calibration.
         path.write_text(
-            json.dumps({"cell_size": cell_size, "bounds": bounds}, indent=2),
+            json.dumps({"cell_size": cell_size, "bounds": bounds,
+                        "origin_x": 0.0, "origin_y": 0.0}, indent=2),
             encoding="utf-8",
         )
         self.world_grid = WorldGrid(cell_size=cell_size, bounds=bounds)

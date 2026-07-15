@@ -127,6 +127,8 @@ def test_api_map_returns_grid_and_cells():
             check("api carries world bounds", data["bounds"]["min_x"] == -2000)
             check("api carries the grid origin",
                   (data["origin_x"], data["origin_y"]) == (-2000.0, -2000.0))
+            check("api carries configurable logical origin",
+                  (data["logical_origin_x"], data["logical_origin_y"]) == (0.0, 0.0))
             check("api falls back to the shared world capture (mtime-versioned)",
                   data["image_url"].startswith("/images/world_map_view.png?v="))
             check("no calibration -> image_bounds is null", data["image_bounds"] is None)
@@ -197,6 +199,9 @@ def test_map_page_renders_with_legend_and_polls_api():
             check("coordinate math reads the transformed element",
                   "view.getBoundingClientRect()" in text
                   and "wrap.getBoundingClientRect(), f = geo.frame" not in text)
+            check("map page has preview-first grid alignment controls",
+                  'id="align-grid-btn"' in text and 'id="grid-preview-btn"' in text
+                  and '"/api/world/regrid"' in text)
         _with_worlds(tmp, body)
 
 
@@ -238,6 +243,37 @@ def test_map_image_is_served():
         _with_worlds(tmp, body)
 
 
+def test_regrid_proxy_requires_confirmation():
+    class StubRunner:
+        def __init__(self):
+            self.calls = []
+
+        def regrid(self, level, origin_x, origin_y):
+            self.calls.append((level, origin_x, origin_y))
+            return {"status": "regridded", "level": level,
+                    "origin_x": origin_x, "origin_y": origin_y}
+
+    stub = StubRunner()
+    old = wm.get_runner
+    wm.get_runner = lambda: stub
+    try:
+        client = TestClient(wm.app)
+        denied = client.post("/api/world/regrid", json={
+            "level": "TestWorld", "origin_x": -1000, "origin_y": 500,
+        })
+        check("regrid proxy rejects an unconfirmed destructive apply",
+              denied.status_code == 400 and stub.calls == [])
+        applied = client.post("/api/world/regrid", json={
+            "level": "TestWorld", "origin_x": -1000, "origin_y": 500,
+            "confirm": True,
+        })
+        check("confirmed regrid reaches the runner",
+              applied.status_code == 200
+              and stub.calls == [("TestWorld", -1000.0, 500.0)])
+    finally:
+        wm.get_runner = old
+
+
 def main():
     test_map_cells_reports_named_swept_and_landmarks()
     test_is_stale_by_wall_clock()
@@ -248,6 +284,7 @@ def main():
     test_map_page_renders_with_legend_and_polls_api()
     test_map_page_shows_grid_gen_callout_when_ungridded()
     test_map_image_is_served()
+    test_regrid_proxy_requires_confirmation()
     print("\nAll map-view checks passed.")
 
 

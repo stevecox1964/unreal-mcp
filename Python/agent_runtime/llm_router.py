@@ -357,11 +357,16 @@ class LLMRouter:
                     bits.append("your map calls this way: " + ", ".join(v["places"]))
                 lines.append(f"- {v['direction']}: " + ("; ".join(bits) if bits else "(nothing notable)"))
             views_text = (
-                "You slowly turn your head and look around, sweeping 180 degrees "
-                "from your left to your right:\n" + "\n".join(lines)
+                "You turn through the four absolute cardinal views of this place:\n"
+                + "\n".join(lines)
             )
         else:
-            views_text = "You cannot see anything yet — rely on your memories and the place label."
+            description = str(context.get("place_description") or "").strip()
+            views_text = (
+                "Your saved place visual memory describes it as:\n" + description
+                if description else
+                "You cannot see anything yet — rely on your memories and the place label."
+            )
 
         loc = context.get("location") or {}
         place = context.get("place") or []
@@ -859,6 +864,10 @@ def _place_text(observation: dict) -> str:
     if ctx and ctx.get("name"):
         compass = ctx.get("compass") or {}
         lines = [f"{ctx['name']} (known)"]
+        if ctx.get("description"):
+            lines.append("  saved visual memory: " + str(ctx["description"]).replace("\n", "; "))
+        if ctx.get("place_image_id"):
+            lines.append(f"  place image id: {ctx['place_image_id']}")
         for d in ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]:
             labels = compass.get(d) or []
             if labels:
