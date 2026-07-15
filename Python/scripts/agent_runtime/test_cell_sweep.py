@@ -118,11 +118,13 @@ def test_arrival_is_sticky():
 
 # ── Sweep capability (#11.1 — any APC, no dedicated role) ──────────────────────
 
-def test_agent_role_collapsed():
+def test_agent_survey_priority_policy():
     def mk(state):
         return Agent("a", state, "", "", "", [])
     check("default role is npc", mk({}).role == "npc")
     check("is_maintenance property is gone", not hasattr(mk({}), "is_maintenance"))
+    check("survey priority defaults off", mk({}).survey_priority is False)
+    check("survey priority is explicit per APC", mk({"survey_priority": True}).survey_priority is True)
 
 
 class _StubMemory:
@@ -358,6 +360,33 @@ def test_act_agent_travel_defers_sweep_on_entry():
         check("no sweep went active on incidental entry", "dufus" not in mgr._cell_sweeps)
 
 
+def test_surveyor_travel_starts_center_sweep_before_route():
+    """A survey-priority APC deliberately interrupts scheduled travel in an
+    unexplored cell, walks to its exact center, and leaves the schedule intact
+    so travel can resume after the deterministic N/S/E/W survey finishes."""
+    with tempfile.TemporaryDirectory() as tmp:
+        bridge = _StubBridge({"x": 1500.0, "y": 1500.0, "z": 90.0})
+        mgr = _manager(tmp)
+        mgr.bridge = bridge
+        agent = _StubAgent("dufus")
+        agent.survey_priority = True
+        mgr.agents = {"dufus": agent}
+        mgr.place_db.set_name("dufus", 8, 5, "village square", "T0")
+
+        schedule = {"status": "travel", "place": "village square"}
+        obs = _obs(1500.0, 1500.0, schedule=schedule)
+        mgr._act_agent(agent, _named_walk_decision("dufus", "village square"), obs)
+
+        action = bridge.actions[-1]
+        check("surveyor travel is replaced by a sweep interrupt",
+              action.get("_sweep_interrupt") is True)
+        check("surveyor targets the exact current-cell center",
+              action.get("location") == [200.0, 200.0, 90.0])
+        check("surveyor sweep is active", "dufus" in mgr._cell_sweeps)
+        check("scheduled destination remains available after the survey",
+              obs["schedule"] == schedule)
+
+
 def test_pulse_routes_active_sweep_without_llm():
     """Once a sweep is active, pulse_agent continues it LLM-free until the
     breadcrumb drops — and each observe turns, captures, perceives, and ingests
@@ -455,7 +484,7 @@ def main():
     test_default_sweep_needs_bounds()
     test_sweep_sequence()
     test_arrival_is_sticky()
-    test_agent_role_collapsed()
+    test_agent_survey_priority_policy()
     test_sweep_step_requires_place_visual_even_when_named()
     test_sweep_step_start_false_never_starts()
     test_sweep_step_runs_then_drops_breadcrumb()
@@ -464,6 +493,7 @@ def main():
     test_act_agent_starts_sweep_interrupt()
     test_act_agent_act_tick_is_sweep_exempt()
     test_act_agent_travel_defers_sweep_on_entry()
+    test_surveyor_travel_starts_center_sweep_before_route()
     test_pulse_routes_active_sweep_without_llm()
     test_observe_heading_direction_and_ingest()
     test_observe_heading_degrades_on_turn_failure()

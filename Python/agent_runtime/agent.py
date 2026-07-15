@@ -106,6 +106,16 @@ class Agent:
         return self.state.get("role", "npc")
 
     @property
+    def survey_priority(self) -> bool:
+        """Whether unexplored-cell surveys outrank this APC's schedule.
+
+        The flag is explicit configuration rather than inferred from prose, so
+        the deterministic movement controller and the LLM cannot disagree
+        about whether a travel/act tick should stop at the cell center first.
+        """
+        return bool(self.state.get("survey_priority", False))
+
+    @property
     def is_active(self) -> bool:
         return bool(self.state.get("is_active", True))
 

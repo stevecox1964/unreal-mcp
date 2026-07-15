@@ -3,6 +3,7 @@
 import json
 import re
 from pathlib import Path
+from urllib.parse import urlencode
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -162,6 +163,12 @@ def build_map(level: str) -> dict:
     db_path = WORLDS_DIR / level / "world_places.db"
     db = PlaceDB(db_path) if db_path.exists() else None
     cells = db.map_cells(max_age_seconds=MAP_STALE_SECONDS) if db else []
+    for cell in cells:
+        image_id = cell.get("place_image_id")
+        cell["place_image_url"] = (
+            "/api/map/place-image?" + urlencode({"level": level, "place_image_id": image_id})
+            if image_id else None
+        )
     owned = db.all_owned_places() if db else []
     named = sum(1 for c in cells if c["state"] == "named")
     swept = sum(1 for c in cells if c["state"] == "swept")
@@ -227,6 +234,26 @@ async def api_map(level: str = None):
         return JSONResponse({"level": None, "cols": None, "rows": None,
                              "cells": [], "counts": {"named": 0, "swept": 0, "total_cells": 0}})
     return JSONResponse(build_map(level))
+
+
+@app.get("/api/map/place-image")
+async def api_map_place_image(place_image_id: str, level: str = None):
+    """Serve one durable community/owned place composite referenced by PlaceDB."""
+    level = _resolve_level(level)
+    if not level:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    world_dir = (WORLDS_DIR / level).resolve()
+    db_path = world_dir / "world_places.db"
+    if not db_path.exists():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    db = PlaceDB(db_path)
+    image = db.place_image(place_image_id)
+    if not image:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    path = db.absolute_image_path(image).resolve()
+    if world_dir not in path.parents or not path.is_file():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return FileResponse(str(path), media_type="image/png")
 
 
 @app.post("/api/world/sync")

@@ -1538,6 +1538,15 @@ stores compass labels but not the durable source images that describe shared geo
 - Still required before completion: live PIE proof of real camera composition and wake reuse; cockpit or
   model-facing semantic recall that can fetch a selected historical composite plus place episodes;
   migration/quarantine of existing SR-tagged observations; and the transient gaze retention decision.
+- **SR21 map inspection follow-up (user, 2026-07-15):** Dufus live-produced community composites for
+  cells `(5,5)`, `(7,5)`, `(7,4)`, and `(8,4)`, but `/map` represented them only by cell fill while
+  authored owned places retained distinct purple markers. Add a center marker for every surveyed
+  community cell; clicking it must expose the current N/S/E/W composite plus capture metadata without
+  confusing it with an owned-place extent. The hover's current “N landmarks” is actually a count of
+  confidence-qualified `(direction, VLM label)` rows (for SR21 `(7,5)`: 47 rows, 43 lowercased labels,
+  52 sightings), not unique physical landmarks. Rename it to honest visual-observation metrics now and
+  report label-row, distinct-label, and total-sighting counts; semantic synonym deduplication remains a
+  later visual-cortex improvement. **Classification:** loop-safe API/UI/tests plus focused live map QA.
 
 **Acceptance:** a written capture/state model names every image class and owner; an offline fake engine
 proves unchanged samples cause neither a new durable file nor a VLM call; repeated identical decision
@@ -1620,11 +1629,12 @@ APC to an unrelated cell center for a four-view survey, and only resume the rout
 later. This makes a correct route look like a motel/house detour and lets exploration override the
 agent's scheduled destination.
 
-Desired behavior: scheduled travel has priority. Entering or clipping an unexplored cell while en
-route must not start a survey or replace the routed movement action. The cell remains unexplored and
-can be surveyed when the APC is no longer traveling (idle/acting where policy permits), deliberately
-settles there, or reaches an explicit exploration target. Existing in-progress sweeps may finish; wake
-surveys and non-travel survey behavior remain unchanged.
+Desired behavior: scheduled travel has priority for ordinary APCs. Entering or clipping an unexplored
+cell while en route must not start a survey or replace the routed movement action. An APC explicitly
+configured with `survey_priority`, however, deliberately reverses that order: it routes to the exact
+center of each encountered unexplored cell, completes N/S/E/W, and only then resumes its unchanged
+scheduled destination. Existing in-progress sweeps may finish; wake surveys and non-travel survey
+behavior remain unchanged.
 
 Acceptance: an offline regression presents an unexplored current cell with schedule status `travel`
 and proves the LLM's routed `walk_to` survives unchanged and no sweep state starts; companion coverage
@@ -1637,6 +1647,9 @@ Python behavior + live/PIE verification.
 - `_act_agent` now gives both scheduled `travel` and `act` directives priority over starting a new
   community-cell survey. Unscheduled/idle survey behavior is unchanged, and the separate active-sweep
   continuation path still finishes a survey already in progress.
+- **Policy update 2026-07-15:** the user requested a per-APC surveyor exception. `survey_priority=true`
+  now makes surveys outrank `travel`/`act`; Dufus has this setting plus matching surveyor goals. The
+  deterministic sweep still owns center arrival and all four cardinal captures before schedule resume.
 - Regression coverage proves a named-place routed `walk_to` survives entry into an unexplored cell,
   starts no sweep state, and retains its deterministic waypoint; companion idle and continuation tests
   remain green. Full offline suite: **44/44 passed**.

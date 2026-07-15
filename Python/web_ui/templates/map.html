@@ -77,6 +77,7 @@
     <span><span class="swatch" style="background:rgba(233,196,106,.6)"></span> swept <b id="n-swept">0</b></span>
     <span><span class="swatch" style="border:1px solid #8b95a1"></span> unexplored</span>
     <span><span class="swatch" style="box-shadow:inset 0 0 0 2px #c0392b"></span> stale <b id="n-stale">0</b></span>
+    <span><span class="swatch" style="background:#2f80ed; border-radius:50%; border:2px solid #fff"></span> surveyed community</span>
     <span><span class="swatch" style="border:2px solid #6f42c1; background:rgba(111,66,193,.3)"></span> owned place <b id="n-owned">0</b></span>
     <span><span class="swatch" style="background:#e63946; border-radius:50%; border:2px solid #fff"></span> agent (live)</span>
     <span id="pct" style="color:#666"></span>
@@ -126,6 +127,14 @@
   <p id="tip" style="color:#666; min-height:1.4em; margin-top:.5rem;">Hover a cell for details.
      Scroll to zoom, drag to pan, double-click to reset.</p>
   <p id="coords" style="color:#666; min-height:1.4em; margin-top:-.5rem; font-family:monospace;"></p>
+  <dialog id="survey-dialog" style="max-width:min(92vw,1000px); padding:1rem;">
+    <form method="dialog" style="text-align:right; margin:0;"><button type="submit">Close</button></form>
+    <h3 id="survey-title" style="margin-top:0;">Community survey</h3>
+    <img id="survey-image" alt="N/S/E/W community survey composite"
+         style="display:block; max-width:100%; max-height:70vh; margin:auto;">
+    <p id="survey-meta" style="color:#666;"></p>
+    <p id="survey-description"></p>
+  </dialog>
 
   {# #16 author panel: the no-Unreal place editor over the registered map.
      places.json is the world's root configuration (WP6) — this writes it. #}
@@ -153,6 +162,9 @@
     /* APC-owned place cells (#11.2): a 9x9 m box at anchor + offset. */
     #places .owned-mark { position:absolute; box-sizing:border-box; pointer-events:auto;
                           border:2px solid #6f42c1; background:rgba(111,66,193,.3); border-radius:2px; }
+    #places .survey-mark { position:absolute; width:16px; height:16px; margin:-8px 0 0 -8px;
+                          box-sizing:border-box; pointer-events:auto; cursor:pointer; border-radius:50%;
+                          border:2px solid #fff; background:#2f80ed; box-shadow:0 0 4px #000; }
     /* Live agents (#18): last observed position + facing, polled from the runner. */
     #agents .agent-dot { position:absolute; width:12px; height:12px; margin:-6px 0 0 -6px;
                          border-radius:50%; background:#e63946; border:2px solid #fff;
@@ -238,6 +250,25 @@
       el.style.height = (100 * h / H) + "%";
     }
 
+    function placePoint(el, x, y) {
+      const b = geo.frame, W = b.max_x - b.min_x, H = b.max_y - b.min_y;
+      el.style.left = (100 * (x - b.min_x) / W) + "%";
+      el.style.top = (100 * (y - b.min_y) / H) + "%";
+    }
+
+    function showSurvey(cell) {
+      const dialog = document.getElementById("survey-dialog");
+      document.getElementById("survey-title").textContent =
+        `${cell.name || "Surveyed community"} — cell (${cell.col}, ${cell.row})`;
+      document.getElementById("survey-image").src = cell.place_image_url;
+      document.getElementById("survey-meta").textContent =
+        `revision ${cell.place_image_revision} · captured by ${cell.place_image_captured_by || "unknown"}` +
+        (cell.place_image_captured_at ? ` · ${cell.place_image_captured_at}` : "");
+      document.getElementById("survey-description").textContent =
+        cell.place_image_description || "No saved scene description.";
+      dialog.showModal();
+    }
+
     function buildCells(data) {
       cellsEl.innerHTML = "";
       geo = { frame: data.image_bounds || data.bounds,
@@ -280,11 +311,29 @@
         el.className = "cell " + cell.state + (cell.stale ? " stale" : "");
         const who = cell.state === "named" ? `named "${cell.name}" by ${cell.named_by}` : `swept by ${cell.swept_by}`;
         const age = cell.stale ? " · STALE (needs re-observation)" : "";
-        el.dataset.tip = `(${cell.col}, ${cell.row}) — ${who} · ${cell.landmarks} landmark(s)${age}`;
+        el.dataset.tip = `(${cell.col}, ${cell.row}) — ${who} · ` +
+          `${cell.visual_observations} visual observations · ` +
+          `${cell.distinct_visual_labels} textual labels · ` +
+          `${cell.visual_sightings} sightings${age}`;
+      }
+
+      // Durable community surveys: a blue center marker opens the current
+      // N/S/E/W composite and its capture metadata.
+      placesEl.innerHTML = "";
+      for (const cell of data.cells) {
+        if (!cell.place_image_url) continue;
+        const d = document.createElement("button");
+        d.type = "button";
+        d.className = "survey-mark";
+        d.setAttribute("aria-label", `Open survey for cell (${cell.col}, ${cell.row})`);
+        placePoint(d,
+          data.origin_x + (cell.col + 0.5) * data.cell_size,
+          data.origin_y + (cell.row + 0.5) * data.cell_size);
+        d.addEventListener("click", e => { e.stopPropagation(); if (!dragged) showSurvey(cell); });
+        placesEl.appendChild(d);
       }
 
       // APC-owned place cells (#11.2): extent-sized boxes at anchor + offset.
-      placesEl.innerHTML = "";
       for (const o of data.owned || []) {
         const e = o.extent_cm || 900;
         const cx = data.origin_x + (o.col + 0.5) * data.cell_size + (o.dx || 0);

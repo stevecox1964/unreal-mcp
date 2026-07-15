@@ -31,12 +31,14 @@ def check(label, cond):
 
 # ── data layer: PlaceDB.map_cells ──────────────────────────────────────────────
 
-def test_map_cells_reports_named_swept_and_landmarks():
+def test_map_cells_reports_named_swept_and_visual_metrics():
     with tempfile.TemporaryDirectory() as tmp:
         db = PlaceDB(Path(tmp) / "world_places.db")
         db.set_name("maren", 3, 4, "Village Square", "T0")
         db.ingest_compass("maren", 3, 4, "N", [{"label": "fountain", "confidence": 0.9},
                                                {"label": "clock tower", "confidence": 0.9}])
+        db.ingest_compass("dufus", 3, 4, "S", [{"label": "Fountain", "confidence": 0.95}])
+        db.ingest_compass("dufus", 3, 4, "N", [{"label": "fountain", "confidence": 0.95}])
         db.mark_swept("dufus", 7, 2, "T1")           # swept-only, no name
         db.touch("dufus", 9, 9)                       # bare visit — not a place cell
 
@@ -46,9 +48,15 @@ def test_map_cells_reports_named_swept_and_landmarks():
         check("named + swept cells are both on the map", set(by) == {(3, 4), (7, 2)})
         check("named cell reports state=named", by[(3, 4)]["state"] == "named")
         check("named cell carries its name", by[(3, 4)]["name"] == "Village Square")
-        check("landmark count counts distinct observations", by[(3, 4)]["landmarks"] == 2)
+        check("visual metric counts direction/label rows",
+              by[(3, 4)]["visual_observations"] == 3)
+        check("visual metric counts normalized textual labels",
+              by[(3, 4)]["distinct_visual_labels"] == 2)
+        check("visual metric sums repeated sightings",
+              by[(3, 4)]["visual_sightings"] == 4)
         check("swept-only cell reports state=swept", by[(7, 2)]["state"] == "swept")
-        check("swept-only cell has no landmarks", by[(7, 2)]["landmarks"] == 0)
+        check("swept-only cell has no visual observations",
+              by[(7, 2)]["visual_observations"] == 0)
         check("swept-only cell records who swept it", by[(7, 2)]["swept_by"] == "dufus")
         check("empty world -> empty map", PlaceDB(Path(tmp) / "empty.db").map_cells() == [])
 
@@ -94,6 +102,14 @@ def _world(tmp: str, level: str = "TestWorld") -> Path:
     }), encoding="utf-8")
     db = PlaceDB(world / "world_places.db")
     db.set_name("maren", 3, 4, "Village Square", "T0")
+    image = world / "places" / "images" / "community.png"
+    image.parent.mkdir(parents=True)
+    image.write_bytes(b"\x89PNG\r\n\x1a\n")
+    db.record_place_image(
+        "maren", 3, 4, "places/images/community.png",
+        {"N": "n.png", "S": "s.png", "E": "e.png", "W": "w.png"},
+        description="Four views of the square",
+    )
     db.mark_swept("dufus", 7, 2, "T1")
     db.add_owned_place("maren", 3, 4, "My Home", dx=120.0, dy=-80.0)
     return world
@@ -118,6 +134,13 @@ def test_api_map_returns_grid_and_cells():
             check("api reports grid dims (10x10)", (data["cols"], data["rows"]) == (10, 10))
             check("api reports cell_size", data["cell_size"] == 400.0)
             check("api returns both place cells", len(data["cells"]) == 2)
+            mapped = next(c for c in data["cells"] if (c["col"], c["row"]) == (3, 4))
+            check("api exposes surveyed-cell image metadata",
+                  mapped["place_image_id"] and mapped["place_image_revision"] == 1
+                  and mapped["place_image_captured_by"] == "maren")
+            check("api exposes a browser-safe composite URL",
+                  mapped["place_image_url"].startswith(
+                      "/api/map/place-image?level=TestWorld&place_image_id="))
             check("api counts named + swept", data["counts"]["named"] == 1 and data["counts"]["swept"] == 1)
             check("api carries owned places with geometry (#11.2/#6c)",
                   data["owned"] == [{"col": 3, "row": 4, "owner": "maren", "name": "My Home",
@@ -182,6 +205,12 @@ def test_map_page_renders_with_legend_and_polls_api():
                   "named" in text.lower() and "swept" in text.lower() and "unexplored" in text.lower())
             check("map page has an owned-place legend + marker style",
                   "owned place" in text and "owned-mark" in text)
+            check("map page has clickable surveyed-community markers",
+                  "surveyed community" in text and "survey-mark" in text
+                  and 'id="survey-dialog"' in text)
+            check("map page labels counts as visual observations, not physical landmarks",
+                  "visual observations" in text.lower()
+                  and "${cell.landmarks} landmark(s)" not in text)
             check("grid lines are visible (not the near-invisible pale gap)",
                   "#8b95a1" in text and "background:#ddd" not in text)
             check("map page fetches /api/map to build out live", "/api/map" in text)
@@ -243,6 +272,22 @@ def test_map_image_is_served():
         _with_worlds(tmp, body)
 
 
+def test_place_composite_is_served_from_current_map_record():
+    with tempfile.TemporaryDirectory() as tmp:
+        _world(tmp)
+
+        def body(client):
+            mapped = next(c for c in client.get("/api/map?level=TestWorld").json()["cells"]
+                          if (c["col"], c["row"]) == (3, 4))
+            resp = client.get(mapped["place_image_url"])
+            check("survey composite endpoint serves the current place image", resp.status_code == 200)
+            check("survey composite endpoint returns PNG content", resp.content.startswith(b"\x89PNG"))
+            missing = client.get(
+                "/api/map/place-image?level=TestWorld&place_image_id=does-not-exist")
+            check("unknown place image is not exposed", missing.status_code == 404)
+        _with_worlds(tmp, body)
+
+
 def test_regrid_proxy_requires_confirmation():
     class StubRunner:
         def __init__(self):
@@ -275,7 +320,7 @@ def test_regrid_proxy_requires_confirmation():
 
 
 def main():
-    test_map_cells_reports_named_swept_and_landmarks()
+    test_map_cells_reports_named_swept_and_visual_metrics()
     test_is_stale_by_wall_clock()
     test_map_cells_surfaces_stale_flag_when_asked()
     test_api_map_returns_grid_and_cells()
@@ -284,6 +329,7 @@ def main():
     test_map_page_renders_with_legend_and_polls_api()
     test_map_page_shows_grid_gen_callout_when_ungridded()
     test_map_image_is_served()
+    test_place_composite_is_served_from_current_map_record()
     test_regrid_proxy_requires_confirmation()
     print("\nAll map-view checks passed.")
 

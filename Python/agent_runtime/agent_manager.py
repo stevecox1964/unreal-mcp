@@ -1610,12 +1610,15 @@ class AgentManager:
         # before acting — the sweep's first step replaces this tick's LLM action;
         # the following steps run LLM-free via _pulse_sweep until the breadcrumb
         # drops, then the sequencer resumes the routine. Scheduled "act" and
-        # "travel" ticks are exempt. Acting APCs must not abandon their post;
-        # traveling APCs must not have a transient navmesh boundary crossing
-        # replace their route with a trip to the incidental cell center. The
-        # still-unmapped cell remains eligible on a later idle tick.
+        # "travel" ticks are normally exempt. Acting APCs must not abandon their
+        # post, and ordinary travelers must not treat transient cell crossings
+        # as detours. An APC configured with survey_priority deliberately flips
+        # that policy: it owns the current unexplored cell first, walks to its
+        # exact center, completes N/S/E/W, and then resumes its unchanged schedule.
         sched_status = (observation.get("schedule") or {}).get("status")
-        if sched_status not in {"act", "travel"} and self._should_sweep_here(observation, agent_id):
+        survey_priority = bool(getattr(agent, "survey_priority", False))
+        if ((survey_priority or sched_status not in {"act", "travel"})
+                and self._should_sweep_here(observation, agent_id)):
             sweep_action = self._sweep_step(agent_id, observation, start=True)
             if sweep_action is not None:
                 action = sweep_action
@@ -2009,9 +2012,9 @@ class AgentManager:
         """True when the current grid cell still needs a community place image.
 
         This is the schedule-agnostic spatial/storage gate. The act-phase caller
-        applies #34's routine policy: it may start a sweep while unscheduled or
-        idle, but not while scheduled to act or travel. Needs a bounded grid (a
-        cell center to walk to) and a PlaceDB (somewhere to drop the breadcrumb).
+        applies #34's routine policy plus the per-APC survey-priority override.
+        Needs a bounded grid (a cell center to walk to) and a PlaceDB (somewhere
+        to drop the breadcrumb).
         """
         col, row = self._cell_col_row(observation.get("grid"))
         if col is None or self.place_db is None:

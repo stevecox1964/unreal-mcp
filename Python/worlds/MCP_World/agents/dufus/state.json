@@ -4,6 +4,7 @@
   "display_name": "Dufus",
   "blueprint_class": "/Game/Blueprints/APC_Dufus_BP.APC_Dufus_BP_C",
   "tier": 2,
+  "survey_priority": true,
   "is_active": true,
   "tick_interval_seconds": 0,
   "speech_cooldown_seconds": 30,

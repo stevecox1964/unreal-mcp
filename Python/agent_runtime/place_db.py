@@ -390,17 +390,22 @@ class PlaceDB:
         """
         with self._connect() as conn:
             cells = conn.execute(
-                "SELECT col, row, name, named_by, named_at, swept_at, swept_by, updated_at "
-                "FROM place_cells "
-                "WHERE name IS NOT NULL OR swept_at IS NOT NULL "
-                "ORDER BY col, row"
+                "SELECT c.col, c.row, c.name, c.named_by, c.named_at, c.swept_at, "
+                "c.swept_by, c.updated_at, c.place_image_id, p.revision, "
+                "p.description, p.captured_by, p.captured_at "
+                "FROM place_cells c LEFT JOIN place_images p "
+                "ON p.place_image_id=c.place_image_id "
+                "WHERE c.name IS NOT NULL OR c.swept_at IS NOT NULL "
+                "ORDER BY c.col, c.row"
             ).fetchall()
             counts = conn.execute(
-                "SELECT col, row, COUNT(*) AS n FROM place_observations "
-                "WHERE confidence >= ? GROUP BY col, row",
+                "SELECT col, row, COUNT(*) AS visual_observations, "
+                "COUNT(DISTINCT LOWER(TRIM(landmark))) AS distinct_visual_labels, "
+                "COALESCE(SUM(observation_count), 0) AS visual_sightings "
+                "FROM place_observations WHERE confidence >= ? GROUP BY col, row",
                 (_CONFIDENCE_FLOOR,),
             ).fetchall()
-        landmark_count = {(c["col"], c["row"]): c["n"] for c in counts}
+        visual_counts = {(c["col"], c["row"]): c for c in counts}
         now = now or datetime.now(timezone.utc)
         out = []
         for r in cells:
@@ -409,13 +414,42 @@ class PlaceDB:
                 "name": r["name"], "named_by": r["named_by"], "named_at": r["named_at"],
                 "swept_at": r["swept_at"], "swept_by": r["swept_by"],
                 "updated_at": r["updated_at"],
-                "landmarks": landmark_count.get((r["col"], r["row"]), 0),
+                "visual_observations": 0,
+                "distinct_visual_labels": 0,
+                "visual_sightings": 0,
+                # Compatibility for engine-neutral route-map facts. The web UI
+                # deliberately does not present this as physical landmarks.
+                "landmarks": 0,
                 "state": "named" if r["name"] else "swept",
+                "place_image_id": r["place_image_id"],
+                "place_image_revision": r["revision"],
+                "place_image_description": r["description"],
+                "place_image_captured_by": r["captured_by"],
+                "place_image_captured_at": r["captured_at"],
             }
+            metrics = visual_counts.get((r["col"], r["row"]))
+            if metrics:
+                cell.update({
+                    "visual_observations": metrics["visual_observations"],
+                    "distinct_visual_labels": metrics["distinct_visual_labels"],
+                    "visual_sightings": metrics["visual_sightings"],
+                    "landmarks": metrics["visual_observations"],
+                })
             if max_age_seconds is not None:
                 cell["stale"] = self._age_exceeds(r["updated_at"], max_age_seconds, now)
             out.append(cell)
         return out
+
+    def place_image(self, place_image_id: str) -> dict | None:
+        """Return one immutable place-image revision by ID.
+
+        Example valid input: ``place_image("0123456789abcdef0123456789abcdef")``.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM place_images WHERE place_image_id=?", (place_image_id,)
+            ).fetchone()
+        return dict(row) if row else None
 
     @staticmethod
     def _age_exceeds(updated_at: str, max_age_seconds: float, now: datetime) -> bool:
