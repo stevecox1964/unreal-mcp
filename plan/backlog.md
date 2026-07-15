@@ -3,37 +3,39 @@
 Rolling list of outstanding work — add items as they come up, check off or
 delete them as they land. Not session-scoped; this is the durable home for
 approved scope and priority. Handoffs are chronological session state.
-Newest grooming: **2026-07-13**.
+Newest grooming: **2026-07-15**.
 
-## Active view — groomed 2026-07-13
+## Active view — groomed 2026-07-15
 
 ### Now
 
-1. **#33 Add a configurable logical grid origin/offset** so districts align intentionally with
-   streets, buildings, landmarks, and owned-place extents—not just with world-zero multiples.
+1. **#27 Make scheduled named-place travel authoritative:** while a named travel ticket is active,
+   ordinary relative/directional LLM `walk_to` actions must execute the deterministic next route
+   waypoint instead. Recovery exceptions remain separately gated on confirmed blocker/stuck facts.
 
 ### Next
 
-1. **#32 Build and live-verify the visual cortex + place-linked visual memory lifecycle:** the
-   first offline slice now creates four-cardinal composites, stable DB image references, and APC
-   visual-history links; live capture, recall-query, and transient-frame cleanup remain.
-2. **#27 Decide and build community-landmark final approach:** entering the correct 30 m district
-   should not necessarily mean arriving at the physical landmark actor inside it.
-3. **#29 Contain cockpit world/agent paths** before any read, write, or recursive delete.
+1. **#29 Contain cockpit world/agent paths** before any read, write, or recursive delete.
+2. **#30 Declare `httpx` directly** so clean installs do not depend on a transitive dependency.
+3. **#20 Add movement/cognition timing instrumentation** before tuning tick cadence or schedules.
 
 ### Waiting
 
-- **PIE/live verification bundle:** #17 routed travel, #23 landmarks, #24 launcher,
-  #13.2/#13.3 cockpit controls, #14 replay, B7b personal space, and the sweep/map checks.
+- **#32 visual cortex:** choose transient gaze retention/dedup and unique-frame retention; semantic
+  place recall remains an approved implementation slice once its query surface is selected.
+- **#27 later slices:** community-landmark final-approach geometry and the bounded local-recovery/
+  road/dead-end policy still need their explicit design choices.
+- **PIE/live verification bundle:** #23 landmarks after editor moves, #24 launcher, #14 replay,
+  B7b personal space, and remaining cockpit/onboarding checks.
 - **Child Blueprint meshes:** actor rebind is done; mesh selection remains an editor choice.
 - **#12.2 interaction memory:** needs a compact event-schema decision before implementation.
 
 ### Loop-safe
 
-In execution order while #32/#33 design gates are being resolved: **#29**, **#20 instrumentation
-only**, **#30**. Each requires
-a failing offline test first and the full suite green. No product code is authorized by
-this grooming pass; use `$autonomous-loop` only after the queue is reviewed.
+Approved by the user's 2026-07-15 unattended-work direction, in execution order: **#27 authoritative
+travel slice**, **#29**, **#30**, then **#20 instrumentation only**. Each requires a failing offline
+test first, the full suite green, and a reviewable commit on `auto-loop/*`. Stop at any unresolved
+product decision or live/editor gate.
 
 > **Historical status log below.** Dated banners and the 2026-07-01 queues are retained
 > as evidence, not as current priority. The active view above is authoritative.
@@ -1428,8 +1430,8 @@ cognition occurred for the nearby/changed-scene events and slept once the settle
 
 ## 32. Visual cortex + two-tier image lifecycle
 
-**Status:** **NOW / IN PROGRESS — core place visual memory built offline, 44/44 green; live PIE and
-recall-query work remain** (2026-07-14) ·
+**Status:** **IN PROGRESS — core place visual memory and map inspection are live-proven; semantic
+recall and transient-frame policy remain** (2026-07-15) ·
 **Source:** user stopping-point review: “rebuild this image scene capture code so that a place image is
 actually 4 images with north east south west as well as grid/place xy data”; follow-up: “We are
 building visual memories” and every community or individual place cell needs a corresponding place
@@ -1547,6 +1549,12 @@ stores compass labels but not the durable source images that describe shared geo
   52 sightings), not unique physical landmarks. Rename it to honest visual-observation metrics now and
   report label-row, distinct-label, and total-sighting counts; semantic synonym deduplication remains a
   later visual-cortex improvement. **Classification:** loop-safe API/UI/tests plus focused live map QA.
+- **Map follow-up landed 2026-07-15:** `/map` now renders a blue center marker for every community
+  cell with a current place image; its dialog serves the N/S/E/W composite plus revision, capturer,
+  timestamp, and description. Hover reports visual-observation rows, normalized textual labels, and
+  total sightings instead of claiming unique physical landmarks. Verified against the live SR21 DB:
+  five markers rendered and Dufus's `(7,5)` 1280×848 composite loaded with no browser errors. Full
+  offline suite: **44/44 passed**.
 
 **Acceptance:** a written capture/state model names every image class and owner; an offline fake engine
 proves unchanged samples cause neither a new durable file nor a VLM call; repeated identical decision
@@ -1565,7 +1573,7 @@ bridge primitives appear sufficient; no C++ is assumed.
 
 ## 33. Configurable logical grid origin aligned to the authored world
 
-**Status:** **NEXT — problem confirmed; offset-selection UX is a design decision** (2026-07-13) ·
+**Status:** ✅ **DONE 2026-07-14 — implementation, MCP_World alignment, and live reuse verified** ·
 **Source:** user map review: Maren’s place cell/landmark nearly crosses two cells and the grid should
 align with streets/buildings · **Depends on:** #18 registered map; invalidates grid-keyed #11/#32 data
 
@@ -1610,14 +1618,15 @@ grid/map/storage work; final alignment is live/editor acceptance.
   routes, and in-progress sweeps tied to the old grid.
 - Offset round trips, SpatialMap parity, reset integrity, runner/client transport, confirmation gating,
   and map controls are covered offline. Full suite: **44/44 passed**.
-- Still required: restart the web app and runner, visually choose/preview MCP_World's offset, apply the
-  confirmed regrid, then live-check cell centers and authored landmarks before rebuilding place images.
+- MCP_World accepted and applied logical origin X `0`, Y `650` cm. SR18–SR21 rebuilt place images and
+  exercised cell centers/routes under that lattice. Future origin changes remain deliberate regrids,
+  not normal run setup.
 
 ---
 
 ## 34. Defer community-cell surveys during scheduled travel
 
-**Status:** **IMPLEMENTED OFFLINE 2026-07-14 — live verification pending** · **Source:** SR18 live
+**Status:** ✅ **DONE 2026-07-15 — ordinary and survey-priority policies live-observed** · **Source:** SR18 live
 review: Dufus began
 the correct village-square route, briefly entered an adjacent unsurveyed cell while navigating around
 the blue house/car, then the sweep interrupt replaced his route action and sent him backward to that
@@ -1653,18 +1662,17 @@ Python behavior + live/PIE verification.
 - Regression coverage proves a named-place routed `walk_to` survives entry into an unexplored cell,
   starts no sweep state, and retains its deterministic waypoint; companion idle and continuation tests
   remain green. Full offline suite: **44/44 passed**.
-- Still required: a fresh PIE run showing Dufus follows the village-square route without being pulled
-  back to an incidental cell center.
+- **Live evidence:** SR19 showed the ordinary travel gate caused no survey detour; its remaining
+  west/north deviation was the separate #27 mixed-control defect. SR21 then live-proved the explicit
+  surveyor exception: Dufus completed durable community composites at `(5,5)`, `(7,5)`, `(7,4)`, and
+  `(8,4)` before resuming schedule travel.
 
 ---
 
 ## Outstanding — human / editor / live (not loop-safe)
 
 - **#32:** choose transient gaze retention/dedup policy and whether owned landmarks receive their own
-  four-image survey sets in addition to community cells.
-- **#33:** choose manual/drag/assisted offset selection; applying it requires a deliberate full regrid.
-- **#34:** live-run Dufus toward village square and confirm incidental unexplored-cell crossings do not
-  interrupt his route with a center survey.
+  four-image survey sets in addition to community cells. Community marker/composite inspection is done.
 - **#27:** choose community-landmark anchor/extent semantics, then continue persistent-ticket and
   obstacle/dead-end work; coarse routed arrival itself passed in SR15.
 - **PIE verification bundle:** #17 routed travel, #23 landmarks, #24 launcher, #13.2/#13.3 cockpit
