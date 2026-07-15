@@ -105,7 +105,8 @@ def _nearest_decision(ftime, decisions, window: float):
     if best is None:
         return None
     return {"action_type": best.get("action_type"), "thought": best.get("thought"),
-            "result_status": best.get("result_status"), "timestamp": best.get("timestamp")}
+            "result_status": best.get("result_status"), "timestamp": best.get("timestamp"),
+            "timing": best.get("timing")}
 
 
 def list_frames(world_dir: Path, run: str, agent: str,

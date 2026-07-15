@@ -71,6 +71,7 @@ _STATIONARY_REDECIDE_TICKS = 4
 _STUCK_PROGRESS_CM = 100.0   # min cm advanced per tick to count as real progress
 _STUCK_TICKS = 3             # consecutive no-progress moving ticks → stuck
 _STUCK_TRACE_CM = 300.0      # forward raycast distance when stuck (cm)
+_MOVEMENT_START_CM = 10.0    # ignore tiny pose jitter when timing first displacement
 
 # Path sense (B7): while traveling, watch what is directly ahead so the agent
 # can step around people/vehicles instead of walking through them — pawn-vs-pawn
@@ -184,6 +185,7 @@ class AgentManager:
         self._last_grid_place: dict[str, tuple] = {}  # agent_id -> (grid, place), reported even when LLM skipped
         self._routes: dict[str, dict] = {}          # agent_id -> cached grid-first route (#17/WP8)
         self._live_pos: dict[str, dict] = {}        # agent_id -> {x,y,yaw} last observed (#18 live map)
+        self._movement_timing: dict[str, dict] = {} # agent_id -> wake/first-walk/displacement clocks (#20)
 
         # Fixed per-level grid; reloaded with the level in _load_agents.
         self.world_grid = WorldGrid()
@@ -295,6 +297,7 @@ class AgentManager:
         # New run = a fresh wake for every agent (wake-time place seeding rearms).
         self._wake_stepped.clear()
         self._validated_plans.clear()
+        self._movement_timing.clear()
 
         active = [a for a in self.agents.values() if a.is_active and a.has_unreal_binding]
         if not active:
@@ -603,6 +606,7 @@ class AgentManager:
                 tf = self.bridge.get_character_transform(agent.bound_unreal_actor_name)
                 loc = tf.get("location")
                 rot = tf.get("rotation")
+                self._begin_movement_timing(agent.agent_id, loc)
                 grid, place = self._grid_and_place(agent.agent_id, loc)
                 col, row = self._cell_col_row(grid)
 
@@ -732,6 +736,8 @@ class AgentManager:
                         "schedule": context.get("schedule"),
                     }
                     first_result = self._execute_world_action(agent, first_action, wake_obs)
+                    self._mark_first_walk_accepted(
+                        agent.agent_id, first_action, first_result)
 
                 self.memory.record(
                     agent_id=agent.agent_id,
@@ -746,6 +752,7 @@ class AgentManager:
                     result=first_result or {"status": "ok"},
                     memory_update=orientation.get("memory_update"),
                     importance=float(orientation.get("importance", 0.7)),
+                    timing=self._movement_timing_snapshot(agent.agent_id),
                 )
                 logger.info(
                     f"[{agent.agent_id}] WAKE {context['world_time']} place={place or 'unknown'} "
@@ -961,9 +968,14 @@ class AgentManager:
 
         # Phase 1: observe (sequential, bridge)
         observations: dict[str, dict | None] = {}
+        timings: dict[str, dict] = {}
         for agent in ready:
             self._set_activity(agent, "sampling")
+            started = time.monotonic()
             observations[agent.agent_id] = self._observe_agent(agent)
+            timings[agent.agent_id] = {
+                "observe_ms": round((time.monotonic() - started) * 1000.0, 3)
+            }
         self._attach_nearby_characters(observations)
 
         # Phase 2: perceive + decide (parallel, thread pool)
@@ -975,17 +987,23 @@ class AgentManager:
         decisions: dict[str, dict | None] = {}
         if llm_needed:
             tasks = [
-                asyncio.to_thread(self._perceive_and_decide, agent, observations[agent.agent_id])
+                asyncio.to_thread(self._timed_perceive_and_decide,
+                                  agent, observations[agent.agent_id])
                 for agent in llm_needed
             ]
             results_raw = await asyncio.gather(*tasks, return_exceptions=True)
             for agent, result in zip(llm_needed, results_raw):
-                decisions[agent.agent_id] = result
+                if isinstance(result, Exception):
+                    decisions[agent.agent_id] = result
+                else:
+                    decisions[agent.agent_id], timings[agent.agent_id]["llm_ms"] = result
 
         # Phase 3: act (sequential, bridge) — appends to the sweep results.
         for agent in ready:
             obs = observations.get(agent.agent_id)
             decision = decisions.get(agent.agent_id)
+            if obs is not None:
+                obs["_timing"] = timings[agent.agent_id]
             results.append(self._act_agent(agent, decision, obs))
 
         return {"ticked": len(results), "agent_results": results}
@@ -1008,15 +1026,72 @@ class AgentManager:
         self._set_activity(agent, "sampling")
         # This endpoint is an explicit operator pulse. It intentionally bypasses
         # settled-agent suppression so "pulse" still means "think now".
+        started = time.monotonic()
         obs = self._observe_agent(agent, force_cognition=True)
+        timing = {"observe_ms": round((time.monotonic() - started) * 1000.0, 3)}
         if obs is None:
             grid, place = self._last_grid_place.get(agent_id, (None, []))
             return {"agent_id": agent_id, "action": "idle", "reason": "scene_unchanged",
                     "grid": grid, "place": place}
         self._attach_nearby_characters({agent_id: obs})
         self._set_activity(agent, "thinking")
-        decision = await asyncio.to_thread(self._perceive_and_decide, agent, obs)
+        decision, timing["llm_ms"] = await asyncio.to_thread(
+            self._timed_perceive_and_decide, agent, obs)
+        obs["_timing"] = timing
         return self._act_agent(agent, decision, obs)
+
+    def _timed_perceive_and_decide(self, agent: Agent, observation: dict) -> tuple:
+        """Run the model phase and return its own wall-clock latency."""
+        started = time.monotonic()
+        try:
+            result = self._perceive_and_decide(agent, observation)
+        except Exception as exc:
+            result = exc
+        return result, round((time.monotonic() - started) * 1000.0, 3)
+
+    def _begin_movement_timing(self, agent_id: str, location) -> None:
+        """Start the per-run wake → movement milestone clock for one APC."""
+        xyz = _loc_xyz(location)
+        self._movement_timing[agent_id] = {
+            "wake_at": time.monotonic(),
+            "start_xy": (xyz[0], xyz[1]) if xyz is not None else None,
+            "walk_accepted_at": None,
+            "displaced_at": None,
+        }
+
+    def _mark_first_walk_accepted(self, agent_id: str, action: dict,
+                                  result: dict) -> None:
+        timing = self._movement_timing.get(agent_id)
+        if not timing or timing["walk_accepted_at"] is not None:
+            return
+        if action.get("type") not in {"walk_to", "wander"} or result.get("error"):
+            return
+        if result.get("status") in {"accepted", "success", "ok"} or result.get("success") is True:
+            timing["walk_accepted_at"] = time.monotonic()
+
+    def _mark_first_displacement(self, agent_id: str, location) -> None:
+        timing = self._movement_timing.get(agent_id)
+        xyz = _loc_xyz(location)
+        if (not timing or timing["walk_accepted_at"] is None
+                or timing["displaced_at"] is not None or timing["start_xy"] is None
+                or xyz is None):
+            return
+        if math.hypot(xyz[0] - timing["start_xy"][0],
+                      xyz[1] - timing["start_xy"][1]) >= _MOVEMENT_START_CM:
+            timing["displaced_at"] = time.monotonic()
+
+    def _movement_timing_snapshot(self, agent_id: str) -> dict:
+        timing = self._movement_timing.get(agent_id)
+        if not timing:
+            return {}
+        out = {}
+        if timing["walk_accepted_at"] is not None:
+            out["wake_to_walk_accepted_ms"] = round(
+                (timing["walk_accepted_at"] - timing["wake_at"]) * 1000.0, 3)
+        if timing["displaced_at"] is not None:
+            out["wake_to_first_displacement_ms"] = round(
+                (timing["displaced_at"] - timing["wake_at"]) * 1000.0, 3)
+        return out
 
     # ── Tick phases ──────────────────────────────────────────────────────────
 
@@ -1069,6 +1144,7 @@ class AgentManager:
 
         # Live map telemetry (#18): remember where this agent was last observed.
         self._record_live_pos(agent_id, observation)
+        self._mark_first_displacement(agent_id, observation.get("location"))
 
         # Proximity is a cheap deterministic event source. It must run before
         # the visual-diff gate because _attach_nearby_characters normally runs
@@ -1584,6 +1660,7 @@ class AgentManager:
     def _act_agent(self, agent: Agent, decision, observation: dict | None) -> dict:
         """Phase 3: validate decision, execute in Unreal, persist memory."""
         agent_id = agent.agent_id
+        act_started = time.monotonic()
 
         if observation is None:
             return {"agent_id": agent_id, "action": "idle", "reason": "scene_unchanged"}
@@ -1624,6 +1701,10 @@ class AgentManager:
                 action = sweep_action
 
         result = self._execute_world_action(agent, action, observation)
+        self._mark_first_walk_accepted(agent_id, action, result)
+        timing = observation.setdefault("_timing", {})
+        timing["act_ms"] = round((time.monotonic() - act_started) * 1000.0, 3)
+        timing.update(self._movement_timing_snapshot(agent_id))
         status = result.get("status") or result.get("success")
         self._pie_activity(agent_id, f"OBS fire -> {action.get('type')} [{status}]")
 
@@ -1642,6 +1723,7 @@ class AgentManager:
             result=result,
             memory_update=decision.get("memory_update"),
             importance=float(decision.get("importance", 0.5)),
+            timing=timing,
         )
         self._record_episode(agent_id, observation, action, result)
         # Remember the scheduled activity this tick so next tick's sequencer can

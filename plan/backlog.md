@@ -9,7 +9,7 @@ Newest grooming: **2026-07-15**.
 
 ### Now
 
-1. **#20 Add movement/cognition timing instrumentation** before tuning tick cadence or schedules.
+No implementation-ready item remains that can proceed without a product choice or live/editor input.
 
 ### Next
 
@@ -28,10 +28,10 @@ No additional implementation-ready items are queued behind #20.
 
 ### Loop-safe
 
-Approved by the user's 2026-07-15 unattended-work direction: **#20 instrumentation only** remains.
-The #27 authoritative-travel, #29 containment, and #30 dependency slices landed on this branch. #20 requires a failing offline
-test first, the full suite green, and a reviewable commit on `auto-loop/*`. Stop at any unresolved
-product decision or live/editor gate.
+The approved 2026-07-15 unattended queue is complete: #27 authoritative travel, #29 containment,
+#30 dependency declaration, and #20 instrumentation all landed on this branch with failing-first
+regressions, full-suite verification, and reviewable commits. Stop at the remaining unresolved
+product decisions and live/editor gates.
 
 > **Historical status log below.** Dated banners and the 2026-07-01 queues are retained
 > as evidence, not as current priority. The active view above is authoritative.
@@ -989,7 +989,7 @@ loop-safe.
 
 ## 20. Movement pacing — Dufus is slow to get going
 
-**Status:** **NEXT — instrumentation slice ready and loop-safe; tuning remains evidence-gated** ·
+**Status:** ✅ **INSTRUMENTATION DONE 2026-07-15 — 47/47 offline green; tuning remains evidence-gated** ·
 **Source:** user, 2026-07-06 ("Dufus takes a long time to move, but eventually does. Goes down street.")
 
 Might be real (tick cadence, cooldowns, walk speed, LLM latency per decision) or might be persona
@@ -998,6 +998,12 @@ stuck"). Don't tune blind: instrument first. Add per-agent timing to the decisio
 (#14): wall-clock from wake → first `walk_to` accepted → first actual displacement, and per-tick
 latency broken into observe/LLM/act. Then decide whether the fix is pacing config, schedule
 trimming, or nothing.
+
+**Built:** each recorded decision now carries wall-clock `observe_ms`, per-agent parallel `llm_ms`,
+and `act_ms`. Per-run movement startup tracks wake → first accepted walk and wake → first observed
+displacement (10 cm jitter threshold), and adds each available milestone to subsequent timing data.
+Wake entries carry available startup timing; replay's joined decision exposes the same timing object.
+No cadence, schedule, persona, or walk-speed tuning was guessed.
 
 ---
 

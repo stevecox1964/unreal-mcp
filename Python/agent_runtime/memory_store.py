@@ -108,6 +108,7 @@ class MemoryStore:
         result: dict,
         memory_update: str | None = None,
         importance: float = 0.5,
+        timing: dict | None = None,
     ) -> None:
         timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -119,6 +120,8 @@ class MemoryStore:
             "thought": observation.get("_thought"),
             "result_status": result.get("status") or result.get("success"),
         }
+        if timing:
+            entry["timing"] = timing
         with open(self.decisions_log, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
 
