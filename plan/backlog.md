@@ -9,11 +9,11 @@ Newest grooming: **2026-07-15**.
 
 ### Now
 
-1. **#30 Declare `httpx` directly** so clean installs do not depend on a transitive dependency.
+1. **#20 Add movement/cognition timing instrumentation** before tuning tick cadence or schedules.
 
 ### Next
 
-1. **#20 Add movement/cognition timing instrumentation** before tuning tick cadence or schedules.
+No additional implementation-ready items are queued behind #20.
 
 ### Waiting
 
@@ -28,8 +28,8 @@ Newest grooming: **2026-07-15**.
 
 ### Loop-safe
 
-Approved by the user's 2026-07-15 unattended-work direction, in execution order: **#30**, then
-**#20 instrumentation only**. The #27 authoritative-travel and #29 containment slices landed on this branch. Each requires a failing offline
+Approved by the user's 2026-07-15 unattended-work direction: **#20 instrumentation only** remains.
+The #27 authoritative-travel, #29 containment, and #30 dependency slices landed on this branch. #20 requires a failing offline
 test first, the full suite green, and a reviewable commit on `auto-loop/*`. Stop at any unresolved
 product decision or live/editor gate.
 
@@ -1377,7 +1377,7 @@ files and sentinels unchanged.
 
 ## 30. Declare the runner client's direct HTTP dependency
 
-**Status:** **NEXT — ready and loop-safe** (2026-07-11) · **Source:** architecture/correctness audit ·
+**Status:** ✅ **DONE 2026-07-15 — 46/46 offline green** · **Source:** architecture/correctness audit ·
 **Touches:** `Python/pyproject.toml`, lockfile, dependency/import smoke test
 
 `RunnerClient` imports `httpx` directly, but `pyproject.toml` does not declare it. The current
@@ -1386,6 +1386,10 @@ implementation details.
 
 Add a compatible direct `httpx` dependency, refresh the lockfile, and verify a clean project
 environment can import and construct `RunnerClient` without relying on test-only dependencies.
+
+**Built:** `httpx>=0.25.0,<1` is now an explicit application dependency and `uv.lock` was refreshed.
+The offline packaging contract parses `pyproject.toml`, requires the direct declaration, constructs
+the default `RunnerClient`, and closes its HTTP client.
 
 ---
 
