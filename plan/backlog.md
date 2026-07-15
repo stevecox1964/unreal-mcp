@@ -13,7 +13,7 @@ No implementation-ready item remains that can proceed without a product choice o
 
 ### Next
 
-No additional implementation-ready items are queued behind #20.
+No additional implementation-ready items are queued.
 
 ### Waiting
 
