@@ -182,6 +182,26 @@ def test_executor_walks_legs():
         check("route popped on arrival", "maren" not in mgr._routes)
 
 
+def test_scheduled_named_travel_overrides_relative_steering():
+    """SR19 regression: a travel directive owns ordinary locomotion."""
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr, bridge = _manager(tmp)
+        dufus = StubAgent("dufus")
+        mgr.place_db.set_name("dufus", 8, 5, "village square", "T0")
+        obs = _obs(200.0, 200.0)
+        obs["rotation"] = {"yaw": 180.0}
+        obs["schedule"] = {"status": "travel", "place": "village square"}
+
+        mgr._execute_world_action(
+            dufus, {"type": "walk_to", "direction": "forward"}, obs)
+
+        sent = bridge.calls[-1][1]
+        check("scheduled destination replaces relative westward steering",
+              sent["location"] == [600.0, 200.0, 90.0])
+        check("scheduled destination owns the cached route",
+              mgr._routes["dufus"]["destination"] == "village square")
+
+
 def test_executor_replans():
     with tempfile.TemporaryDirectory() as tmp:
         mgr, bridge = _manager(tmp)
@@ -344,6 +364,7 @@ def main():
     test_next_waypoint_legs()
     test_next_waypoint_owned_standoff()
     test_executor_walks_legs()
+    test_scheduled_named_travel_overrides_relative_steering()
     test_executor_replans()
     test_executor_fallbacks()
     test_at_place_wander_stays_inside_place()

@@ -9,15 +9,12 @@ Newest grooming: **2026-07-15**.
 
 ### Now
 
-1. **#27 Make scheduled named-place travel authoritative:** while a named travel ticket is active,
-   ordinary relative/directional LLM `walk_to` actions must execute the deterministic next route
-   waypoint instead. Recovery exceptions remain separately gated on confirmed blocker/stuck facts.
+1. **#29 Contain cockpit world/agent paths** before any read, write, or recursive delete.
 
 ### Next
 
-1. **#29 Contain cockpit world/agent paths** before any read, write, or recursive delete.
-2. **#30 Declare `httpx` directly** so clean installs do not depend on a transitive dependency.
-3. **#20 Add movement/cognition timing instrumentation** before tuning tick cadence or schedules.
+1. **#30 Declare `httpx` directly** so clean installs do not depend on a transitive dependency.
+2. **#20 Add movement/cognition timing instrumentation** before tuning tick cadence or schedules.
 
 ### Waiting
 
@@ -32,8 +29,8 @@ Newest grooming: **2026-07-15**.
 
 ### Loop-safe
 
-Approved by the user's 2026-07-15 unattended-work direction, in execution order: **#27 authoritative
-travel slice**, **#29**, **#30**, then **#20 instrumentation only**. Each requires a failing offline
+Approved by the user's 2026-07-15 unattended-work direction, in execution order: **#29**, **#30**,
+then **#20 instrumentation only**. The #27 authoritative-travel slice landed on this branch. Each requires a failing offline
 test first, the full suite green, and a reviewable commit on `auto-loop/*`. Stop at any unresolved
 product decision or live/editor gate.
 
@@ -1248,7 +1245,8 @@ cognitive, not a navmesh patch:
 
 ## 27. Navigation executive + deterministic movement controller
 
-**Status:** **APPROVED / IN PROGRESS** — first robustness slice built offline; SR14 proved correct
+**Status:** **APPROVED / IN PROGRESS** — authoritative scheduled-travel slice built offline
+2026-07-15; earlier robustness slices are also built. SR14 proved correct
 semantic destination choice and progress, and SR15 (2026-07-13) proved arrival at the authored village
 square with no stuck event. Persistent navigation-ticket, road preference, and deliberate obstacle/
 dead-end recovery remain. · **Canonical for:** #19 road/sidewalk preference and #26 dead-end recognition ·
@@ -1312,6 +1310,15 @@ route.
 Acceptance for the eventual umbrella item: a named-place trip cannot be replaced accidentally by
 directional steering; local avoidance does not discard the destination; progress/failure is
 observable; and the same navigator passes in both the headless adapter and Unreal integration.
+
+**Authoritative-travel slice built (2026-07-15):** `_execute_world_action` now rewrites ordinary
+scheduled `wander` and directional `walk_to` actions to the active named schedule destination before
+relative movement can execute. This seam covers normal decisions and wake first-actions; the existing
+grid router emits the deterministic next cell-center waypoint and replans from the observed cell on a
+stuck report. The SR19 regression pins Dufus at cell `(5,5)`, facing west, while traveling to village
+square `(8,5)`: an LLM `forward` action sends `[600,200,90]` east and caches the village-square route,
+not a westward relative step. Recovery exceptions remain a later explicit policy decision. Full
+offline suite: **44/44 passed**.
 
 ---
 

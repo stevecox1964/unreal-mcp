@@ -2203,6 +2203,19 @@ class AgentManager:
         if t == "observe_heading":
             return self._execute_sweep_observe(agent, action, observation)
 
+        # A named schedule trip owns ordinary locomotion.  The LLM may still
+        # describe a facing-relative step (the SR19 failure was "forward"
+        # while Dufus faced west), but execution must keep following the
+        # deterministic cell route to the scheduled place.  Keep blocker/
+        # recovery policy separate; routed walks already replan from the
+        # observed cell when the observation reports ``stuck``.
+        schedule = observation.get("schedule") or {}
+        scheduled_place = str(schedule.get("place") or "").strip()
+        if (schedule.get("status") == "travel" and scheduled_place
+                and (t == "wander" or (t == "walk_to" and action.get("direction")))):
+            action = {"type": "walk_to", "target_location": scheduled_place}
+            t = "walk_to"
+
         if t == "wander" or (t == "walk_to" and action.get("direction")):
             direction = action.get("direction") or "forward"
             target = self._direction_target(observation, direction)
