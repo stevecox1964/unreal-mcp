@@ -9,12 +9,11 @@ Newest grooming: **2026-07-15**.
 
 ### Now
 
-1. **#29 Contain cockpit world/agent paths** before any read, write, or recursive delete.
+1. **#30 Declare `httpx` directly** so clean installs do not depend on a transitive dependency.
 
 ### Next
 
-1. **#30 Declare `httpx` directly** so clean installs do not depend on a transitive dependency.
-2. **#20 Add movement/cognition timing instrumentation** before tuning tick cadence or schedules.
+1. **#20 Add movement/cognition timing instrumentation** before tuning tick cadence or schedules.
 
 ### Waiting
 
@@ -29,8 +28,8 @@ Newest grooming: **2026-07-15**.
 
 ### Loop-safe
 
-Approved by the user's 2026-07-15 unattended-work direction, in execution order: **#29**, **#30**,
-then **#20 instrumentation only**. The #27 authoritative-travel slice landed on this branch. Each requires a failing offline
+Approved by the user's 2026-07-15 unattended-work direction, in execution order: **#30**, then
+**#20 instrumentation only**. The #27 authoritative-travel and #29 containment slices landed on this branch. Each requires a failing offline
 test first, the full suite green, and a reviewable commit on `auto-loop/*`. Stop at any unresolved
 product decision or live/editor gate.
 
@@ -1351,7 +1350,7 @@ Implemented in `agent_manager.py` and `runner_app.py`; regression coverage lives
 
 ## 29. Contain cockpit world and agent filesystem paths
 
-**Status:** **NEXT — ready and loop-safe** (2026-07-11) · **Source:** architecture/correctness audit ·
+**Status:** ✅ **DONE 2026-07-15 — 45/45 offline green** · **Source:** architecture/correctness audit ·
 **Touches:** `web_ui/main.py` and web-route tests
 
 Several cockpit routes join untrusted `{level}` and `{agent_id}` values directly under
@@ -1366,6 +1365,13 @@ Required behavior:
   400/404 response; never normalize them into a different valid target;
 - recursive delete operates only on the already-contained resolved agent directory;
 - route tests cover encoded traversal and verify that an outside sentinel is untouched.
+
+**Built:** one shared identifier/containment boundary now anchors world, agent, fixed child-file,
+map-image, place, and replay paths beneath their trusted resolved roots before reads, writes, mkdir,
+serving, or deletion. World/agent listings skip escaping links; replay indexing also rejects frame
+symlink escapes. Regression coverage includes valid routes plus traversal, encoded backslashes,
+absolute/reserved segments, world/agent symlinks, writes, replay, and recursive delete with outside
+files and sentinels unchanged.
 
 ---
 

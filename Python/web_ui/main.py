@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -42,27 +42,105 @@ DEFAULT_ACTIONS = [
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+_PATH_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _path_id(value: str, kind: str) -> str:
+    """Validate one user-controlled filesystem identifier without normalizing it."""
+    if not isinstance(value, str) or not value or value in (".", "..") or not _PATH_ID_RE.fullmatch(value):
+        raise HTTPException(status_code=400, detail=f"invalid {kind}")
+    return value
+
+
+def _contained(root: Path, *parts: str, must_exist: bool = False) -> Path:
+    """Resolve a child and prove it remains below its trusted resolved root."""
+    root = Path(root).resolve()
+    path = root.joinpath(*parts).resolve()
+    if path != root and root not in path.parents:
+        raise HTTPException(status_code=400, detail="filesystem path escapes its data root")
+    if must_exist and not path.exists():
+        raise HTTPException(status_code=404, detail="filesystem target not found")
+    return path
+
+
+def _world_dir(level: str, must_exist: bool = True) -> Path:
+    return _contained(WORLDS_DIR, _path_id(level, "world"), must_exist=must_exist)
+
+
+def _world_path(level: str, *parts: str, must_exist: bool = False) -> Path:
+    return _contained(_world_dir(level), *parts, must_exist=must_exist)
+
+
+def _agents_dir(level: str, must_exist: bool = False) -> Path:
+    return _world_path(level, "agents", must_exist=must_exist)
+
+
+def _agent_dir(level: str, agent_id: str, must_exist: bool = False) -> Path:
+    return _contained(_agents_dir(level), _path_id(agent_id, "agent"), must_exist=must_exist)
+
+
+def _agent_path(level: str, agent_id: str, *parts: str, must_exist: bool = False) -> Path:
+    return _contained(_agent_dir(level, agent_id, must_exist=True), *parts,
+                      must_exist=must_exist)
+
+
+def _replay_observations(level: str, agent_id: str) -> list[Path]:
+    """Return contained replay frames; reject a frame-name symlink escape."""
+    obs_dir = _agent_path(level, agent_id, "observations")
+    if not obs_dir.exists():
+        return []
+    frames = []
+    for entry in obs_dir.iterdir():
+        if run_replay.is_frame_name(entry.name):
+            path = _contained(obs_dir, entry.name)
+            if path.is_file():
+                frames.append(path)
+    return frames
+
+
+def _replay_runs(level: str) -> list[str]:
+    """Index frame run tags without following an escaping agent/observations link."""
+    runs: set[str] = set()
+    for agent_id in list_agents(level):
+        for path in _replay_observations(level, agent_id):
+            runs.add(path.name.split("_observation_", 1)[0])
+    return sorted(runs, key=lambda run: int(run[2:]), reverse=True)
+
 def list_worlds() -> list[str]:
     if not WORLDS_DIR.exists():
         return []
-    return sorted(p.name for p in WORLDS_DIR.iterdir() if p.is_dir())
+    worlds = []
+    for p in WORLDS_DIR.iterdir():
+        try:
+            if p.is_dir() and _world_dir(p.name) == p.resolve():
+                worlds.append(p.name)
+        except HTTPException:
+            continue
+    return sorted(worlds)
 
 
 def list_agents(level: str) -> list[str]:
-    agents_dir = WORLDS_DIR / level / "agents"
+    agents_dir = _agents_dir(level)
     if not agents_dir.exists():
         return []
-    return sorted(p.name for p in agents_dir.iterdir() if p.is_dir())
+    agents = []
+    for p in agents_dir.iterdir():
+        try:
+            if p.is_dir() and _agent_dir(level, p.name) == p.resolve():
+                agents.append(p.name)
+        except HTTPException:
+            continue
+    return sorted(agents)
 
 
 def load_agent(level: str, agent_id: str) -> dict:
-    base = WORLDS_DIR / level / "agents" / agent_id
-    state = json.loads((base / "state.json").read_text(encoding="utf-8"))
-    character = (base / "character.md").read_text(encoding="utf-8")
-    goals = (base / "goals.md").read_text(encoding="utf-8")
-    rules = (base / "rules.md").read_text(encoding="utf-8")
-    tools = json.loads((base / "tools.json").read_text(encoding="utf-8"))
-    memory_path = base / "memory.json"
+    base = _agent_dir(level, agent_id, must_exist=True)
+    state = json.loads(_contained(base, "state.json", must_exist=True).read_text(encoding="utf-8"))
+    character = _contained(base, "character.md", must_exist=True).read_text(encoding="utf-8")
+    goals = _contained(base, "goals.md", must_exist=True).read_text(encoding="utf-8")
+    rules = _contained(base, "rules.md", must_exist=True).read_text(encoding="utf-8")
+    tools = json.loads(_contained(base, "tools.json", must_exist=True).read_text(encoding="utf-8"))
+    memory_path = _contained(base, "memory.json")
     memory_raw = memory_path.read_text(encoding="utf-8") if memory_path.exists() else "{}"
     return {
         "state": state,
@@ -78,11 +156,13 @@ def load_agent(level: str, agent_id: str) -> dict:
 
 
 def save_agent(level: str, agent_id: str, form: dict) -> None:
-    base = WORLDS_DIR / level / "agents" / agent_id
+    agents_dir = _agents_dir(level)
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    base = _contained(agents_dir, _path_id(agent_id, "agent"))
     base.mkdir(parents=True, exist_ok=True)
 
     # Preserve runtime fields from existing state; only overwrite config fields
-    state_path = base / "state.json"
+    state_path = _contained(base, "state.json")
     state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
     state.update({
         "agent_id": agent_id,
@@ -99,14 +179,15 @@ def save_agent(level: str, agent_id: str, form: dict) -> None:
     state.setdefault("last_spoke_time", None)
     state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
-    (base / "character.md").write_text(form.get("character", ""), encoding="utf-8")
-    (base / "goals.md").write_text(form.get("goals", ""), encoding="utf-8")
-    (base / "rules.md").write_text(form.get("rules", ""), encoding="utf-8")
+    _contained(base, "character.md").write_text(form.get("character", ""), encoding="utf-8")
+    _contained(base, "goals.md").write_text(form.get("goals", ""), encoding="utf-8")
+    _contained(base, "rules.md").write_text(form.get("rules", ""), encoding="utf-8")
 
     actions = [a.strip() for a in (form.get("allowed_actions") or "").splitlines() if a.strip()]
-    (base / "tools.json").write_text(json.dumps({"allowed_actions": actions}, indent=2), encoding="utf-8")
+    _contained(base, "tools.json").write_text(
+        json.dumps({"allowed_actions": actions}, indent=2), encoding="utf-8")
 
-    mem_path = base / "memory.json"
+    mem_path = _contained(base, "memory.json")
     if not mem_path.exists():
         mem_path.write_text(json.dumps({"agent_id": agent_id, "memories": []}, indent=2), encoding="utf-8")
 
@@ -114,6 +195,7 @@ def save_agent(level: str, agent_id: str, form: dict) -> None:
 def _resolve_level(level: str = None) -> str | None:
     """Pick the world to show: an explicit ?level=, else the first world dir."""
     if level:
+        _world_dir(level)
         return level
     worlds = list_worlds()
     return worlds[0] if worlds else None
@@ -128,7 +210,9 @@ def _map_image_url(level: str) -> str | None:
     +X = east = right, +Y = south = down, row 0 = north/top).
     """
     for name in (f"{level}.png", "world_map_view.png"):
-        path = BASE_DIR / "images" / name
+        if name != "world_map_view.png":
+            _path_id(level, "world")
+        path = _contained(BASE_DIR / "images", name)
         if path.exists():
             # mtime cache-buster: a re-shot capture (#18) must show up on the
             # next page load, not whenever the browser drops its cache.
@@ -153,14 +237,14 @@ def build_map(level: str) -> dict:
     rectangle the image frames — ``image_bounds`` when the grid file calibrates
     one (a capture that doesn't frame ``bounds`` exactly), else ``bounds``.
     """
-    grid = WorldGrid.load(WORLDS_DIR / level / "world_grid.json")
+    grid = WorldGrid.load(_world_path(level, "world_grid.json"))
     cols = rows = None
     if grid.has_bounds:
         probe = grid.locate(grid.bounds["min_x"], grid.bounds["min_y"])
         cols, rows = probe["cols"], probe["rows"]
     origin = grid.origin()
 
-    db_path = WORLDS_DIR / level / "world_places.db"
+    db_path = _world_path(level, "world_places.db")
     db = PlaceDB(db_path) if db_path.exists() else None
     cells = db.map_cells(max_age_seconds=MAP_STALE_SECONDS) if db else []
     for cell in cells:
@@ -242,8 +326,8 @@ async def api_map_place_image(place_image_id: str, level: str = None):
     level = _resolve_level(level)
     if not level:
         return JSONResponse({"error": "not found"}, status_code=404)
-    world_dir = (WORLDS_DIR / level).resolve()
-    db_path = world_dir / "world_places.db"
+    world_dir = _world_dir(level)
+    db_path = _world_path(level, "world_places.db")
     if not db_path.exists():
         return JSONResponse({"error": "not found"}, status_code=404)
     db = PlaceDB(db_path)
@@ -277,7 +361,7 @@ async def api_world_sync(level: str = None):
                              "landmarks": 0, "applied": {"applied": 0, "owned": 0,
                                                           "community": 0, "skipped": 0},
                              "landmark_places": [], "suspects": []})
-    db_path = WORLDS_DIR / level / "world_places.db"
+    db_path = _world_path(level, "world_places.db")
     deleted = []
     if db_path.exists():
         deleted = [{"owner": r["owner"], "name": r["name"], "col": r["col"], "row": r["row"]}
@@ -287,7 +371,7 @@ async def api_world_sync(level: str = None):
     landmarks = scanned["entries"]
     suspects = scanned["suspects"]
     merged = merge_entries(landmarks, places_manifest.load_manifest(_places_path(level)))
-    grid = WorldGrid.load(WORLDS_DIR / level / "world_grid.json")
+    grid = WorldGrid.load(_world_path(level, "world_grid.json"))
     applied = places_manifest.apply_manifest(PlaceDB(db_path), grid, merged)
     landmark_places = [f"{e['owner'] or 'community'}/{e['name']}" for e in landmarks]
 
@@ -312,7 +396,7 @@ async def api_map_capture(level: str = None, actor: str = None):
     level = _resolve_level(level)
     if not level:
         return JSONResponse({"ok": False, "error": "no world selected"}, status_code=400)
-    grid_path = WORLDS_DIR / level / "world_grid.json"
+    grid_path = _world_path(level, "world_grid.json")
     grid = WorldGrid.load(grid_path)
     if not grid.has_bounds:
         return JSONResponse(
@@ -327,7 +411,7 @@ async def api_map_capture(level: str = None, actor: str = None):
             {"ok": False, "error": f"could not position '{actor}': "
              f"{(moved or {}).get('error', 'Unreal not reachable')}"}, status_code=502)
 
-    image_file = BASE_DIR / "images" / f"{level}.png"
+    image_file = _contained(BASE_DIR / "images", f"{_path_id(level, 'world')}.png")
     shot = unreal_client.capture_camera_image(actor, str(image_file))
     inner = (shot or {}).get("result") if isinstance((shot or {}).get("result"), dict) else (shot or {})
     if not shot or shot.get("status") == "error" or not inner.get("success"):
@@ -373,7 +457,7 @@ def _norm_place_name(name) -> str:
 
 
 def _places_path(level: str) -> Path:
-    return WORLDS_DIR / level / "places.json"
+    return _world_path(level, "places.json")
 
 
 def _read_places_raw(level: str) -> dict | None:
@@ -396,9 +480,9 @@ def _read_places_raw(level: str) -> dict | None:
 
 def _apply_places(level: str) -> dict:
     """Re-apply the manifest to the world's PlaceDB (authored rows converge)."""
-    grid = WorldGrid.load(WORLDS_DIR / level / "world_grid.json")
+    grid = WorldGrid.load(_world_path(level, "world_grid.json"))
     entries = places_manifest.load_manifest(_places_path(level))
-    db = PlaceDB(WORLDS_DIR / level / "world_places.db")
+    db = PlaceDB(_world_path(level, "world_places.db"))
     return places_manifest.apply_manifest(db, grid, entries)
 
 
@@ -437,7 +521,7 @@ async def api_places_upsert(request: Request):
     except (KeyError, TypeError, ValueError):
         return JSONResponse({"ok": False, "error": "numeric x and y are required"},
                             status_code=400)
-    grid = WorldGrid.load(WORLDS_DIR / level / "world_grid.json")
+    grid = WorldGrid.load(_world_path(level, "world_grid.json"))
     if not grid.has_bounds:
         return JSONResponse({"ok": False, "error": f"{level} has no world_grid.json "
                              "bounds — generate the grid first"}, status_code=400)
@@ -521,11 +605,10 @@ async def api_replay_runs(level: str = None):
     level = _resolve_level(level)
     if not level:
         return JSONResponse({"level": None, "runs": [], "agents": []})
-    world_dir = WORLDS_DIR / level
     return JSONResponse({
         "level": level,
-        "runs": run_replay.list_runs(world_dir),
-        "agents": run_replay.list_agents(world_dir),
+        "runs": _replay_runs(level),
+        "agents": list_agents(level),
     })
 
 
@@ -535,7 +618,10 @@ async def api_replay_frames(run: str, agent: str, level: str = None):
     level = _resolve_level(level)
     if not level:
         return JSONResponse({"frames": []})
-    frames = run_replay.list_frames(WORLDS_DIR / level, run, agent)
+    world_dir = _world_dir(level)
+    _replay_observations(level, agent)
+    _world_path(level, "logs", "agent_decisions.log")
+    frames = run_replay.list_frames(world_dir, run, _path_id(agent, "agent"))
     for fr in frames:
         fr["image_url"] = (f"/api/replay/image?level={level}"
                            f"&agent={agent}&file={fr['filename']}")
@@ -549,15 +635,16 @@ async def api_replay_image(agent: str, file: str, level: str = None):
     level = _resolve_level(level)
     if not level or not run_replay.is_frame_name(file):
         return JSONResponse({"error": "not found"}, status_code=404)
-    obs_dir = (WORLDS_DIR / level / "agents" / agent / "observations").resolve()
-    path = (obs_dir / file).resolve()
-    if obs_dir not in path.parents or not path.exists():
+    obs_dir = _agent_path(level, agent, "observations", must_exist=True)
+    path = _contained(obs_dir, file)
+    if not path.is_file():
         return JSONResponse({"error": "not found"}, status_code=404)
     return FileResponse(str(path), media_type="image/png")
 
 
 @app.get("/worlds/{level}/agents/new", response_class=HTMLResponse)
 async def new_agent_form(request: Request, level: str):
+    _world_dir(level)
     return templates.TemplateResponse(request, "agent.html", {
         "request": request,
         "level": level,
@@ -578,6 +665,7 @@ async def new_agent_form(request: Request, level: str):
 
 @app.post("/worlds/{level}/agents/new")
 async def create_agent(request: Request, level: str):
+    _world_dir(level)
     form = dict(await request.form())
     agent_id = (form.get("agent_id") or "").strip().lower()
 
@@ -586,7 +674,7 @@ async def create_agent(request: Request, level: str):
         error = "agent_id is required"
     elif not re.match(r'^[a-z0-9_]+$', agent_id):
         error = "agent_id must be lowercase letters, numbers, and underscores only"
-    elif (WORLDS_DIR / level / "agents" / agent_id).exists():
+    elif _contained(_agents_dir(level), agent_id).exists():
         error = f"Agent '{agent_id}' already exists in {level}"
 
     if error:
@@ -627,6 +715,7 @@ async def edit_agent_form(request: Request, level: str, agent_id: str, saved: bo
 
 @app.post("/worlds/{level}/agents/{agent_id}")
 async def update_agent(request: Request, level: str, agent_id: str):
+    _agent_dir(level, agent_id, must_exist=True)
     form = dict(await request.form())
     save_agent(level, agent_id, form)
     return RedirectResponse(f"/worlds/{level}/agents/{agent_id}?saved=1", status_code=303)
@@ -635,9 +724,8 @@ async def update_agent(request: Request, level: str, agent_id: str):
 @app.post("/worlds/{level}/agents/{agent_id}/delete")
 async def delete_agent(level: str, agent_id: str):
     import shutil
-    path = WORLDS_DIR / level / "agents" / agent_id
-    if path.exists():
-        shutil.rmtree(path)
+    path = _agent_dir(level, agent_id, must_exist=True)
+    shutil.rmtree(path)
     return RedirectResponse("/", status_code=303)
 
 
@@ -786,6 +874,7 @@ async def api_world_regrid(request: Request):
     except (TypeError, ValueError):
         return JSONResponse({"ok": False, "error": "origin_x/origin_y must be numbers"},
                             status_code=400)
+    _world_dir(level, must_exist=False)
     try:
         result = get_runner().regrid(level, origin_x, origin_y)
     except Exception:
