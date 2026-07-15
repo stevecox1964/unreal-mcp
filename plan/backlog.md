@@ -1250,8 +1250,8 @@ cognitive, not a navmesh patch:
 
 ## 27. Navigation executive + deterministic movement controller
 
-**Status:** **APPROVED / IN PROGRESS** — authoritative scheduled-travel slice built offline
-2026-07-15; earlier robustness slices are also built. SR14 proved correct
+**Status:** **APPROVED / IN PROGRESS** — authoritative scheduled-travel slice **LIVE VERIFIED
+2026-07-15**; earlier robustness slices are also built. SR14 proved correct
 semantic destination choice and progress, and SR15 (2026-07-13) proved arrival at the authored village
 square with no stuck event. Persistent navigation-ticket, road preference, and deliberate obstacle/
 dead-end recovery remain. · **Canonical for:** #19 road/sidewalk preference and #26 dead-end recognition ·
@@ -1324,6 +1324,11 @@ stuck report. The SR19 regression pins Dufus at cell `(5,5)`, facing west, while
 square `(8,5)`: an LLM `forward` action sends `[600,200,90]` east and caches the village-square route,
 not a westward relative step. Recovery exceptions remain a later explicit policy decision. Full
 offline suite: **44/44 passed**.
+
+**Live acceptance (2026-07-15, user run):** Dufus went straight to the village instead of turning
+west/east and leaving the route for the weeds. This closes the SR19 authoritative-control defect.
+The umbrella item remains open only for the separately waiting community-landmark fine arrival and
+bounded blocker/stuck recovery, road, and dead-end policies.
 
 ---
 
@@ -1578,6 +1583,9 @@ stores compass labels but not the durable source images that describe shared geo
   total sightings instead of claiming unique physical landmarks. Verified against the live SR21 DB:
   five markers rendered and Dufus's `(7,5)` 1280×848 composite loaded with no browser errors. Full
   offline suite: **44/44 passed**.
+- **Marker cleanup 2026-07-15:** the user's next live run confirmed the blue community markers were
+  visible but oversized. Their rendered diameter is now 10 px (center offset updated with it), while
+  click behavior and the place-image dialog remain unchanged; focused map-view regression passes.
 
 **Acceptance:** a written capture/state model names every image class and owner; an offline fake engine
 proves unchanged samples cause neither a new durable file nor a VLM call; repeated identical decision
