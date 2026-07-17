@@ -18,6 +18,8 @@ from agent_runtime.agent_manager import AgentManager   # noqa: E402
 from agent_runtime.spatial_memory import SpatialMap    # noqa: E402
 from agent_runtime.world_grid import WorldGrid         # noqa: E402
 from agent_runtime.place_db import PlaceDB             # noqa: E402
+from agent_runtime.agent import Agent                  # noqa: E402
+from agent_runtime import interruptions                # noqa: E402
 
 
 def check(label, cond):
@@ -200,6 +202,14 @@ def test_regrid_clears_grid_keyed_state():
         mgr.place_db = db
         mgr.world_grid = WorldGrid.load(grid_path)
         mgr._routes["dufus"] = {"destination": "old square"}
+        agent = Agent("dufus", {}, "", "", "", [])
+        agent.offer_interrupt(interruptions.make_record(
+            interrupt_id="survey:1,1", kind="survey", source="world",
+            reason="old grid", priority=100, requested_at="T0",
+            payload={"col": 1, "row": 1}, resume_context={}, preemptible=False,
+        ), agents, activated_at="T0")
+        mgr.agents = {"dufus": agent}
+        mgr._cell_sweeps["dufus"] = {"execution_only": True}
         result = asyncio.run(mgr.regrid_world("TestWorld", -1000.0, 500.0))
 
         check("regrid transaction succeeds", result["status"] == "regridded")
@@ -214,6 +224,9 @@ def test_regrid_clears_grid_keyed_state():
               not (agents / "dufus" / "spatial_map.json").exists()
               and not (agents / "dufus" / "observations" / "route_map.png").exists())
         check("regrid clears cached routes", mgr._routes == {})
+        check("regrid cancels persisted survey interruption",
+              agent.active_interrupt is None and agent.last_interrupt["status"] == "cancelled")
+        check("regrid clears local sweep execution", mgr._cell_sweeps == {})
 
 
 def main():

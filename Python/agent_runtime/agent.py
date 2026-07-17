@@ -263,6 +263,26 @@ class Agent:
         self._set_interruptions(result, agents_dir)
         return result
 
+    def set_active_interrupt_preemptible(self, preemptible: bool, agents_dir: Path) -> bool:
+        """Persist whether the active interruption can be safely displaced."""
+        active = self.active_interrupt
+        if active is None:
+            return False
+        active["preemptible"] = bool(preemptible)
+        self.state["active_interrupt"] = active
+        self._save_state(agents_dir)
+        return True
+
+    def cancel_interrupts(self, kind: str, outcome: str, agents_dir: Path,
+                          resolved_at: str = "") -> dict:
+        """Cancel persisted interruptions of one semantic kind."""
+        result = interruptions.cancel_kind(
+            self.active_interrupt, self.interrupt_queue, kind, outcome, resolved_at,
+            self.last_interrupt,
+        )
+        self._set_interruptions(result, agents_dir)
+        return result
+
     def set_daily_schedule(self, blocks: list, day: str, agents_dir: Path) -> None:
         """Persist today's generated schedule to scratch (runtime.json)."""
         self.state["daily_schedule"] = {"day": day, "blocks": blocks}

@@ -116,6 +116,20 @@ def test_activate_next_recovers_a_deferred_only_record():
     check("activate-next consumes the promoted queue entry", recovered["queue"] == [])
 
 
+def test_cancelling_one_kind_promotes_surviving_work():
+    first = interruptions.offer(None, [], offer("survey-active", 100), activated_at="T1")
+    second = interruptions.offer(first["active"], first["queue"], offer("operator", 50, kind="operator_chat"))
+    third = interruptions.offer(second["active"], second["queue"], offer("survey-queued", 25))
+    cancelled = interruptions.cancel_kind(
+        third["active"], third["queue"], "survey", "grid changed", "T2",
+    )
+    check("cancelling active survey promotes surviving work",
+          cancelled["active"]["interrupt_id"] == "operator")
+    check("cancelling survey removes queued survey work", cancelled["queue"] == [])
+    check("cancelling survey records a terminal outcome",
+          cancelled["last_interrupt"]["status"] == "cancelled")
+
+
 def test_invalid_records_fail_closed():
     valid = offer("ok", 100)
     malformed = {"interrupt_id": "bad", "kind": "survey", "priority": True}
@@ -130,6 +144,7 @@ def main():
     test_preemption_and_fifo_queue_order()
     test_terminal_and_defer_transitions_promote_queue()
     test_activate_next_recovers_a_deferred_only_record()
+    test_cancelling_one_kind_promotes_surviving_work()
     test_invalid_records_fail_closed()
     print("\nAll interruption lifecycle checks passed.")
 

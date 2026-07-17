@@ -23,6 +23,7 @@ from agent_runtime.agent_manager import AgentManager   # noqa: E402
 from agent_runtime.place_db import PlaceDB        # noqa: E402
 from agent_runtime.world_grid import WorldGrid    # noqa: E402
 from agent_runtime import cell_sweep               # noqa: E402
+from agent_runtime import interruptions            # noqa: E402
 
 
 def check(label, cond):
@@ -277,6 +278,22 @@ class _StubAgent:
         self.allowed_actions = ["idle", "walk_to", "observe_heading"]
         self.ticked = 0
         self.last_activity = None
+        self.current_goal = "keep traveling"
+        self._active_interrupt = None
+        self._interrupt_queue = []
+        self._last_interrupt = None
+
+    @property
+    def active_interrupt(self):
+        return self._active_interrupt
+
+    @property
+    def interrupt_queue(self):
+        return self._interrupt_queue
+
+    @property
+    def last_interrupt(self):
+        return self._last_interrupt
 
     def cooldown_expired(self):
         return True
@@ -286,6 +303,26 @@ class _StubAgent:
 
     def set_last_activity(self, activity, agents_dir=None):
         self.last_activity = activity
+
+    def offer_interrupt(self, record, agents_dir, activated_at=""):
+        result = interruptions.offer(self._active_interrupt, self._interrupt_queue,
+                                      record, activated_at, self._last_interrupt)
+        self._set_interruptions(result)
+        return result
+
+    def terminate_interrupt(self, status, outcome, agents_dir, resolved_at=""):
+        result = interruptions.terminate(self._active_interrupt, self._interrupt_queue,
+                                         status, outcome, resolved_at, self._last_interrupt)
+        self._set_interruptions(result)
+        return result
+
+    def set_active_interrupt_preemptible(self, preemptible, agents_dir):
+        self._active_interrupt["preemptible"] = preemptible
+
+    def _set_interruptions(self, result):
+        self._active_interrupt = result.get("active")
+        self._interrupt_queue = result.get("queue") or []
+        self._last_interrupt = result.get("last_interrupt")
 
 
 def _idle_decision(agent_id):
@@ -316,6 +353,12 @@ def test_act_agent_starts_sweep_interrupt():
         check("executed action is tagged as a sweep interrupt",
               bridge.actions[-1].get("_sweep_interrupt") is True)
         check("sweep is now active", "dufus" in mgr._cell_sweeps)
+        check("sweep owns a persisted survey interruption",
+              agent.active_interrupt and agent.active_interrupt["kind"] == "survey")
+        check("survey carries its stable grid target",
+              agent.active_interrupt["payload"] == {"col": 5, "row": 5})
+        check("first dispatched sweep step becomes non-preemptible",
+              agent.active_interrupt["preemptible"] is False)
         check("tick was recorded", agent.ticked == 1)
         check("result reports the sweep action", result["action"].get("_sweep_interrupt") is True)
 
@@ -384,7 +427,8 @@ def test_surveyor_travel_starts_center_sweep_before_route():
               action.get("location") == [200.0, 200.0, 90.0])
         check("surveyor sweep is active", "dufus" in mgr._cell_sweeps)
         check("scheduled destination remains available after the survey",
-              obs["schedule"] == schedule)
+               obs["schedule"] == schedule)
+        check("survey leaves the active goal unchanged", agent.current_goal == "keep traveling")
 
 
 def test_pulse_routes_active_sweep_without_llm():
@@ -401,10 +445,9 @@ def test_pulse_routes_active_sweep_without_llm():
         agent = _StubAgent("dufus")
         mgr.agents = {"dufus": agent}
 
-        # Start the sweep (already at center -> first step is an observe).
-        first = mgr._sweep_step("dufus", _obs(200.0, 200.0))
-        check("sweep starts observing at center", first["type"] == "observe_heading")
-        mgr._execute_world_action(agent, first, _obs(200.0, 200.0))
+        # Start through the manager lifecycle (already at center -> observe).
+        mgr._act_agent(agent, _idle_decision("dufus"), _obs(200.0, 200.0, schedule={"status": "idle"}))
+        check("sweep starts observing at center", agent.active_interrupt is not None)
 
         results = []
         for _ in range(12):
@@ -412,6 +455,8 @@ def test_pulse_routes_active_sweep_without_llm():
             if "dufus" not in mgr._cell_sweeps:
                 break
         check("sweep finished LLM-free", "dufus" not in mgr._cell_sweeps)
+        check("completed sweep resolves its persisted interruption",
+              agent.active_interrupt is None and agent.last_interrupt["status"] == "resolved")
         check("last pulse reports sweep_done", results[-1].get("action") == "sweep_done")
         check("breadcrumb dropped", mgr.place_db.is_explored(5, 5))
         check("turned through all 4 cardinal headings", len(bridge.turns) == 4)
@@ -466,15 +511,36 @@ def test_tick_routes_sweeping_agent():
         mgr.llm = None  # would explode if a sweeping agent were sent to the LLM path
         agent = _StubAgent("dufus")
         mgr.agents = {"dufus": agent}
-        # Activate a sweep for cell (5,5), as the act-phase gate would.
-        first = mgr._sweep_step("dufus", _obs(1500.0, 1500.0))
-        check("sweep activated", first is not None and "dufus" in mgr._cell_sweeps)
+        # Activate through the act-phase gate so lifecycle ownership exists.
+        mgr._act_agent(agent, _idle_decision("dufus"), _obs(1500.0, 1500.0, schedule={"status": "idle"}))
+        check("sweep activated", agent.active_interrupt is not None and "dufus" in mgr._cell_sweeps)
 
         result = asyncio.run(mgr.tick())
         check("the sweeping agent was ticked", result["ticked"] == 1)
         check("it acted through the bridge (no LLM)",
               bridge.actions and bridge.actions[-1]["type"] == "walk_to")
         check("tick result is flagged as a sweep", result["agent_results"][0].get("sweep") is True)
+
+
+def test_persisted_survey_recovers_after_manager_state_loss():
+    """The active survey payload reconstructs a deterministic sweep after restart."""
+    import asyncio
+    with tempfile.TemporaryDirectory() as tmp:
+        bridge = _StubBridge({"x": 200.0, "y": 200.0, "z": 90.0})
+        mgr = _manager(tmp)
+        mgr.bridge = bridge
+        mgr.perceiver = _StubPerceiver()
+        mgr.llm = None
+        agent = _StubAgent("dufus")
+        mgr.agents = {"dufus": agent}
+
+        mgr._act_agent(agent, _idle_decision("dufus"), _obs(200.0, 200.0, schedule={"status": "idle"}))
+        mgr._cell_sweeps.clear()  # process restart loses execution-only state
+        result = asyncio.run(mgr.pulse_agent("dufus"))
+        check("persisted survey stays active after restart recovery",
+              agent.active_interrupt and agent.active_interrupt["payload"] == {"col": 5, "row": 5})
+        check("restart reconstructs the manager-local sweep", "dufus" in mgr._cell_sweeps)
+        check("recovered sweep remains deterministic", result.get("sweep") is True)
 
 
 def main():
@@ -498,6 +564,7 @@ def main():
     test_observe_heading_direction_and_ingest()
     test_observe_heading_degrades_on_turn_failure()
     test_tick_routes_sweeping_agent()
+    test_persisted_survey_recovers_after_manager_state_loss()
     print("\nAll cell-sweep checks passed.")
 
 

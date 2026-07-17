@@ -27,6 +27,8 @@ sys.path.insert(0, str(ROOT))
 
 from agent_runtime.agent_manager import AgentManager  # noqa: E402
 from agent_runtime.memory_store import MemoryStore    # noqa: E402
+from agent_runtime.agent import Agent                 # noqa: E402
+from agent_runtime import interruptions               # noqa: E402
 
 
 def check(label, cond):
@@ -227,6 +229,13 @@ async def run_reset() -> None:
 
         # Avatar wanders off; then reset.
         bridge.loc = {"x": -500.0, "y": 999.0, "z": 90.0}
+        agent = mgr.agents["testy"]
+        agent.offer_interrupt(interruptions.make_record(
+            interrupt_id="survey:5,5", kind="survey", source="world",
+            reason="unknown cell", priority=100, requested_at="Day 1 09:00",
+            payload={"col": 5, "row": 5}, resume_context={}, preemptible=False,
+        ), agents_dir, activated_at="Day 1 09:00")
+        mgr._cell_sweeps["testy"] = {"execution_only": True}
         result = await mgr.reset_agents()
 
         check("reset stopped the running sim", result["stopped_simulation"] and not mgr.running)
@@ -245,6 +254,8 @@ async def run_reset() -> None:
         check("episodic recall cleared",
               entry["episodes"] == 1 and (d / "episodes.jsonl").read_text(encoding="utf-8") == "")
         check("spatial map deleted", not (d / "spatial_map.json").exists())
+        check("agent reset clears persisted interruptions", agent.active_interrupt is None)
+        check("agent reset clears local sweep execution", mgr._cell_sweeps == {})
 
         # Explicit editor-authoring operation: adopt the currently placed actor
         # transform as the new reset/start point instead of deleting JSON keys.
@@ -261,11 +272,34 @@ async def run_reset() -> None:
         await mgr.stop_simulation()
 
 
+async def run_restart_day_clears_interruptions_and_sweeps() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        agents_dir = Path(tmp) / "TestWorld" / "agents"
+        make_agent_files(agents_dir, "testy")
+        agent = Agent.load(agents_dir, "testy")
+        agent.offer_interrupt(interruptions.make_record(
+            interrupt_id="survey:5,5", kind="survey", source="world",
+            reason="unknown cell", priority=100, requested_at="Day 1 09:00",
+            payload={"col": 5, "row": 5}, resume_context={}, preemptible=False,
+        ), agents_dir, activated_at="Day 1 09:00")
+        mgr = AgentManager(worlds_dir=Path(tmp), llm_router=None,
+                           unreal_bridge=None, memory_store=MemoryStore(Path(tmp)))
+        mgr._agents_dir = agents_dir
+        mgr.agents = {"testy": agent}
+        mgr._cell_sweeps["testy"] = {"execution_only": True}
+
+        result = await mgr.restart_day()
+        check("day restart succeeds", result["status"] == "day_reset")
+        check("day restart clears persisted interruptions", agent.active_interrupt is None)
+        check("day restart clears local sweep execution", mgr._cell_sweeps == {})
+
+
 async def main() -> None:
     await run_pacing()
     await run_tick_serialization()
     await run_invalid_cadence()
     await run_reset()
+    await run_restart_day_clears_interruptions_and_sweeps()
     print("\nAll pacing + reset checks passed.")
 
 

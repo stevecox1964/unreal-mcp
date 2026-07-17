@@ -13,6 +13,7 @@ from typing import Optional
 from .agent import Agent
 from .action_validator import validate
 from . import explorer
+from . import interruptions
 from .perception import VisionPerceiver
 from . import cell_sweep
 from .landmarks import merge_entries, scan_landmarks
@@ -957,8 +958,8 @@ class AgentManager:
         ]
         # Agents mid-sweep (#11.1) run a deterministic, bridge-only, no-LLM step —
         # keep them out of the perceive/decide phases until the sweep finishes.
-        sweeping = [a for a in ready if a.agent_id in self._cell_sweeps]
-        ready = [a for a in ready if a.agent_id not in self._cell_sweeps]
+        sweeping = [a for a in ready if self._has_active_survey(a)]
+        ready = [a for a in ready if not self._has_active_survey(a)]
 
         results = []
         # Sweep phase (sequential — single bridge socket, like the others).
@@ -1019,7 +1020,7 @@ class AgentManager:
         agent = self.agents.get(agent_id)
         if not agent:
             return {"error": f"Agent '{agent_id}' not loaded"}
-        if agent.agent_id in self._cell_sweeps:
+        if self._has_active_survey(agent):
             return self._pulse_sweep(agent)
         if self.mode == "explore":
             return self._pulse_explore(agent)
@@ -1696,9 +1697,13 @@ class AgentManager:
         survey_priority = bool(getattr(agent, "survey_priority", False))
         if ((survey_priority or sched_status not in {"act", "travel"})
                 and self._should_sweep_here(observation, agent_id)):
-            sweep_action = self._sweep_step(agent_id, observation, start=True)
+            sweep_action = self._offer_survey_interrupt(agent, observation)
             if sweep_action is not None:
                 action = sweep_action
+
+        survey_action = bool(action.get("_survey_interrupt_id"))
+        if survey_action:
+            agent.set_active_interrupt_preemptible(False, self._agents_dir)
 
         result = self._execute_world_action(agent, action, observation)
         self._mark_first_walk_accepted(agent_id, action, result)
@@ -2033,7 +2038,96 @@ class AgentManager:
             out.append({**a, "recently_greeted": recent})
         return out
 
-    def _sweep_step(self, agent_id: str, observation: dict, start: bool = True) -> dict | None:
+    def _active_survey_interrupt(self, agent: Agent) -> dict | None:
+        """Return the valid active survey record, if this APC owns one."""
+        record = getattr(agent, "active_interrupt", None)
+        if isinstance(record, dict) and record.get("kind") == "survey":
+            return record
+        return None
+
+    def _has_active_survey(self, agent: Agent) -> bool:
+        """Whether this APC's persisted lifecycle currently owns a survey."""
+        return self._active_survey_interrupt(agent) is not None
+
+    def _offer_survey_interrupt(self, agent: Agent, observation: dict) -> dict | None:
+        """Offer the current unknown cell as a persisted survey interruption."""
+        col, row = self._cell_col_row(observation.get("grid"))
+        if col is None:
+            return None
+        for record in [getattr(agent, "active_interrupt", None),
+                       *(getattr(agent, "interrupt_queue", None) or [])]:
+            if (isinstance(record, dict) and record.get("kind") == "survey"
+                    and (record.get("payload") or {}).get("col") == col
+                    and (record.get("payload") or {}).get("row") == row):
+                return self._dispatch_active_survey(agent, observation)
+
+        route = self._routes.get(agent.agent_id) or {}
+        record = interruptions.make_record(
+            interrupt_id=f"survey:{col},{row}",
+            kind="survey",
+            source="world",
+            reason=f"Grid cell ({col},{row}) needs a community survey",
+            requested_at=str(observation.get("world_time") or self.world_clock.now_text()),
+            payload={"col": col, "row": row},
+            resume_context={
+                "current_goal": str(getattr(agent, "current_goal", "idle")),
+                "schedule": dict(observation.get("schedule") or {}),
+                "route_destination": route.get("destination"),
+            },
+            preemptible=True,
+            priority=interruptions.default_priority("survey"),
+        )
+        agent.offer_interrupt(
+            record, self._agents_dir,
+            activated_at=str(observation.get("world_time") or self.world_clock.now_text()),
+        )
+        return self._dispatch_active_survey(agent, observation)
+
+    def _dispatch_active_survey(self, agent: Agent, observation: dict) -> dict | None:
+        """Prepare the next active survey step, recovering it from its payload."""
+        record = self._active_survey_interrupt(agent)
+        if record is None:
+            return None
+        payload = record.get("payload") or {}
+        try:
+            col, row = int(payload["col"]), int(payload["row"])
+        except (KeyError, TypeError, ValueError):
+            agent.terminate_interrupt(
+                "failed", "survey payload has no valid grid target", self._agents_dir,
+                str(observation.get("world_time") or self.world_clock.now_text()),
+            )
+            return None
+
+        if (self.place_db is not None
+                and self.place_db.current_place_image(agent.agent_id, col, row) is not None):
+            agent.terminate_interrupt(
+                "resolved", "survey target is already visually complete", self._agents_dir,
+                str(observation.get("world_time") or self.world_clock.now_text()),
+            )
+            self._cell_sweeps.pop(agent.agent_id, None)
+            return None
+
+        local = self._cell_sweeps.get(agent.agent_id)
+        if local and (local.get("col"), local.get("row")) != (col, row):
+            # Local execution state is disposable; persisted payload is authority.
+            self._cell_sweeps.pop(agent.agent_id, None)
+        action = self._sweep_step(agent.agent_id, observation, start=True, target=(col, row))
+        if action is not None:
+            action["_survey_interrupt_id"] = record["interrupt_id"]
+            return action
+
+        complete = bool(self.place_db and self.place_db.current_place_image(agent.agent_id, col, row))
+        agent.terminate_interrupt(
+            "resolved" if complete else "failed",
+            "survey completed" if complete else "survey capture incomplete",
+            self._agents_dir,
+            str(observation.get("world_time") or self.world_clock.now_text()),
+        )
+        self._cell_sweeps.pop(agent.agent_id, None)
+        return None
+
+    def _sweep_step(self, agent_id: str, observation: dict, start: bool = True,
+                    target: tuple[int, int] | None = None) -> dict | None:
         """One step of the shared sweep capability (#11.1).
 
         Any APC that needs an unexplored cell walks to the cell center, observes
@@ -2047,7 +2141,7 @@ class AgentManager:
         grid, or the sweep just finished). The returned action carries
         ``_sweep_interrupt`` so callers can see the tick was spent sweeping.
         """
-        col, row = self._cell_col_row(observation.get("grid"))
+        col, row = target if target is not None else self._cell_col_row(observation.get("grid"))
         if col is None:
             return None
         xyz = _loc_xyz(observation.get("location"))
@@ -2421,11 +2515,12 @@ class AgentManager:
         observation["place"] = place
         observation["world_time"] = self.world_clock.now_text()
 
-        action = self._sweep_step(agent_id, observation, start=False)
+        action = self._dispatch_active_survey(agent, observation)
         if action is None:
             agent.mark_ticked(self._agents_dir)
             return {"agent_id": agent_id, "action": "sweep_done", "grid": grid, "sweep": True}
 
+        agent.set_active_interrupt_preemptible(False, self._agents_dir)
         result = self._execute_world_action(agent, action, observation)
         agent.mark_ticked(self._agents_dir)
         return {"agent_id": agent_id, "action": action, "result": result,
@@ -2570,6 +2665,7 @@ class AgentManager:
         for agent in self.agents.values():
             agent.reset_runtime_state(self._agents_dir)
             agent_ids.append(agent.agent_id)
+        self._cell_sweeps.clear()
 
         logger.info(
             f"=== DAY RESTART === {len(agent_ids)} agent(s) reset to morning "
@@ -2637,6 +2733,7 @@ class AgentManager:
         self._last_pos.clear()
         self._no_progress.clear()
         self._routes.clear()
+        self._cell_sweeps.clear()
         self._live_pos.clear()
         self.bridge.clear_scene_cache()
 
@@ -2739,6 +2836,13 @@ class AgentManager:
         self._last_grid_place.clear()
         self._frontier_failures.clear()
         self._routes.clear()
+        if (self._agents_dir is not None
+                and self._agents_dir.parent.resolve() == world_dir):
+            for agent in self.agents.values():
+                agent.cancel_interrupts(
+                    "survey", "survey cancelled because the world grid changed", self._agents_dir,
+                    self.world_clock.now_text(),
+                )
         self._cell_sweeps.clear()
         self._live_pos.clear()
 

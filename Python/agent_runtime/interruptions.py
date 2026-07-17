@@ -190,6 +190,36 @@ def terminate(active: dict | None, queue: list | None, status: str, outcome: str
     return state
 
 
+def cancel_kind(active: dict | None, queue: list | None, kind: str, outcome: str,
+                resolved_at: str = "", last_interrupt: dict | None = None) -> dict:
+    """Cancel active/queued records of one kind and promote surviving work."""
+    state = sanitize_state(active, queue, last_interrupt)
+    matching = []
+    if state["active"] is not None and state["active"].get("kind") == kind:
+        matching.append(state["active"])
+        state["active"] = None
+    remaining = []
+    for record in state["queue"]:
+        if record.get("kind") == kind:
+            matching.append(record)
+        else:
+            remaining.append(record)
+    state["queue"] = remaining
+    if state["active"] is None:
+        state["active"], state["queue"] = _promote(state["queue"], resolved_at)
+    if matching:
+        terminal = copy.deepcopy(matching[-1])
+        terminal["status"] = "cancelled"
+        if resolved_at:
+            terminal["resolved_at"] = resolved_at
+        if outcome:
+            terminal["outcome"] = outcome
+        state["last_interrupt"] = terminal
+    state["transition"] = "cancelled" if matching else "unchanged"
+    state["cancelled_count"] = len(matching)
+    return state
+
+
 def _ids(state: dict) -> set[str]:
     return ({state["active"]["interrupt_id"]} if state["active"] else set()) | {
         item["interrupt_id"] for item in state["queue"]
