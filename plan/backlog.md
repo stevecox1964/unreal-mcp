@@ -3,20 +3,35 @@
 Rolling list of outstanding work — add items as they come up, check off or
 delete them as they land. Not session-scoped; this is the durable home for
 approved scope and priority. Handoffs are chronological session state.
-Newest grooming: **2026-07-15**.
+Newest grooming: **2026-07-17**.
 
-## Active view — groomed 2026-07-15
+## Active view — groomed 2026-07-17
 
 ### Now
 
-No implementation-ready item remains that can proceed without a product choice or live/editor input.
+- **#38 generic APC interruption contract:** define the shared interrupt → accept/defer → resolve →
+  resume/convert-to-goal lifecycle using Dufus's proven survey interruption and Maren's future
+  named-user chat request as the two grounding cases. Lock priority, suspension/resume state, and the
+  player's in-world identity before implementation. First checkpoint the already verified uncommitted
+  #32 grid-heading and 3×3 map-marker follow-ups so executor preflight can start from a clean reviewable
+  state.
 
 ### Next
 
-No additional implementation-ready items are queued.
+1. **#38 loop-safe core (Terra-ready after the contract is locked):** pure interruption state,
+   persistence, ordering, resolution, resume tokens, prompt facts, and offline state-machine tests.
+2. **#37 direct APC chat MVP:** selected-APC message delivery through #38, visible pause/resume, and an
+   explicit choice to resume prior work or retain the user's direction.
+3. **#36 ordered goals:** primary/secondary progression and completion evidence, consuming #38 for
+   temporary interruptions and #37 for user-directed reprioritization.
 
 ### Waiting
 
+- **#16 map authoring:** lock the required name/description fields, exact-click versus grid-center
+  anchoring, default APC-place extent, and the migration/precedence rule if it replaces landmarks.
+- **#35 survey expeditions + #13.4 pristine survey reset:** after #38, choose cadence/target-selection,
+  chaining/return policy, and the exact purge boundary while preserving LLM agency and authored world
+  configuration.
 - **#32 visual cortex:** choose transient gaze retention/dedup and unique-frame retention; semantic
   place recall remains an approved implementation slice once its query surface is selected.
 - **#27 later slices:** community-landmark final-approach geometry and the bounded local-recovery/
@@ -28,10 +43,11 @@ No additional implementation-ready items are queued.
 
 ### Loop-safe
 
-The approved 2026-07-15 unattended queue is complete: #27 authoritative travel, #29 containment,
-#30 dependency declaration, and #20 instrumentation all landed on this branch with failing-first
-regressions, full-suite verification, and reviewable commits. Stop at the remaining unresolved
-product decisions and live/editor gates.
+The prior unattended queue is complete. The current uncommitted #32/map follow-ups are independently
+verified at **47/47** by Terra but must be checkpointed before another executor starts. Once #38's
+contract is locked, its engine-neutral state model, persistence, ordering, and transition tests are the
+next loop-safe package; #37 transport/UI and #36 goal-state work become loop-safe only after their
+remaining interaction semantics are explicit. No Unreal/PIE run is part of those executor packages.
 
 > **Historical status log below.** Dated banners and the 2026-07-01 queues are retained
 > as evidence, not as current priority. The active view above is authoritative.
@@ -557,7 +573,8 @@ coding, and the bespoke MCP is eventually retired (Epic ships an official Unreal
           `swept_at` community breadcrumb); landmarks land in `place_observations`. Reuse via
           `is_explored`/`get_swept`/`explored_cells` (#1, #7). **This is the central-cell design already.**
     - [x] **11.1 Any-APC self-initialization (behavior gap + role retirement).** ✓ 2026-07-01 offline
-          half (WP3/A4 — see A-queue above); live PIE verify still pending (B-side). **Decided (2026-07-01):
+          half (WP3/A4 — see A-queue above); live behavior later verified through #34/SR21 and the
+          2026-07-17 user-observed run. **Decided (2026-07-01):
           no dedicated maintenance role** — collapse the `role:"maintenance"` gating (`_pulse_maintenance`
           + the role branches in `pulse_agent`/`tick`) so the sweep is a **capability any APC invokes**, not
           a role. Behavior: an APC that enters a grid cell with no central place cell **it needs now**
@@ -735,6 +752,20 @@ re-reframed 2026-07-09 to the landmark era — "paramount to making this project
       touch `runner_app.py`, `runner_client.py`, `agent_manager.py`, or any #13.1/#13.2 files
       beyond these three.
 
+- [ ] **13.4 · One reviewed “pristine survey run” reset.** Requested 2026-07-15 for the future
+      whole-map survey experiment: the user wants to “clean everything out / files / db / etc” and
+      let Dufus start fresh. Existing **Reset agents** + **Reset places** do not clearly cover every
+      generated observation, place composite/history link, replay/log artifact, runtime schedule,
+      and stale seed-memory source as one auditable operation. Design the purge boundary before
+      implementation: preserve authored agent identity/goals, landmarks, `places.json`, grid/map
+      calibration, and provider config by default; enumerate generated knowledge/artifacts to remove;
+      preview/report every target; then perform the reset only after explicit confirmation. Decide
+      whether hand-authored `memory.seed.json` is retained, ignored for this run, or separately reset.
+      Acceptance requires an offline temp-world fixture proving no target escapes the world root and
+      a fresh start contains no prior learned place/visual/replay state while authored world truth
+      still re-applies. **Classification:** design decision first; then loop-safe filesystem/reset
+      transaction plus one live cockpit verification. **Supports:** #35.
+
 The long-term goal: **initialize a world from scratch** with **generation code that builds all the
 things** — spawns/wires the actors, child BPs, agents, grid, and place cells automatically, so a new
 world stands itself up. This is the automated end-state of the [[drag-and-drop]] philosophy: the end
@@ -845,7 +876,8 @@ is its config artifact), #16 (the editor that writes this file), [[grid-place-ce
 
 ## 16. Click-to-author places on the /map — the no-Unreal place editor
 
-**Status:** ✅ **DONE 2026-07-07** (suite 41/41). "Author places" toggle on `/map`: fill
+**Status:** **REOPENED / DESIGN DIRECTION 2026-07-17**; original implementation ✅ **DONE
+2026-07-07** (suite 41/41). "Author places" toggle on `/map`: fill
 name/owner/extent, click the registered map → `POST /api/places` writes `places.json` (same
 normalized name = move/edit, no duplicates) and **re-applies the whole manifest to PlaceDB
 immediately** (WP6's declarative converge — no sim restart). Panel lists authored entries with
@@ -873,6 +905,25 @@ Pieces:
 - **Offline tests:** the POST round-trip (TestClient + temp world), pixel↔world inverse math,
   authored-vs-discovered edit guard.
 
+**Reopened authoring direction (user, 2026-07-17):** “click somewhere in a grid, and then click an
+author button” to open a focused dialog. The dialog must let the author choose **community place
+cell** or **APC place cell**; choosing APC reveals a selector populated from the world's APCs. It
+then accepts a brief description and offers explicit **Save** and **Cancel** actions. Save creates
+the place at the clicked grid/location and refreshes the map; Cancel leaves authored state untouched.
+The user expects this map-first workflow will **most likely replace landmarks**, reversing #23's
+earlier editor-first direction, but that replacement is not yet locked and must not silently delete
+or ignore existing landmark-authored places.
+
+Acceptance evidence for the reopened slice: the selected point/grid is visibly retained while the
+dialog is open; community versus APC ownership is persisted correctly; the APC list comes from the
+current world; description round-trips through the authoring store and edit UI; Save produces one
+immediate map result; Cancel produces none; malformed or conflicting entries fail visibly. Open
+decisions: whether a separate place name is required or derived from the description, whether a
+community place anchors at the exact click or grid center, default APC-place extent, and the explicit
+migration/precedence rule among map-authored entries, `places.json`, existing landmark actors, and
+runtime discoveries. **Classification:** design decision for the source-of-truth migration, then
+loop-safe web/API/storage work plus live map QA.
+
 Relates to: #15 (writes its manifest), #6c (the map surface), #2 (web app), #13 (bootstrap step 3).
 
 ---
@@ -885,8 +936,8 @@ start to the authored village-square community cell and began greeting there. (B
 38/38). `route_planner.py` (pinned Bresenham cell line + leg state machine w/ skip-ahead +
 B7b box-edge fine-approach), `_execute_routed_walk` leg executor (stuck replans, arrival idles),
 en-route prompt narration, route-map path dots. LLM contract unchanged. v1 = straight-line legs;
-sweep-data/no-go weighting is the #19c seam in `line_cells`. **PIE verify pending** (watch a
-multi-district travel: no orbiting, legs advance, arrival stops at the box edge). ·
+sweep-data/no-go weighting is the #19c seam in `line_cells`. SR15 satisfied the coarse multi-district
+live verification; landmark-level final approach and recovery remain canonical in #27. ·
 **Source:** user, 2026-07-05 ("we don't really have a navigation system") ·
 **Depends on:** #15 (✅ done); consumed #6b's corridor work
 
@@ -1087,8 +1138,9 @@ queue (retired the authoring half on 2026-06-28; this retires the rest),
 
 ## 23. Landmarks — BP-authored ground-truth places (author the world in the editor, not a UI)
 
-**Status:** ✅ Python half DONE 2026-07-08 (Sonnet executor) — suite 41/41; Landmark_BP asset +
-live verify remain the user's · **Source:** user, 2026-07-08 ("during a
+**Status:** ✅ Python half DONE 2026-07-08 (Sonnet executor) — suite 41/41; further landmark rollout
+is paused while reopened #16 decides whether map authoring replaces landmarks · **Source:** user,
+2026-07-08 ("during a
 setup phase, the world author should place BPs at certain locations before sim runs… back away
 from building a full blown sim UI, and just let the APCs build things") ·
 **Depends on:** #15 (reuses the manifest pipeline as-is)
@@ -1484,8 +1536,10 @@ stores compass labels but not the durable source images that describe shared geo
 - Every durable place, whether a community cell or an individual/authored/owned place, has a stable
   place identity and a corresponding **place-image record**. The rendered place image is one composite
   backed by exactly four cardinal source views: **N, S, E, W**. Its header/label band uses a black
-  background with large white direction text so a VLM can reliably distinguish the views. The image
-  itself must not contain grid or world-coordinate overlays.
+  background with large white direction text so a VLM can reliably distinguish the views. Per the
+  user's 2026-07-17 grounding requirement, the black label band also places
+  `GRID X: <col>  Y: <row>` between N and S so the VLM can explicitly identify the source grid;
+  precise world-coordinate overlays remain excluded.
 - Store level, grid `(col,row)`, world anchor/extent, place identity/source, capture time, content hashes,
   and image revision as database metadata rather than drawing coordinates into the pixels. The stable
   place record points to its current `place_image_id`; each place-image revision points back to exactly
@@ -1534,7 +1588,8 @@ stores compass labels but not the durable source images that describe shared geo
    and place-scoped memory lookup. Preserve existing PlaceDB descriptions and legacy observation rows;
    migration must be non-destructive and restartable.
 4. Build and test the N/S/E/W compositor, including deterministic panel ordering, large white headings on
-   black, consistent dimensions, missing-view rejection, content hashes, and no coordinate overlay.
+   black, a centered logical grid X/Y heading, consistent dimensions, missing-view rejection, and
+   content hashes, without precise world-coordinate overlays.
 5. Route capture through the visual cortex: cheap facts first, rolling scratch only when pixels are
    needed, durable place-image creation/refresh only for a place lifecycle event, and transient gaze
    persistence only under the separately chosen retention policy.
@@ -1583,14 +1638,23 @@ stores compass labels but not the durable source images that describe shared geo
   total sightings instead of claiming unique physical landmarks. Verified against the live SR21 DB:
   five markers rendered and Dufus's `(7,5)` 1280×848 composite loaded with no browser errors. Full
   offline suite: **44/44 passed**.
-- **Marker cleanup 2026-07-15:** the user's next live run confirmed the blue community markers were
-  visible but oversized. Their rendered diameter is now 10 px (center offset updated with it), while
-  click behavior and the place-image dialog remain unchanged; focused map-view regression passes.
+- **Marker cleanup 2026-07-17:** follow-up live inspection confirmed the 10 px blue community markers
+  were still oversized and appeared off-center. Their visible footprint is now a centered 3×3 px blue
+  square inside a transparent centered 11×11 px click target, so dialog behavior remains usable.
+  Focused map-view coverage passes (58 checks); Terra independently ran the full offline suite, 47/47.
+- **Grid-heading follow-up landed 2026-07-17:** place-history composites now show
+  `GRID X: <col>  Y: <row>` between the N and S labels so the VLM's text response can explicitly state
+  which logical grid produced the image. This intentionally supersedes the earlier blanket ban on
+  coordinate text while retaining the ban on precise world-coordinate scene overlays. The production
+  survey path supplies the place cell's actual col/row, and focused pixel/layout coverage plus the full
+  offline suite pass (**47/47**). **Classification:** loop-safe compositor integration + focused image
+  regression.
 
 **Acceptance:** a written capture/state model names every image class and owner; an offline fake engine
 proves unchanged samples cause neither a new durable file nor a VLM call; repeated identical decision
 frames deduplicate under the chosen policy; both a community cell and an individual place receive a
-valid N/S/E/W composite with readable white-on-black headings and no coordinate overlay; every place
+valid N/S/E/W composite with readable white-on-black headings and its logical grid X/Y between N and S,
+with no precise world-coordinate overlay; every place
 record resolves its current `place_image_id`; APC visits retain the exact historical image revision;
 place recall returns description + image + visits + memories; semantic recall of a previously visited
 coffee shop resolves its grid and deterministic routing returns a grid array without asking a VLM to
@@ -1697,11 +1761,144 @@ Python behavior + live/PIE verification.
   west/north deviation was the separate #27 mixed-control defect. SR21 then live-proved the explicit
   surveyor exception: Dufus completed durable community composites at `(5,5)`, `(7,5)`, `(7,4)`, and
   `(8,4)` before resuming schedule travel.
+- **Live follow-up 2026-07-17:** another user-observed run confirmed Dufus recognizes an unsurveyed
+  grid cell, interrupts his current activity, and begins its survey. This reinforces the survey-priority
+  behavior; the broader village-to-frontier expedition contract remains separate in #35.
+
+---
+
+## 35. LLM-directed survey expeditions from the village
+
+**Status:** **IDEA / DESIGN GATE — requested 2026-07-15** · **Source:** user: “Dufus is the surveyor
+and periodically does random unknown cell explorations, then heads back to village… survey the whole
+map visually” · **Builds on:** #7/#11.1 sweep capability, #17/#27 routing, #32 place visual memory,
+#34 `survey_priority`, #38's generic interruption lifecycle, and #13.4 pristine-run reset
+
+Going straight to the village was the first live step, not the final survey behavior. Dufus should
+periodically leave the village on a survey expedition, choose an unknown reachable grid cell, travel
+there, center in the cell, capture the complete N/S/E/W visual survey, and return to the village. Over
+repeated expeditions, shared visual coverage should be able to reach every reachable grid cell and the
+map should make remaining unknown coverage obvious.
+
+The behavior must preserve LLM agency. Do **not** hardcode a global “random walk then return” state
+machine or a fixed cell sequence into `AgentManager`. The deterministic layer may expose grounded
+facts/capabilities—unknown frontier candidates, reachability, coverage, route progress, survey
+completion, and a durable current destination—and must own safe movement execution once the LLM has
+chosen an intent. Dufus’s surveyor identity, desire to explore, decision to depart/return, and choice
+among reasonable candidate cells should come from his goals/planning prompt and model decision. A
+bounded fallback may prevent a lost/stalled expedition, but must be reported as a fact rather than
+silently replacing the model’s intent.
+
+Desired acceptance evidence:
+
+- on a pristine #13.4 run, Dufus reaches the village, later chooses an unknown reachable cell from
+  map facts, surveys it completely, and returns to the village without a hardcoded route;
+- multiple excursions select new unknown cells rather than repeatedly revisiting completed cells;
+- coverage reports reachable/visually surveyed/unknown counts and can eventually reach 100% of the
+  reachable bounded grid (with unreachable cells reported, not retried forever);
+- decision/replay logs show what facts the LLM saw, why it chose the target, the durable intent, and
+  deterministic route/survey outcomes;
+- ordinary APCs remain unaffected unless given the same explicit surveyor goal/policy.
+
+**Open decisions for next session:** what event/cadence invites an expedition; whether the model sees
+all unknown cells, a small frontier shortlist, or a tool query; how “random” is expressed without
+making selection deterministic infrastructure policy; expedition retry/timeout bounds; whether every
+trip must return to the village or the LLM may chain nearby surveys; and the #13.4 purge/retention
+boundary. **Classification:** design decision, then loop-safe planner/context tests plus live/PIE
+whole-map coverage verification.
+
+---
+
+## 36. Ordered primary and secondary goals per APC
+
+**Status:** **IDEA / DESIGN GATE — requested 2026-07-17** · **Source:** user: “Dufus and other APCs
+to have multiple goals, primary and secondary etc. So when a goal is met, start running the next
+goal.” · **Builds on:** #10 planner/sequencer, #31 event-driven cognition, #35's durable survey
+intent, and the generic interruption lifecycle in #38
+
+Each APC should have an authored or model-visible ordered portfolio of goals rather than one effective
+goal. One goal is active, lower-priority goals remain available, and satisfying the active goal advances
+the APC to the next eligible goal without a manual state edit. Goal priority, active state, completion
+evidence, and transition history must be inspectable; completing one action or arriving at one waypoint
+must not silently count as completing a larger goal.
+
+Desired acceptance evidence: Dufus completes a primary goal, records why it is complete, activates his
+secondary goal, and begins pursuing it on the next appropriate cognition event; an interruption pauses
+and later resumes the same active goal unless an explicit reprioritization occurs; each APC advances its
+own list independently; blocked, abandoned, and completed goals remain distinguishable in state and
+logs. Open decisions: whether ordering is strictly primary/secondary or numeric priority, who may declare
+completion (LLM, deterministic facts, user, or a combination), how recurring and blocked goals behave,
+and how goals interact with daily schedules and direct user directions from #37. **Classification:**
+design decision, then loop-safe goal-state/sequencer tests plus live/PIE behavior verification.
+
+---
+
+## 37. Direct operator chat and direction for a selected APC
+
+**Status:** **IDEA / DESIGN GATE — requested 2026-07-17** · **Source:** user: “I want to have a
+feature where I can ‘chat’ with a particular APC… interrupt [its] current goal… and give direction
+to the APC.” · **Builds on:** #10.5 interrupt/resume policy, #12 interaction memory, #31 event-driven
+cognition, #36 multi-goal state, and the generic interruption lifecycle in #38
+
+Provide a user-facing control that selects one APC and opens a direct conversation with it. A new
+message is a deliberate cognition event: the selected APC safely pauses its current activity/goal,
+receives the user's words in character and with its relevant memory/context, and can accept grounded
+direction. Other APCs continue unaffected. The paused goal and movement intent must remain explicit so
+chat does not accidentally erase work or leave an invisible route running underneath the conversation.
+
+Desired acceptance evidence: the user selects Dufus, sends and receives multiple chat turns, gives a
+direction, and sees whether Dufus accepted, questioned, or declined it; his prior goal is visibly paused;
+ending chat either resumes it or applies the new direction according to an explicit choice; the exchange
+and resulting goal transition are auditable and available to appropriate memory. Open decisions: where
+chat lives (cockpit, map, or both), whether movement freezes during the session, whether a direction is
+a temporary interrupt or may insert/reprioritize #36 goals, how the user ends/releases the conversation,
+and which transcript details persist. **Classification:** design decision, then loop-safe UI/control/
+state tests plus live/PIE conversation and interruption verification.
+
+---
+
+## 38. Generic APC interruption, resolution, and resume lifecycle
+
+**Status:** **IDEA / DESIGN GATE — requested 2026-07-17** · **Source:** user: “APCs need a generic
+interruption ability. Dufus has a ‘I need to survey this unknown cell’; Maren may have a ‘Root user
+wants to talk to me’… This way, I can role play with the APCs and fine tune their behaviors.” ·
+**Unifies:** #10.5 reaction gating, #11.1/#34 survey interruption, #31 cognition wake events, #36 goal
+progression, and #37 direct operator chat
+
+Create one engine-neutral interruption lifecycle rather than adding a separate override path for every
+feature. An interruption identifies its source/requester, reason, relevant grounded facts, urgency or
+priority, and what work should be resumed afterward. It can be queued/presented, accepted, deferred or
+declined when agency allows, activated, resolved, and then either resume the suspended activity/goal or
+explicitly convert into a new/reprioritized goal. The paused movement ticket, schedule directive, and
+active #36 goal must remain inspectable throughout; an interrupt may not silently discard or continue
+them underneath the new activity.
+
+The same lifecycle should express at least these first cases:
+
+- Dufus receives an internal/world opportunity: an unknown grid cell needs a survey.
+- Maren receives a social/operator request: the world user's configured persona wants to talk with her.
+
+The operator identity must come from world/user configuration or an explicit role-play identity, not be
+hardcoded as “Root.” Conversation and accepted directions should reach the APC as in-world context so
+the user can role-play and refine behavior, with an explicit policy for whether those directions are
+temporary, remembered, or promoted into #36 goals.
+
+Acceptance evidence: an APC with an active goal can service a survey interruption and resume the exact
+suspended work; a selected APC receives a named-user chat interruption through the same lifecycle while
+other APCs continue; simultaneous interrupts are ordered visibly; deferred/declined/expired interrupts
+do not vanish; resolution and resume/goal-transition outcomes appear in state and decision logs. Open
+decisions: priority and preemption rules, interrupt stacking versus a single active interrupt, optional
+versus mandatory events, expiry/retry behavior, persistence across restarts, the player's in-world
+identity model, and how lasting behavioral directions differ from ordinary conversation. **Classification:**
+design decision, then loop-safe interruption/state-machine tests plus live/PIE survey and role-play
+verification.
 
 ---
 
 ## Outstanding — human / editor / live (not loop-safe)
 
+- **#35/#13.4:** design the LLM-directed expedition contract and pristine-run purge boundary before
+  implementing whole-map visual surveying.
 - **#32:** choose transient gaze retention/dedup policy and whether owned landmarks receive their own
   four-image survey sets in addition to community cells. Community marker/composite inspection is done.
 - **#27:** choose community-landmark anchor/extent semantics, then continue persistent-ticket and
@@ -2284,10 +2481,9 @@ before driving it (health endpoint vs port check)? guardrails for unsupervised U
 
 - **Current priority and classification live only in the Active view at the top.** Dated
   banners and old queues are evidence, not instructions.
-- **Next-session product direction is #32 design → #33 design → #27 landmark final approach.**
-  While those design gates are unresolved, the offline implementation queue remains
-  **#29 → #20 instrumentation → #30.** The prior claim
-  that no loop-safe work remained was superseded by the 2026-07-11 correctness audit.
+- **The historical #32 → #33 → #27 direction and #29 → #20 → #30 offline queue are complete or
+  superseded.** Current priority is only the Active view at the top: #38 interruption architecture,
+  then #37 chat and #36 ordered goals; #16 authoring and #35 expeditions wait on their listed choices.
 - **#4's harness is built** (`run_tests.py`, `preflight.py`, `autonomous_loop.md`);
   running the live sim autonomously is still gated by Unreal/PIE reliability and inference cost.
 - **Verification uses `python scripts/run_tests.py`.** Never copy an old suite count forward;
