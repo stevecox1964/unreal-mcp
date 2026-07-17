@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]      # Python/
 sys.path.insert(0, str(ROOT))
 
 from agent_runtime.agent import Agent   # noqa: E402
+from agent_runtime import interruptions  # noqa: E402
 
 
 def check(label, cond):
@@ -142,6 +143,69 @@ def test_daily_schedule_persists_to_runtime():
         check("reset clears last_activity", reloaded.last_activity == "")
 
 
+def test_interruptions_persist_in_runtime_and_reset():
+    """Interruption state is runtime-only, reloadable, and reset with the day."""
+    with tempfile.TemporaryDirectory() as tmp:
+        agents_dir = Path(tmp)
+        _scaffold(agents_dir, "dufus", CONFIG)
+        agent = Agent.load(agents_dir, "dufus")
+        agent._save_state(agents_dir)
+        before = (agents_dir / "dufus" / "state.json").read_text()
+        survey = interruptions.make_record(
+            interrupt_id="survey-1", kind="survey", source="world",
+            reason="unknown cell", priority=100, requested_at="Day 1 09:00",
+            payload={"col": 2, "row": 3}, resume_context={"current_goal": "work"},
+            preemptible=True,
+        )
+        agent.offer_interrupt(survey, agents_dir, activated_at="Day 1 09:01")
+        agent.offer_interrupt(interruptions.make_record(
+            interrupt_id="operator-1", kind="operator_chat", source="Avery",
+            reason="wants to talk", priority=50, requested_at="Day 1 09:02",
+            payload={}, resume_context={}, preemptible=True,
+        ), agents_dir)
+        agent.offer_interrupt(interruptions.make_record(
+            interrupt_id="later", kind="survey", source="world",
+            reason="another cell", priority=25, requested_at="Day 1 09:03",
+            payload={}, resume_context={}, preemptible=True,
+        ), agents_dir)
+        agent.terminate_interrupt("resolved", "survey complete", agents_dir, "Day 1 09:04")
+        agent.offer_interrupt(interruptions.make_record(
+            interrupt_id="after-terminal", kind="survey", source="world",
+            reason="later cell", priority=10, requested_at="Day 1 09:05",
+            payload={}, resume_context={}, preemptible=True,
+        ), agents_dir)
+
+        runtime = json.loads((agents_dir / "dufus" / "runtime.json").read_text())
+        check("active interruption lands in runtime", runtime["active_interrupt"]["interrupt_id"] == "operator-1")
+        check("interruption queue lands in runtime", runtime["interrupt_queue"][0]["interrupt_id"] == "later")
+        check("terminal interruption lands in runtime", runtime["last_interrupt"]["interrupt_id"] == "survey-1")
+        check("state config stays unchanged", before == (agents_dir / "dufus" / "state.json").read_text())
+
+        reloaded = Agent.load(agents_dir, "dufus")
+        check("active interruption round-trips", reloaded.active_interrupt["kind"] == "operator_chat")
+        check("queue round-trips", reloaded.interrupt_queue[0]["interrupt_id"] == "later")
+        check("last terminal interruption round-trips", reloaded.last_interrupt["status"] == "resolved")
+        reloaded.reset_runtime_state(agents_dir)
+        check("reset clears active interruption", reloaded.active_interrupt is None)
+        check("reset clears interruption queue", reloaded.interrupt_queue == [])
+        check("reset clears terminal interruption", reloaded.last_interrupt is None)
+
+
+def test_malformed_interruptions_are_ignored_on_load():
+    with tempfile.TemporaryDirectory() as tmp:
+        agents_dir = Path(tmp)
+        _scaffold(agents_dir, "dufus", CONFIG)
+        (agents_dir / "dufus" / "runtime.json").write_text(json.dumps({
+            "active_interrupt": {"interrupt_id": "bad", "priority": True},
+            "interrupt_queue": [{"interrupt_id": "also-bad"}],
+            "last_interrupt": "not a record",
+        }), encoding="utf-8")
+        agent = Agent.load(agents_dir, "dufus")
+        check("malformed active interruption cannot block agent", agent.active_interrupt is None)
+        check("malformed queue records are ignored", agent.interrupt_queue == [])
+        check("malformed terminal record is ignored", agent.last_interrupt is None)
+
+
 def main():
     test_save_splits_config_from_runtime()
     test_daily_schedule_persists_to_runtime()
@@ -149,6 +213,8 @@ def main():
     test_load_merges_runtime_over_config()
     test_load_without_runtime_is_backward_compatible()
     test_reset_runtime_clears_runtime_file()
+    test_interruptions_persist_in_runtime_and_reset()
+    test_malformed_interruptions_are_ignored_on_load()
     print("\nAll agent-state checks passed.")
 
 

@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import interruptions
+
 logger = logging.getLogger("AgentRuntime")
 
 
@@ -16,7 +18,7 @@ class Agent:
     _RUNTIME_KEYS = frozenset({
         "last_tick_time", "last_spoke_time", "current_goal", "is_busy", "last_bound_time",
         "bound_unreal_actor_name", "bound_unreal_actor_label", "bound_unreal_actor_class",
-        "daily_schedule", "last_activity",
+        "daily_schedule", "last_activity", "active_interrupt", "interrupt_queue", "last_interrupt",
     })
 
     def __init__(
@@ -128,6 +130,30 @@ class Agent:
         return self.state.get("current_goal", "idle")
 
     @property
+    def active_interrupt(self) -> dict | None:
+        """The one valid active interruption, or ``None`` for absent/bad state."""
+        return interruptions.sanitize_state(
+            self.state.get("active_interrupt"), self.state.get("interrupt_queue"),
+            self.state.get("last_interrupt"),
+        )["active"]
+
+    @property
+    def interrupt_queue(self) -> list[dict]:
+        """Valid queued interruptions in priority/FIFO order."""
+        return interruptions.sanitize_state(
+            self.state.get("active_interrupt"), self.state.get("interrupt_queue"),
+            self.state.get("last_interrupt"),
+        )["queue"]
+
+    @property
+    def last_interrupt(self) -> dict | None:
+        """Most recent valid terminal interruption, if one was persisted."""
+        return interruptions.sanitize_state(
+            self.state.get("active_interrupt"), self.state.get("interrupt_queue"),
+            self.state.get("last_interrupt"),
+        )["last_interrupt"]
+
+    @property
     def daily_schedule(self) -> dict:
         """Today's plan scratch: ``{"day": "Day 1", "blocks": [<schedule block>, ...]}``.
 
@@ -201,6 +227,42 @@ class Agent:
         self.state["current_goal"] = goal
         self._save_state(agents_dir)
 
+    def offer_interrupt(self, record: dict, agents_dir: Path,
+                        activated_at: str = "") -> dict:
+        """Offer a valid queued interruption and persist its lifecycle result."""
+        result = interruptions.offer(
+            self.active_interrupt, self.interrupt_queue, record, activated_at,
+            self.last_interrupt,
+        )
+        self._set_interruptions(result, agents_dir)
+        return result
+
+    def defer_interrupt(self, agents_dir: Path, deferred_at: str = "") -> dict:
+        """Defer the active interruption and persist the promoted queue state."""
+        result = interruptions.defer(
+            self.active_interrupt, self.interrupt_queue, deferred_at, self.last_interrupt,
+        )
+        self._set_interruptions(result, agents_dir)
+        return result
+
+    def terminate_interrupt(self, status: str, outcome: str, agents_dir: Path,
+                            resolved_at: str = "") -> dict:
+        """Terminally finish the active interruption and persist queue promotion."""
+        result = interruptions.terminate(
+            self.active_interrupt, self.interrupt_queue, status, outcome, resolved_at,
+            self.last_interrupt,
+        )
+        self._set_interruptions(result, agents_dir)
+        return result
+
+    def activate_next_interrupt(self, agents_dir: Path, activated_at: str = "") -> dict:
+        """Promote queued work when no active interruption currently owns attention."""
+        result = interruptions.activate_next(
+            self.active_interrupt, self.interrupt_queue, activated_at, self.last_interrupt,
+        )
+        self._set_interruptions(result, agents_dir)
+        return result
+
     def set_daily_schedule(self, blocks: list, day: str, agents_dir: Path) -> None:
         """Persist today's generated schedule to scratch (runtime.json)."""
         self.state["daily_schedule"] = {"day": day, "blocks": blocks}
@@ -238,7 +300,8 @@ class Agent:
         """Clear per-run timers, goal, and the day's plan so a fresh run behaves
         like the first one (the schedule regenerates for the new run/day)."""
         for key in ("last_tick_time", "last_spoke_time", "current_goal",
-                    "daily_schedule", "last_activity"):
+                    "daily_schedule", "last_activity", "active_interrupt",
+                    "interrupt_queue", "last_interrupt"):
             self.state.pop(key, None)
         self.state["is_busy"] = False
         self._save_state(agents_dir)
@@ -274,3 +337,22 @@ class Agent:
         runtime = {k: v for k, v in self.state.items() if k in self._RUNTIME_KEYS}
         (d / "state.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
         (d / "runtime.json").write_text(json.dumps(runtime, indent=2), encoding="utf-8")
+
+    def _set_interruptions(self, lifecycle: dict, agents_dir: Path) -> None:
+        """Replace persisted interruption fields with one lifecycle transition."""
+        active = lifecycle.get("active")
+        queue = lifecycle.get("queue") or []
+        last = lifecycle.get("last_interrupt")
+        if active is None:
+            self.state.pop("active_interrupt", None)
+        else:
+            self.state["active_interrupt"] = active
+        if queue:
+            self.state["interrupt_queue"] = queue
+        else:
+            self.state.pop("interrupt_queue", None)
+        if last is None:
+            self.state.pop("last_interrupt", None)
+        else:
+            self.state["last_interrupt"] = last
+        self._save_state(agents_dir)
