@@ -40,7 +40,7 @@ guess.
 | WP6 | [WP6-authored-places-manifest.md](WP6-authored-places-manifest.md) | #15 authored places manifest + `source` tagging | **DONE 2026-07-07** | none |
 | WP7 | [WP7-sync-world-button.md](WP7-sync-world-button.md) | #21 v1 "sync the world" button (purge wake seeds) | **DONE 2026-07-07** | none |
 | WP8 | [WP8-grid-first-routing.md](WP8-grid-first-routing.md) | #17 grid-first routing (multi-leg travel) | **DONE 2026-07-07** | none |
-| WP9 | [WP9-generic-apc-interruptions.md](WP9-generic-apc-interruptions.md) | #38 generic APC interruption lifecycle | **APPROVED 2026-07-17 / IN PROGRESS** | user approved recommended v1 |
+| WP9 | [WP9-generic-apc-interruptions.md](WP9-generic-apc-interruptions.md) | #38 generic APC interruption lifecycle | **DONE 2026-07-17 — 49/49** | user approved recommended v1 |
 
 ## Why these five existed
 

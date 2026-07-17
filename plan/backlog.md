@@ -9,27 +9,24 @@ Newest grooming: **2026-07-17**.
 
 ### Now
 
-- **#38 generic APC interruption contract:** define the shared interrupt → accept/defer → resolve →
-  resume/convert-to-goal lifecycle using Dufus's proven survey interruption and Maren's future
-  named-user chat request as the two grounding cases. Lock priority, suspension/resume state, and the
-  player's in-world identity before implementation. First checkpoint the already verified uncommitted
-  #32 grid-heading and 3×3 map-marker follow-ups so executor preflight can start from a clean reviewable
-  state.
+- **#37 direct APC chat design:** use #38's completed generic interruption API to define selected-APC
+  message delivery, conversation release, movement behavior during chat, transcript retention, and the
+  explicit choice between resuming prior work or promoting the user's direction into #36 goal state.
 
 ### Next
 
-1. **#38 loop-safe core (Terra-ready after the contract is locked):** pure interruption state,
-   persistence, ordering, resolution, resume tokens, prompt facts, and offline state-machine tests.
-2. **#37 direct APC chat MVP:** selected-APC message delivery through #38, visible pause/resume, and an
-   explicit choice to resume prior work or retain the user's direction.
-3. **#36 ordered goals:** primary/secondary progression and completion evidence, consuming #38 for
+1. **#37 direct APC chat MVP:** selected-APC message delivery through #38, visible pause/resume, and an
+   explicit choice to resume prior work or retain the user's direction, after its design choices close.
+2. **#36 ordered goals:** primary/secondary progression and completion evidence, consuming #38 for
    temporary interruptions and #37 for user-directed reprioritization.
+3. **#35 survey expeditions:** choose the expedition cadence, target-selection surface, chaining/return
+   policy, and retry bounds before extending the now-durable survey interruption.
 
 ### Waiting
 
 - **#16 map authoring:** lock the required name/description fields, exact-click versus grid-center
   anchoring, default APC-place extent, and the migration/precedence rule if it replaces landmarks.
-- **#35 survey expeditions + #13.4 pristine survey reset:** after #38, choose cadence/target-selection,
+- **#35 survey expeditions + #13.4 pristine survey reset:** choose cadence/target-selection,
   chaining/return policy, and the exact purge boundary while preserving LLM agency and authored world
   configuration.
 - **#32 visual cortex:** choose transient gaze retention/dedup and unique-frame retention; semantic
@@ -43,11 +40,10 @@ Newest grooming: **2026-07-17**.
 
 ### Loop-safe
 
-The prior unattended queue is complete. The current uncommitted #32/map follow-ups are independently
-verified at **47/47** by Terra but must be checkpointed before another executor starts. Once #38's
-contract is locked, its engine-neutral state model, persistence, ordering, and transition tests are the
-next loop-safe package; #37 transport/UI and #36 goal-state work become loop-safe only after their
-remaining interaction semantics are explicit. No Unreal/PIE run is part of those executor packages.
+The prior unattended queue and #38's approved engine-neutral package are complete. #38 passed the full
+offline suite at **49/49** on `auto-loop/2026-07-17-interruptions`; no Unreal/PIE or paid-model run was
+performed. #37 transport/UI and #36 goal-state work become loop-safe only after their remaining
+interaction semantics are explicit.
 
 > **Historical status log below.** Dated banners and the 2026-07-01 queues are retained
 > as evidence, not as current priority. The active view above is authoritative.
@@ -1859,7 +1855,7 @@ state tests plus live/PIE conversation and interruption verification.
 
 ## 38. Generic APC interruption, resolution, and resume lifecycle
 
-**Status:** **IDEA / DESIGN GATE — requested 2026-07-17** · **Source:** user: “APCs need a generic
+**Status:** **✅ OFFLINE COMPLETE 2026-07-17 — 49/49; live role-play remains #37** · **Source:** user: “APCs need a generic
 interruption ability. Dufus has a ‘I need to survey this unknown cell’; Maren may have a ‘Root user
 wants to talk to me’… This way, I can role play with the APCs and fine tune their behaviors.” ·
 **Unifies:** #10.5 reaction gating, #11.1/#34 survey interruption, #31 cognition wake events, #36 goal
@@ -1892,6 +1888,28 @@ versus mandatory events, expiry/retry behavior, persistence across restarts, the
 identity model, and how lasting behavioral directions differ from ordinary conversation. **Classification:**
 design decision, then loop-safe interruption/state-machine tests plus live/PIE survey and role-play
 verification.
+
+### Implementation progress — 2026-07-17
+
+- Locked and built one durable `active_interrupt` plus a priority/FIFO queue in APC `runtime.json`.
+  Safety/system defaults to priority 300, explicit operator/user work to 200, and surveys to 100;
+  higher-priority work only preempts an active record while it is marked preemptible.
+- Migrated Dufus's deterministic unknown-cell survey into the generic lifecycle. Its target cell
+  persists, restart recovery reconstructs manager-local sweep state, the first deterministic step
+  closes the preemption window, and terminal outcomes return control to the unchanged schedule/goal.
+- Added generic request/resolve manager methods and localhost runner/client routes with an explicit
+  requester identity. Active operator work wakes settled cognition and appears as a grounded prompt
+  fact above routine activity; no `Root` identity is hardcoded.
+- List/inspect surfaces now expose active, queued, and last-terminal interruption state. Lifecycle
+  transitions append compact, sim-run-attributed entries to the existing decision feed.
+- Reset day/agents clears interruption runtime; regrid cancels survey interruptions without discarding
+  unrelated future kinds. Malformed persisted records fail closed.
+- Test-first implementation landed in `a4937ad`, `52cee1b`, `f77616f`, `18056e0`, and `485a00c`;
+  the last commit makes the promised pre-dispatch survey preemption window externally reachable and
+  corrects preemption audit attribution. Terra's final delegated full offline run passed **49/49**.
+  No Unreal/PIE or paid-model call was made.
+- #38 deliberately stops at the generic control surface. Multi-turn chat/transcripts and accepted
+  direction semantics remain #37; ordered/reprioritized goals remain #36.
 
 ---
 
@@ -2482,8 +2500,9 @@ before driving it (health endpoint vs port check)? guardrails for unsupervised U
 - **Current priority and classification live only in the Active view at the top.** Dated
   banners and old queues are evidence, not instructions.
 - **The historical #32 → #33 → #27 direction and #29 → #20 → #30 offline queue are complete or
-  superseded.** Current priority is only the Active view at the top: #38 interruption architecture,
-  then #37 chat and #36 ordered goals; #16 authoring and #35 expeditions wait on their listed choices.
+  superseded.** #38 interruption architecture is now offline-complete. Current priority is only the
+  Active view at the top: #37 chat, then #36 ordered goals; #16 authoring and #35 expeditions wait on
+  their listed choices.
 - **#4's harness is built** (`run_tests.py`, `preflight.py`, `autonomous_loop.md`);
   running the live sim autonomously is still gated by Unreal/PIE reliability and inference cost.
 - **Verification uses `python scripts/run_tests.py`.** Never copy an old suite count forward;

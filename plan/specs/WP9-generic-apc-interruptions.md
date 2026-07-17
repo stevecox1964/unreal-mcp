@@ -1,6 +1,6 @@
 # WP9 — Generic APC interruption lifecycle (#38)
 
-**Gate:** APPROVED 2026-07-17. The user asked to start #38 and run it to completion after accepting
+**Gate:** DONE 2026-07-17. The user asked to start #38 and run it to completion after accepting
 the recommended v1: one active interruption, a visible priority queue, direct-user requests above
 optional surveys, and explicit resume-or-convert resolution.
 
@@ -139,3 +139,15 @@ payloads, validation failure, and lifecycle log attribution.
 Stop and report rather than guessing if implementation would require changing the user's schedule or
 goal semantics, serializing route internals, adding the chat UI/transcript model, running Unreal/PIE,
 or broadening reset behavior beyond the decisions above.
+
+## Completion evidence
+
+- Pure lifecycle/persistence: `52cee1b` (`feat: persist APC interruption lifecycle`).
+- Survey migration/recovery: `f77616f` (`feat: route surveys through interruption lifecycle`).
+- Generic controls, cognition, visibility, and audit feed: `18056e0`
+  (`feat: expose APC interruption controls`).
+- Durable API-reachable survey preemption window, corrected audit attribution, and current schedule
+  resume context: `485a00c` (`fix: make survey interruption preemption durable`).
+- Terra's delegated final offline suite passed **49/49** in 30.6 seconds.
+- No Unreal/PIE, live role-play, paid-model, C++, Blueprint, or UMG work was performed. Chat remains
+  #37 and ordered/reprioritized goals remain #36.
