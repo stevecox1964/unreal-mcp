@@ -17,11 +17,13 @@ sys.path.insert(0, str(ROOT))
 
 from agent_runtime.llm_router import (             # noqa: E402
     _USER_TEMPLATE_VISION,
+    _USER_TEMPLATE,
     _acquaintance_lines,
     _episode_lines,
     _known_place_lines,
     _nearby_character_lines,
     _schedule_note,
+    _active_interrupt_note,
 )
 
 
@@ -161,6 +163,18 @@ def test_schedule_note_weighting():
     check("idle/None branch unchanged", "nothing fixed right now" in idle)
 
 
+def test_active_interrupt_prompt_fact():
+    note = _active_interrupt_note({
+        "interrupt_id": "operator-1", "kind": "operator_chat", "source": "Avery",
+        "reason": "Please talk with me at the gate.", "priority": 200,
+    })
+    check("active note renders explicit requester", "Avery" in note)
+    check("active note renders grounded reason", "gate" in note)
+    check("active note outranks routine", "outranks your routine" in note)
+    check("template contains active interruption section", "## Active Interruption" in _USER_TEMPLATE_VISION)
+    check("fallback prompt contains active interruption section", "## Active Interruption" in _USER_TEMPLATE)
+
+
 def main():
     test_acquaintance_lines()
     test_known_place_lines()
@@ -169,6 +183,7 @@ def main():
     test_template_contract()
     test_reaction_gate_template()
     test_schedule_note_weighting()
+    test_active_interrupt_prompt_fact()
     print("\nAll prompt-context checks passed.")
 
 

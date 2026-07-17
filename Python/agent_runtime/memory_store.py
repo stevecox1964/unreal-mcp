@@ -151,3 +151,23 @@ class MemoryStore:
             f"[{agent_id}] action={action.get('type')} "
             f"result={result.get('status', result.get('success', '?'))}"
         )
+
+    def record_interrupt_event(self, agent_id: str, event: str, interrupt: dict) -> None:
+        """Append one attributed interruption lifecycle event to the decision feed."""
+        if not self.decisions_log:
+            return
+        snapshot = {
+            key: interrupt.get(key)
+            for key in ("interrupt_id", "kind", "source", "reason", "priority", "status",
+                        "preemptible", "requested_at", "outcome")
+            if key in interrupt
+        }
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "sim_run": self.sim_run_id,
+            "agent_id": agent_id,
+            "event": f"interrupt_{event}",
+            "interrupt": snapshot,
+        }
+        with open(self.decisions_log, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")

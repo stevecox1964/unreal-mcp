@@ -86,6 +86,9 @@ Time: {world_time}
 ## Current Goal
 {current_goal}
 
+## Active Interruption
+{active_interrupt_note}
+
 ## Your Routine Right Now
 {schedule_note}
 {route_map_note}
@@ -97,6 +100,8 @@ line of sight. If your scheduled activity calls for greeting passersby, you may
 turn toward or approach a nearby APC instead of wandering away to search blindly.
 
 ## What Wins Right Now
+If there is an active interruption, it outranks your routine. Address the
+grounded requester/reason under "Active Interruption" until it is resolved.
 Your routine (see "Your Routine Right Now") is your default. When it says to
 head somewhere, your action this tick should move you there. Do NOT stop for
 strangers, scenery, or cells you could explore — those can wait.
@@ -213,6 +218,9 @@ _USER_TEMPLATE = """\
 
 ## Current Goal
 {current_goal}
+
+## Active Interruption
+{active_interrupt_note}
 
 Choose exactly ONE next action. Return ONLY valid JSON: no prose, no markdown fences.
 
@@ -474,6 +482,7 @@ class LLMRouter:
                 world_time=observation.get("world_time", "unknown"),
                 current_action=action_state,
                 current_goal=agent.current_goal,
+                active_interrupt_note=_active_interrupt_note(observation.get("active_interrupt")),
                 sense_note=_sense_note(observation),
                 schedule_note=_schedule_note(observation.get("schedule")),
                 route_map_note=_route_map_note(observation),
@@ -488,6 +497,7 @@ class LLMRouter:
                 memories=mem_lines,
                 observation=json.dumps(obs_for_text, indent=2),
                 current_goal=agent.current_goal,
+                active_interrupt_note=_active_interrupt_note(observation.get("active_interrupt")),
             )
 
         # Travel ticks may carry a rendered route map (#6b/WP5) — attach it so
@@ -647,6 +657,18 @@ def _sense_note(observation: dict) -> str:
         if blocker.get("halted"):
             lines.append("Sense: your walk has been halted.")
     return ("\n" + "\n".join(lines) + "\n") if lines else ""
+
+
+def _active_interrupt_note(record: dict | None) -> str:
+    """Render one grounded active interruption without inventing a speaker."""
+    if not isinstance(record, dict):
+        return "No active interruption."
+    source = str(record.get("source") or "unknown requester").strip()
+    reason = str(record.get("reason") or "no reason supplied").strip()
+    kind = str(record.get("kind") or "interruption").strip()
+    priority = record.get("priority", "?")
+    return (f"Priority {priority} {kind} from {source}: {reason}\n"
+            "This active interruption outranks your routine until it is resolved.")
 
 
 def _route_map_note(observation: dict) -> str:

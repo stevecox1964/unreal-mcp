@@ -1128,6 +1128,9 @@ class AgentManager:
         # standard path must too, even when the diff gate skips perception.
         self._last_grid_place[agent_id] = (grid, place)
         observation["world_time"] = self.world_clock.now_text()
+        active_interrupt = getattr(agent, "active_interrupt", None)
+        if isinstance(active_interrupt, dict):
+            observation["active_interrupt"] = active_interrupt
         observation["directions"] = self._direction_places(
             agent_id, observation.get("location"), observation.get("rotation")
         )
@@ -1224,7 +1227,10 @@ class AgentManager:
             )
             if mapped_visual:
                 observation["place_image_id"] = mapped_visual["place_image_id"]
-        mapped_event = force_cognition or nearby_changed or mapped_schedule_event
+        active_non_survey = bool(
+            isinstance(active_interrupt, dict) and active_interrupt.get("kind") != "survey"
+        )
+        mapped_event = force_cognition or nearby_changed or mapped_schedule_event or active_non_survey
         if (mapped_visual and mapped_settled and not stuck
                 and "blocker" not in observation and not mapped_event):
             agent.mark_ticked(self._agents_dir)
@@ -1243,6 +1249,8 @@ class AgentManager:
             observation = capture_observation(
                 agent.bound_unreal_actor_name, agent_id, self._agents_dir, observation
             )
+            if isinstance(active_interrupt, dict):
+                observation["active_interrupt"] = active_interrupt
 
         if not self.bridge.is_scene_changed(agent_id, observation.get("image_path")):
             # The view is unchanged. Skip the LLM if the avatar is still travelling
@@ -1277,7 +1285,7 @@ class AgentManager:
                      or schedule.get("status") == "travel"
                      or (schedule.get("status") == "act" and moving))
             )
-            event = force_cognition or nearby_changed or schedule_event
+            event = force_cognition or nearby_changed or schedule_event or active_non_survey
             if (settled and not stuck and not blocked and not event):
                 agent.mark_ticked(self._agents_dir)
                 logger.info(
@@ -1308,6 +1316,8 @@ class AgentManager:
                 why = "nearby characters changed"
             elif schedule_event:
                 why = "schedule or place state changed"
+            elif active_non_survey:
+                why = "an active interruption needs attention"
             else:
                 why = f"stationary {skips} ticks"
             logger.info(
@@ -2049,6 +2059,28 @@ class AgentManager:
         """Whether this APC's persisted lifecycle currently owns a survey."""
         return self._active_survey_interrupt(agent) is not None
 
+    def _record_interrupt_event(self, agent: Agent, event: str, record: dict | None) -> None:
+        """Best-effort audit feed entry for an interruption lifecycle transition."""
+        writer = getattr(self.memory, "record_interrupt_event", None)
+        if callable(writer) and isinstance(record, dict):
+            writer(agent.agent_id, event, record)
+
+    def _record_offer_events(self, agent: Agent, record: dict, result: dict) -> None:
+        """Record an offer plus its immediate activation/preemption outcome."""
+        self._record_interrupt_event(agent, "offered", record)
+        transition = result.get("transition")
+        if transition in {"activated", "preempted"}:
+            self._record_interrupt_event(agent, transition, result.get("active"))
+
+    def _terminate_active_interrupt(self, agent: Agent, status: str, outcome: str,
+                                    resolved_at: str) -> dict:
+        """Resolve an active record and make the terminal state auditable."""
+        result = agent.terminate_interrupt(status, outcome, self._agents_dir, resolved_at)
+        self._record_interrupt_event(agent, status, result.get("last_interrupt"))
+        if result.get("active") is not None:
+            self._record_interrupt_event(agent, "activated", result.get("active"))
+        return result
+
     def _offer_survey_interrupt(self, agent: Agent, observation: dict) -> dict | None:
         """Offer the current unknown cell as a persisted survey interruption."""
         col, row = self._cell_col_row(observation.get("grid"))
@@ -2077,10 +2109,11 @@ class AgentManager:
             preemptible=True,
             priority=interruptions.default_priority("survey"),
         )
-        agent.offer_interrupt(
+        result = agent.offer_interrupt(
             record, self._agents_dir,
             activated_at=str(observation.get("world_time") or self.world_clock.now_text()),
         )
+        self._record_offer_events(agent, record, result)
         return self._dispatch_active_survey(agent, observation)
 
     def _dispatch_active_survey(self, agent: Agent, observation: dict) -> dict | None:
@@ -2092,16 +2125,18 @@ class AgentManager:
         try:
             col, row = int(payload["col"]), int(payload["row"])
         except (KeyError, TypeError, ValueError):
-            agent.terminate_interrupt(
-                "failed", "survey payload has no valid grid target", self._agents_dir,
+            self._terminate_active_interrupt(
+                agent,
+                "failed", "survey payload has no valid grid target",
                 str(observation.get("world_time") or self.world_clock.now_text()),
             )
             return None
 
         if (self.place_db is not None
                 and self.place_db.current_place_image(agent.agent_id, col, row) is not None):
-            agent.terminate_interrupt(
-                "resolved", "survey target is already visually complete", self._agents_dir,
+            self._terminate_active_interrupt(
+                agent,
+                "resolved", "survey target is already visually complete",
                 str(observation.get("world_time") or self.world_clock.now_text()),
             )
             self._cell_sweeps.pop(agent.agent_id, None)
@@ -2117,10 +2152,10 @@ class AgentManager:
             return action
 
         complete = bool(self.place_db and self.place_db.current_place_image(agent.agent_id, col, row))
-        agent.terminate_interrupt(
+        self._terminate_active_interrupt(
+            agent,
             "resolved" if complete else "failed",
             "survey completed" if complete else "survey capture incomplete",
-            self._agents_dir,
             str(observation.get("world_time") or self.world_clock.now_text()),
         )
         self._cell_sweeps.pop(agent.agent_id, None)
@@ -2839,10 +2874,14 @@ class AgentManager:
         if (self._agents_dir is not None
                 and self._agents_dir.parent.resolve() == world_dir):
             for agent in self.agents.values():
-                agent.cancel_interrupts(
+                result = agent.cancel_interrupts(
                     "survey", "survey cancelled because the world grid changed", self._agents_dir,
                     self.world_clock.now_text(),
                 )
+                if result.get("cancelled_count"):
+                    self._record_interrupt_event(agent, "cancelled", result.get("last_interrupt"))
+                    if result.get("active") is not None:
+                        self._record_interrupt_event(agent, "activated", result.get("active"))
         self._cell_sweeps.clear()
         self._live_pos.clear()
 
@@ -2953,6 +2992,9 @@ class AgentManager:
             "is_busy":         a.is_busy,
             "current_goal":    a.current_goal,
             "allowed_actions": a.allowed_actions,
+            "active_interrupt": a.active_interrupt,
+            "interrupt_queue": a.interrupt_queue,
+            "last_interrupt": a.last_interrupt,
             "state":           a.state,
         }
 
@@ -2963,6 +3005,72 @@ class AgentManager:
         a.set_goal(goal, self._agents_dir)
         logger.info(f"[{agent_id}] Goal updated -> '{goal}'")
         return {"status": "updated", "agent_id": agent_id, "goal": goal}
+
+    def request_interrupt(self, agent_id: str, *, kind: str, source: str, reason: str,
+                          priority: int = None, payload: dict = None,
+                          preemptible: bool = True) -> dict:
+        """Offer a generic interruption without changing goals or schedule state."""
+        agent = self.agents.get(agent_id)
+        if agent is None:
+            return {"status": "error", "error": f"Agent '{agent_id}' not loaded"}
+        for name, value in (("kind", kind), ("source", source), ("reason", reason)):
+            if not isinstance(value, str) or not value.strip():
+                return {"status": "error", "error": f"{name} must be a non-empty string"}
+        if priority is not None and (isinstance(priority, bool) or not isinstance(priority, int)
+                                     or not 0 <= priority <= 1000):
+            return {"status": "error", "error": "priority must be an integer from 0 to 1000"}
+        if payload is None:
+            payload = {}
+        if not isinstance(payload, dict):
+            return {"status": "error", "error": "payload must be an object"}
+        if not isinstance(preemptible, bool):
+            return {"status": "error", "error": "preemptible must be a boolean"}
+
+        route = self._routes.get(agent_id) or {}
+        requested_at = self.world_clock.now_text()
+        try:
+            record = interruptions.make_record(
+                interrupt_id=uuid.uuid4().hex,
+                kind=kind.strip(), source=source.strip(), reason=reason.strip(),
+                priority=priority, requested_at=requested_at, payload=payload,
+                resume_context={
+                    "current_goal": agent.current_goal,
+                    "schedule": {},
+                    "route_destination": route.get("destination"),
+                },
+                preemptible=preemptible,
+            )
+        except ValueError:
+            return {"status": "error", "error": "interrupt request is not JSON-safe"}
+        result = agent.offer_interrupt(record, self._agents_dir, activated_at=requested_at)
+        self._record_offer_events(agent, record, result)
+        return {
+            "status": "requested", "agent_id": agent_id,
+            "transition": result.get("transition"),
+            "active_interrupt": result.get("active"),
+            "interrupt_queue_count": len(result.get("queue") or []),
+        }
+
+    def resolve_interrupt(self, agent_id: str, status: str, outcome: str) -> dict:
+        """Terminally resolve the one active interruption and expose its successor."""
+        agent = self.agents.get(agent_id)
+        if agent is None:
+            return {"status": "error", "error": f"Agent '{agent_id}' not loaded"}
+        if not isinstance(status, str) or status not in interruptions.TERMINAL:
+            return {"status": "error", "error": "status must be a terminal interruption status"}
+        if not isinstance(outcome, str) or not outcome.strip():
+            return {"status": "error", "error": "outcome must be a non-empty string"}
+        if agent.active_interrupt is None:
+            return {"status": "error", "error": "Agent has no active interruption"}
+        result = self._terminate_active_interrupt(
+            agent, status, outcome.strip(), self.world_clock.now_text(),
+        )
+        return {
+            "status": status, "agent_id": agent_id,
+            "active_interrupt": result.get("active"),
+            "interrupt_queue_count": len(result.get("queue") or []),
+            "last_interrupt": result.get("last_interrupt"),
+        }
 
     def generate_world_grid(self, cell_size: float = 3000.0, padding: float = 800.0) -> dict:
         """Compute the fixed world grid from the current level's actor positions.
@@ -3089,6 +3197,8 @@ class AgentManager:
             "is_busy":           a.is_busy,
             "current_goal":      a.current_goal,
             "last_tick_time":    a.state.get("last_tick_time"),
+            "active_interrupt": a.active_interrupt,
+            "interrupt_queue_count": len(a.interrupt_queue),
         }
 
     def _resolve_action_actor_refs(self, action: dict) -> dict:

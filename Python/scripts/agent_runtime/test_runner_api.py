@@ -89,6 +89,16 @@ class StubManager:
         self.calls.append(("set_goal", agent_id, goal))
         return {"status": "updated", "agent_id": agent_id, "goal": goal}
 
+    def request_interrupt(self, agent_id: str, **request) -> dict:
+        self.calls.append(("request_interrupt", agent_id, request))
+        return {"status": "requested", "agent_id": agent_id,
+                "active_interrupt": {"kind": request["kind"], "source": request["source"]}}
+
+    def resolve_interrupt(self, agent_id: str, status: str, outcome: str) -> dict:
+        self.calls.append(("resolve_interrupt", agent_id, status, outcome))
+        return {"status": status, "agent_id": agent_id,
+                "last_interrupt": {"status": status, "outcome": outcome}}
+
     async def pulse_agent(self, agent_id: str) -> dict:
         self.calls.append(("pulse", agent_id))
         if self.pulse_busy:
@@ -167,6 +177,20 @@ def test_director_routes():
     check("goal route forwards agent + goal", mgr.calls[-1] == ("set_goal", "dufus", "greet the player"))
     check("goal route returns the update", r.json()["goal"] == "greet the player")
 
+    request = client.post("/agents/dufus/interruptions", json={
+        "kind": "operator_chat", "source": "Avery", "reason": "talk at gate",
+        "priority": 200, "payload": {"topic": "gate"},
+    })
+    check("interrupt request route forwards explicit requester",
+          request.json()["active_interrupt"]["source"] == "Avery"
+          and mgr.calls[-1][0:2] == ("request_interrupt", "dufus"))
+    resolved = client.post("/agents/dufus/interruptions/resolve", json={
+        "status": "resolved", "outcome": "met at gate",
+    })
+    check("interrupt resolve route forwards terminal outcome",
+          resolved.json()["last_interrupt"]["outcome"] == "met at gate"
+          and mgr.calls[-1] == ("resolve_interrupt", "dufus", "resolved", "met at gate"))
+
     check("per-agent tick pulses now", client.post("/agents/maren/tick").json()["agent_id"] == "maren")
     check("pulse recorded", mgr.calls[-1] == ("pulse", "maren"))
 
@@ -195,6 +219,11 @@ def test_runner_client_director_methods():
     check("client.agents returns the list", rc.agents()[0]["agent_id"] == "dufus")
     check("client.inspect_agent", rc.inspect_agent("maren")["agent_id"] == "maren")
     check("client.set_agent_goal", rc.set_agent_goal("dufus", "patrol")["goal"] == "patrol")
+    check("client.request_interrupt forwards requester",
+          rc.request_interrupt("dufus", "operator_chat", "Avery", "talk")["status"] == "requested"
+          and mgr.calls[-1][0:2] == ("request_interrupt", "dufus"))
+    check("client.resolve_interrupt forwards terminal outcome",
+          rc.resolve_interrupt("dufus", "resolved", "talked")["last_interrupt"]["outcome"] == "talked")
     check("client.pulse_agent", rc.pulse_agent("dufus")["agent_id"] == "dufus")
     check("client.reset_agents", rc.reset_agents()["status"] == "reset")
     check("client.reset_places", rc.reset_places()["status"] == "reset")
@@ -224,6 +253,17 @@ def test_start_rejects_invalid_cadence():
         response = client.post("/start", json={"tick_seconds": value})
         check(f"start rejects tick_seconds={value!r}", response.status_code == 400)
         check("invalid cadence never reaches manager", mgr.calls == calls_before)
+
+
+def test_interrupt_request_rejects_invalid_body():
+    mgr = StubManager()
+    client = TestClient(build_control_app(mgr))
+    calls_before = list(mgr.calls)
+    response = client.post("/agents/dufus/interruptions", json={
+        "kind": "operator_chat", "source": "", "reason": "talk",
+    })
+    check("request rejects missing requester", response.status_code == 400)
+    check("invalid request never reaches manager", mgr.calls == calls_before)
 
 
 def test_tick_conflicts_return_409():
@@ -283,6 +323,7 @@ def main():
     test_runner_client_director_methods()
     test_start_defaults()
     test_start_rejects_invalid_cadence()
+    test_interrupt_request_rejects_invalid_body()
     test_tick_conflicts_return_409()
     test_runner_client_round_trip()
     test_runner_client_is_running_helper()

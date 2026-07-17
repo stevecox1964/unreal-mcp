@@ -25,6 +25,7 @@ from agent_runtime.agent_manager import (  # noqa: E402
 from agent_runtime import planner  # noqa: E402
 from agent_runtime.place_db import PlaceDB  # noqa: E402
 from agent_runtime.world_grid import WorldGrid  # noqa: E402
+from agent_runtime import interruptions  # noqa: E402
 
 
 def check(label, cond):
@@ -98,6 +99,7 @@ class StubAgent:
         self.daily_schedule_blocks = list(SCHEDULE if blocks is None else blocks)
         self.last_activity = last_activity
         self.marked = 0
+        self.active_interrupt = None
 
     def cooldown_expired(self):
         return True
@@ -202,7 +204,29 @@ def test_mapped_place_suppresses_routine_pixel_change():
         check("nearby event captures exactly one observation image",
               changed.capture_calls == 1)
         check("cognition sleeps again after the one event tick",
-              mgr._observe_agent(agent) is None and changed.capture_calls == 1)
+               mgr._observe_agent(agent) is None and changed.capture_calls == 1)
+
+
+def test_active_non_survey_interrupt_wakes_settled_agent():
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr, agent, bridge = _manager(tmp)
+        mgr.place_db.record_place_image(
+            "maren", 5, 5, "places/images/truck.png",
+            {"N": "n.png", "S": "s.png", "E": "e.png", "W": "w.png"},
+            description="Maren's vegetable truck", place_name="vegetable truck",
+        )
+        active = interruptions.make_record(
+            interrupt_id="operator-1", kind="operator_chat", source="Avery",
+            reason="Please talk with me.", priority=200, requested_at="Day 1 09:00",
+            payload={}, resume_context={}, preemptible=True,
+        )
+        active["status"] = "active"
+        agent.active_interrupt = active
+        observation = mgr._observe_agent(agent)
+        check("active non-survey interruption wakes settled cognition", observation is not None)
+        check("observation carries grounded interrupt fact",
+              observation["active_interrupt"]["source"] == "Avery")
+        check("wake captures one current frame", bridge.capture_calls == 1)
 
 
 async def test_manual_pulse_bypasses_settled_suppression():
@@ -229,6 +253,7 @@ def main():
     test_schedule_transition_and_displacement_resume_cognition()
     test_movement_and_nearby_arrival_resume_cognition()
     test_mapped_place_suppresses_routine_pixel_change()
+    test_active_non_survey_interrupt_wakes_settled_agent()
     asyncio.run(test_manual_pulse_bypasses_settled_suppression())
     asyncio.run(test_activity_label_says_sampling_for_cheap_tick())
     print("\nAll event-driven cognition checks passed.")

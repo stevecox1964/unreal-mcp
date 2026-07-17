@@ -24,6 +24,10 @@ def build_control_app(manager) -> FastAPI:
       - ``GET  /agents``        → ``{"agents": manager.list_agents()}``
       - ``GET  /agents/{id}``   → ``manager.inspect_agent(id)``
       - ``POST /agents/{id}/goal`` (body ``{goal}``) → ``manager.set_agent_goal``
+      - ``POST /agents/{id}/interruptions`` (body ``{kind, source, reason, ...}``)
+        → ``manager.request_interrupt``
+      - ``POST /agents/{id}/interruptions/resolve`` (body ``{status, outcome}``)
+        → ``manager.resolve_interrupt``
       - ``POST /agents/{id}/tick`` → ``manager.pulse_agent(id)`` (ignore cooldown)
       - ``POST /reset_agents``  → ``manager.reset_agents()``
       - ``POST /reset_places``  → ``manager.reset_world_places()``
@@ -50,7 +54,7 @@ def build_control_app(manager) -> FastAPI:
             "endpoints": ["/health", "/status", "/events", "/start", "/stop", "/tick",
                           "/pause", "/resume", "/agents", "/positions", "/reset_day",
                           "/reset_agents", "/reset_places", "/resync", "/capture_starts",
-                          "/world_grid", "/regrid"],
+                          "/world_grid", "/regrid", "/agents/{id}/interruptions"],
         }
 
     @app.get("/health")
@@ -125,6 +129,32 @@ def build_control_app(manager) -> FastAPI:
     async def agent_goal(agent_id: str, request: Request) -> dict:
         body = await _json_body(request)
         return manager.set_agent_goal(agent_id, str(body.get("goal", "")))
+
+    @app.post("/agents/{agent_id}/interruptions")
+    async def request_interrupt(agent_id: str, request: Request) -> dict:
+        body = await _json_body(request)
+        for key in ("kind", "source", "reason"):
+            if not isinstance(body.get(key), str) or not body[key].strip():
+                raise HTTPException(status_code=400, detail=f"{key} must be a non-empty string")
+        result = manager.request_interrupt(
+            agent_id,
+            kind=body["kind"], source=body["source"], reason=body["reason"],
+            priority=body.get("priority"), payload=body.get("payload"),
+            preemptible=body.get("preemptible", True),
+        )
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("error", "invalid interruption"))
+        return result
+
+    @app.post("/agents/{agent_id}/interruptions/resolve")
+    async def resolve_interrupt(agent_id: str, request: Request) -> dict:
+        body = await _json_body(request)
+        result = manager.resolve_interrupt(
+            agent_id, body.get("status"), body.get("outcome"),
+        )
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("error", "invalid interruption resolution"))
+        return result
 
     @app.post("/agents/{agent_id}/tick")
     async def agent_tick(agent_id: str):

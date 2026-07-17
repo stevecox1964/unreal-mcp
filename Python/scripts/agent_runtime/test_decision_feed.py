@@ -80,11 +80,29 @@ def test_clear_on_empty_is_safe():
         check("clearing a never-written feed returns 0", ms.clear_recent_events() == 0)
 
 
+def test_interrupt_events_are_attributed_to_the_sim_run():
+    with tempfile.TemporaryDirectory() as t:
+        ms = _store(Path(t))
+        ms.sim_run_id = "SR77"
+        ms.record_interrupt_event("dufus", "activated", {
+            "interrupt_id": "operator-1", "kind": "operator_chat", "source": "Avery",
+            "reason": "talk at gate", "priority": 200, "status": "active",
+        })
+        event = ms.get_recent_events(1, sim_run_id="SR77")[0]
+        check("interrupt event records run + semantic event", event["sim_run"] == "SR77"
+              and event["event"] == "interrupt_activated")
+        check("interrupt event keeps a compact snapshot",
+              event["interrupt"] == {"interrupt_id": "operator-1", "kind": "operator_chat",
+                                     "source": "Avery", "reason": "talk at gate",
+                                     "priority": 200, "status": "active"})
+
+
 def main():
     test_record_then_read_with_timestamp()
     test_clear_empties_feed_but_keeps_path()
     test_feed_can_show_only_the_active_run()
     test_clear_on_empty_is_safe()
+    test_interrupt_events_are_attributed_to_the_sim_run()
     print("\nAll decision-feed checks passed.")
 
 

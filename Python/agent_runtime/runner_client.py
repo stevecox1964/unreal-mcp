@@ -77,6 +77,24 @@ class RunnerClient:
     def set_agent_goal(self, agent_id: str, goal: str) -> dict:
         return self._client.post(f"/agents/{agent_id}/goal", json={"goal": goal}).json()
 
+    def request_interrupt(self, agent_id: str, kind: str, source: str, reason: str,
+                          priority: int = None, payload: dict = None,
+                          preemptible: bool = True) -> dict:
+        """Offer an explicit-source generic interruption for one APC."""
+        body = {"kind": kind, "source": source, "reason": reason,
+                "preemptible": preemptible}
+        if priority is not None:
+            body["priority"] = priority
+        if payload is not None:
+            body["payload"] = payload
+        return self._client.post(f"/agents/{agent_id}/interruptions", json=body).json()
+
+    def resolve_interrupt(self, agent_id: str, status: str, outcome: str) -> dict:
+        """Record a terminal result for an APC's active interruption."""
+        return self._client.post(f"/agents/{agent_id}/interruptions/resolve", json={
+            "status": status, "outcome": outcome,
+        }).json()
+
     def pulse_agent(self, agent_id: str) -> dict:
         """Tick one agent now, ignoring its cooldown."""
         return self._client.post(f"/agents/{agent_id}/tick").json()
