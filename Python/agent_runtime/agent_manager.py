@@ -1708,6 +1708,15 @@ class AgentManager:
         if ((survey_priority or sched_status not in {"act", "travel"})
                 and self._should_sweep_here(observation, agent_id)):
             sweep_action = self._offer_survey_interrupt(agent, observation)
+            if sweep_action and sweep_action.get("_survey_pending"):
+                # A newly activated survey has a deliberately durable handoff
+                # tick. Its persisted active/preemptible record is visible to
+                # operator/API requests before any bridge command locks it.
+                # The next pulse dispatches it deterministically, LLM-free.
+                agent.mark_ticked(self._agents_dir)
+                self._pie_activity(agent_id, "OBS fire -> survey pending dispatch")
+                return {"agent_id": agent_id, "action": "survey_pending",
+                        "sweep": True, "interrupt_id": sweep_action["interrupt_id"]}
             if sweep_action is not None:
                 action = sweep_action
 
@@ -2069,8 +2078,13 @@ class AgentManager:
         """Record an offer plus its immediate activation/preemption outcome."""
         self._record_interrupt_event(agent, "offered", record)
         transition = result.get("transition")
-        if transition in {"activated", "preempted"}:
+        if transition == "activated":
             self._record_interrupt_event(agent, transition, result.get("active"))
+        elif transition == "preempted":
+            # The preempted event narrates the work displaced from attention;
+            # recording the incoming active record here would invert that fact.
+            self._record_interrupt_event(agent, "preempted", result.get("displaced"))
+            self._record_interrupt_event(agent, "activated", result.get("active"))
 
     def _terminate_active_interrupt(self, agent: Agent, status: str, outcome: str,
                                     resolved_at: str) -> dict:
@@ -2114,6 +2128,9 @@ class AgentManager:
             activated_at=str(observation.get("world_time") or self.world_clock.now_text()),
         )
         self._record_offer_events(agent, record, result)
+        if (result.get("transition") in {"activated", "preempted"}
+                and self._active_survey_interrupt(agent) is not None):
+            return {"_survey_pending": True, "interrupt_id": record["interrupt_id"]}
         return self._dispatch_active_survey(agent, observation)
 
     def _dispatch_active_survey(self, agent: Agent, observation: dict) -> dict | None:
@@ -3006,6 +3023,34 @@ class AgentManager:
         logger.info(f"[{agent_id}] Goal updated -> '{goal}'")
         return {"status": "updated", "agent_id": agent_id, "goal": goal}
 
+    def _interrupt_resume_context(self, agent: Agent) -> dict:
+        """Snapshot the current schedule directive from cached, observed state.
+
+        An interruption request must not query Unreal or generate a new daily
+        plan.  When a prior observe tick gives us position/place facts, reuse
+        the same model-free directive resolver that powers the cognition gate.
+        """
+        route = self._routes.get(agent.agent_id) or {}
+        schedule = {}
+        pos = self._live_pos.get(agent.agent_id)
+        if pos is not None:
+            cached_grid, cached_place = self._last_grid_place.get(agent.agent_id, (None, []))
+            grid = cached_grid or self.world_grid.locate(pos["x"], pos["y"])
+            observation = {
+                "world_time": self.world_clock.now_text(),
+                "location": {"x": pos["x"], "y": pos["y"], "z": 0.0},
+                "grid": grid,
+                "place": cached_place,
+            }
+            directive = self._existing_schedule_directive(agent, observation)
+            if isinstance(directive, dict):
+                schedule = dict(directive)
+        return {
+            "current_goal": agent.current_goal,
+            "schedule": schedule,
+            "route_destination": route.get("destination"),
+        }
+
     def request_interrupt(self, agent_id: str, *, kind: str, source: str, reason: str,
                           priority: int = None, payload: dict = None,
                           preemptible: bool = True) -> dict:
@@ -3026,18 +3071,13 @@ class AgentManager:
         if not isinstance(preemptible, bool):
             return {"status": "error", "error": "preemptible must be a boolean"}
 
-        route = self._routes.get(agent_id) or {}
         requested_at = self.world_clock.now_text()
         try:
             record = interruptions.make_record(
                 interrupt_id=uuid.uuid4().hex,
                 kind=kind.strip(), source=source.strip(), reason=reason.strip(),
                 priority=priority, requested_at=requested_at, payload=payload,
-                resume_context={
-                    "current_goal": agent.current_goal,
-                    "schedule": {},
-                    "route_destination": route.get("destination"),
-                },
+                resume_context=self._interrupt_resume_context(agent),
                 preemptible=preemptible,
             )
         except ValueError:

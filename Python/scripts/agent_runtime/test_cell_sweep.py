@@ -338,7 +338,7 @@ def _named_walk_decision(agent_id, place):
 
 def test_act_agent_starts_sweep_interrupt():
     """An APC idling in an unexplored cell has its LLM action replaced by
-    the sweep's first step; the sweep goes active for the next ticks."""
+    a durable, pre-dispatch survey offer; the next tick takes its first step."""
     with tempfile.TemporaryDirectory() as tmp:
         bridge = _StubBridge({"x": 1500.0, "y": 1500.0, "z": 90.0})
         mgr = _manager(tmp)
@@ -348,19 +348,18 @@ def test_act_agent_starts_sweep_interrupt():
 
         obs = _obs(1500.0, 1500.0, schedule={"status": "idle"})
         result = mgr._act_agent(agent, _idle_decision("dufus"), obs)
-        check("LLM action was replaced by the sweep step",
-              bridge.actions and bridge.actions[-1]["type"] == "walk_to")
-        check("executed action is tagged as a sweep interrupt",
-              bridge.actions[-1].get("_sweep_interrupt") is True)
-        check("sweep is now active", "dufus" in mgr._cell_sweeps)
+        check("offer tick performs no bridge action", bridge.actions == [])
+        check("result exposes the durable pre-dispatch state",
+              result["action"] == "survey_pending" and result["sweep"] is True)
+        check("no disposable local sweep state starts before dispatch",
+              "dufus" not in mgr._cell_sweeps)
         check("sweep owns a persisted survey interruption",
               agent.active_interrupt and agent.active_interrupt["kind"] == "survey")
         check("survey carries its stable grid target",
               agent.active_interrupt["payload"] == {"col": 5, "row": 5})
-        check("first dispatched sweep step becomes non-preemptible",
-              agent.active_interrupt["preemptible"] is False)
+        check("pre-dispatch survey remains preemptible",
+              agent.active_interrupt["preemptible"] is True)
         check("tick was recorded", agent.ticked == 1)
-        check("result reports the sweep action", result["action"].get("_sweep_interrupt") is True)
 
 
 def test_act_agent_act_tick_is_sweep_exempt():
@@ -405,7 +404,7 @@ def test_act_agent_travel_defers_sweep_on_entry():
 
 def test_surveyor_travel_starts_center_sweep_before_route():
     """A survey-priority APC deliberately interrupts scheduled travel in an
-    unexplored cell, walks to its exact center, and leaves the schedule intact
+    unexplored cell, offers a preemptible survey, and leaves the schedule intact
     so travel can resume after the deterministic N/S/E/W survey finishes."""
     with tempfile.TemporaryDirectory() as tmp:
         bridge = _StubBridge({"x": 1500.0, "y": 1500.0, "z": 90.0})
@@ -418,14 +417,13 @@ def test_surveyor_travel_starts_center_sweep_before_route():
 
         schedule = {"status": "travel", "place": "village square"}
         obs = _obs(1500.0, 1500.0, schedule=schedule)
-        mgr._act_agent(agent, _named_walk_decision("dufus", "village square"), obs)
+        result = mgr._act_agent(agent, _named_walk_decision("dufus", "village square"), obs)
 
-        action = bridge.actions[-1]
-        check("surveyor travel is replaced by a sweep interrupt",
-              action.get("_sweep_interrupt") is True)
-        check("surveyor targets the exact current-cell center",
-              action.get("location") == [200.0, 200.0, 90.0])
-        check("surveyor sweep is active", "dufus" in mgr._cell_sweeps)
+        check("surveyor travel is replaced by a pending sweep interruption",
+              result["action"] == "survey_pending" and bridge.actions == [])
+        check("surveyor sweep is persistently active but locally undispatched",
+              agent.active_interrupt and agent.active_interrupt["kind"] == "survey"
+              and "dufus" not in mgr._cell_sweeps)
         check("scheduled destination remains available after the survey",
                obs["schedule"] == schedule)
         check("survey leaves the active goal unchanged", agent.current_goal == "keep traveling")
@@ -513,7 +511,8 @@ def test_tick_routes_sweeping_agent():
         mgr.agents = {"dufus": agent}
         # Activate through the act-phase gate so lifecycle ownership exists.
         mgr._act_agent(agent, _idle_decision("dufus"), _obs(1500.0, 1500.0, schedule={"status": "idle"}))
-        check("sweep activated", agent.active_interrupt is not None and "dufus" in mgr._cell_sweeps)
+        check("sweep is active before its next deterministic dispatch",
+              agent.active_interrupt is not None and "dufus" not in mgr._cell_sweeps)
 
         result = asyncio.run(mgr.tick())
         check("the sweeping agent was ticked", result["ticked"] == 1)
