@@ -20,16 +20,20 @@ def _heading_font(size: int = 46):
         return ImageFont.load_default(size=size)
 
 
-def build_place_composite(views: dict[str, str | Path], output_path: str | Path) -> Path:
+def build_place_composite(views: dict[str, str | Path], output_path: str | Path,
+                          grid_x: int, grid_y: int) -> Path:
     """Render one durable N/S/E/W place image.
 
     ``views`` must contain exactly the four cardinal directions. Each panel has
-    a black header and large white direction text; grid/world coordinates are
-    deliberately absent from the pixels. Example valid input::
+    a black header and large white direction text. The logical grid coordinate
+    is printed between the N and S headings so a VLM can ground its response;
+    world coordinates remain absent from the pixels. Example valid input::
 
         build_place_composite(
             {"N": "north.png", "S": "south.png", "E": "east.png", "W": "west.png"},
             "place_images/abc123.png",
+            7,
+            5,
         )
     """
     normalized = {str(k).upper(): Path(v) for k, v in views.items()}
@@ -60,6 +64,16 @@ def build_place_composite(views: dict[str, str | Path], output_path: str | Path)
         draw.text(((panel_w - text_w) / 2, (_HEADER_HEIGHT - text_h) / 2 - box[1]),
                   direction, fill="white", font=font)
         composite.paste(panel, (x, y))
+
+    grid_text = f"GRID X: {grid_x}  Y: {grid_y}"
+    grid_font = _heading_font(32)
+    draw = ImageDraw.Draw(composite)
+    box = draw.textbbox((0, 0), grid_text, font=grid_font)
+    text_w = box[2] - box[0]
+    text_h = box[3] - box[1]
+    draw.text(((composite.width - text_w) / 2,
+               (_HEADER_HEIGHT - text_h) / 2 - box[1]),
+              grid_text, fill="white", font=grid_font)
 
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)

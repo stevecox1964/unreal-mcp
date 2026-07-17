@@ -75,8 +75,8 @@ CREATE TABLE IF NOT EXISTS owned_place_cells (
     PRIMARY KEY (col, row, owner, name)
 );
 
--- Immutable place-image revisions. Coordinates remain metadata and are never
--- rendered into the VLM-facing composite.
+-- Immutable place-image revisions. Logical grid X/Y is also rendered in the
+-- composite heading for VLM grounding; precise world coordinates remain metadata.
 CREATE TABLE IF NOT EXISTS place_images (
     place_image_id TEXT PRIMARY KEY,
     place_key      TEXT    NOT NULL,

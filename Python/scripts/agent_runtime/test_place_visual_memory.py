@@ -41,13 +41,16 @@ def main():
         db = PlaceDB(world / "world_places.db")
         views = _source_views(world)
         composite = world / "places" / "images" / "community.png"
-        build_place_composite(views, composite)
+        build_place_composite(views, composite, 2, 3)
 
         with Image.open(composite) as image:
             check("composite is a stable 2x2 panel", image.size == (1280, 848))
             header = image.crop((0, 0, 640, 64)).convert("L")
             lo, hi = header.getextrema()
             check("header contains black background and white heading", lo == 0 and hi == 255)
+            grid_heading = image.crop((480, 0, 800, 64)).convert("L")
+            check("grid X/Y heading is visible between N and S",
+                  grid_heading.getbbox() is not None)
 
         rel_views = {d: str(p.relative_to(world)) for d, p in views.items()}
         db.set_name("dufus", 2, 3, "Coffee Shop", "Day 1, 09:00")
@@ -83,7 +86,7 @@ def main():
 
         db.add_owned_place("maren", 2, 3, "My Booth", 10.0, -20.0)
         owned_composite = world / "places" / "images" / "owned.png"
-        build_place_composite(views, owned_composite)
+        build_place_composite(views, owned_composite, 2, 3)
         owned = db.record_place_image(
             "maren", 2, 3, str(owned_composite.relative_to(world)), rel_views,
             description="Maren's booth", place_name="My Booth",

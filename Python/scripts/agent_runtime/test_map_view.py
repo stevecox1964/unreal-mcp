@@ -208,8 +208,10 @@ def test_map_page_renders_with_legend_and_polls_api():
             check("map page has clickable surveyed-community markers",
                   "surveyed community" in text and "survey-mark" in text
                   and 'id="survey-dialog"' in text)
-            check("surveyed-community markers use compact 10px dots",
-                  "width:10px; height:10px; margin:-5px 0 0 -5px" in text)
+            check("surveyed-community markers render as centered 3px squares",
+                  'width:3px; height:3px' in text
+                  and 'left:4px; top:4px' in text
+                  and 'transform:translate(-50%,-50%)' in text)
             check("map page labels counts as visual observations, not physical landmarks",
                   "visual observations" in text.lower()
                   and "${cell.landmarks} landmark(s)" not in text)

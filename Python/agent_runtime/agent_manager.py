@@ -873,7 +873,7 @@ class AgentManager:
         composite_path = shared_dir / f"{uuid.uuid4().hex}.png"
         sources = {d: by_direction[d]["image_path"] for d in place_visuals.CARDINAL_DIRECTIONS}
         try:
-            place_visuals.build_place_composite(sources, composite_path)
+            place_visuals.build_place_composite(sources, composite_path, col, row)
             description = "\n".join(
                 f"{d}: {str(by_direction[d].get('caption') or '').strip()}"
                 for d in place_visuals.CARDINAL_DIRECTIONS

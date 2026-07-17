@@ -97,8 +97,9 @@ Expected behavior at a place with no saved visual memory:
 
 1. The APC turns through four absolute views: north, south, east, and west.
 2. The VLM produces the scene text during that survey.
-3. A single 2×2 composite is created with large white N/S/E/W headings on black and no coordinates in
-   the pixels.
+3. A single 2×2 composite is created with large white N/S/E/W headings on black. Its logical
+   `GRID X: <col>  Y: <row>` label appears between N and S so VLM descriptions can state which grid
+   the place history came from; precise world coordinates are not drawn over the scene.
 4. The APC's inspectable copy/link appears at:
 
 ```text
