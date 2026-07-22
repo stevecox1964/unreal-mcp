@@ -9,12 +9,12 @@ Newest grooming: **2026-07-17**.
 
 ### Now
 
-- **#37 dedicated Chat page:** move the chat controls out of the Sim cockpit onto `/chat`, with Chat
-  immediately next to Sim in primary navigation, without changing chat behavior.
+- **Live/PIE verification bundle:** verify #39 stale refresh, #40 E/S/W/N yaw/progress, and #37 chat
+  on its dedicated page with Dufus and Maren running.
 
 ### Next
 
-1. **#36 ordered goals:** use deterministic completion evidence so a completed survey intent clears or
+1. **#36 ordered goals:** design the structured goal/completion link so a completed survey intent clears or
    advances instead of remaining Dufus's current goal.
 2. **#37 direct APC chat live verification:** verify the moved UI still stops Dufus, supports multiple
    turns and temporary guidance, resumes prior work, and leaves Maren unaffected.
@@ -39,11 +39,10 @@ Newest grooming: **2026-07-17**.
 
 ### Loop-safe
 
-Approved 2026-07-21 for autonomous execution, in order: **#39**, **#40**, **#41**, and the dedicated
-Chat-page slice of **#37**. Their deterministic Python/web behavior must be test-first and offline;
-each item retains its listed PIE verification. #36 remains design-gated except for consuming explicit
-deterministic completion evidence supplied by these slices. #38's prior engine-neutral package passed
-49/49 on `auto-loop/2026-07-17-interruptions`.
+The approved 2026-07-21 offline queue—**#39**, **#40**, **#41**, and the dedicated Chat-page slice of
+**#37**—is complete at 50/50. Each item retains its listed PIE verification. #36 remains design-gated:
+survey completion is now authoritative, but no structured goal-to-interruption link exists yet, so a
+free-form text match must not silently clear a goal.
 
 **Execution note 2026-07-21:** autonomous preflight was attempted after approval and correctly blocked
 on the pre-existing dirty tree: the uncommitted #37 direct-chat implementation overlaps runtime, runner,
@@ -1843,7 +1842,7 @@ from free-form model narration.
 
 ## 37. Direct operator chat and direction for a selected APC
 
-**Status:** **OFFLINE MVP COMPLETE 2026-07-21 — 50/50; LIVE PIE/MODEL VERIFY NEXT** · **Source:** user: “I want to have a
+**Status:** **OFFLINE COMPLETE 2026-07-21 — 50/50; LIVE PIE/MODEL VERIFY NEXT** · **Source:** user: “I want to have a
 feature where I can ‘chat’ with a particular APC… interrupt [its] current goal… and give direction
 to the APC.” · **Builds on:** #10.5 interrupt/resume policy, #12 interaction memory, #31 event-driven
 cognition, #36 multi-goal state, and the generic interruption lifecycle in #38
@@ -1873,6 +1872,11 @@ rather than duplicating it, and preserve APC selection, operator identity, trans
 resume behavior. Acceptance evidence: offline route/template tests prove `/chat` contains the complete
 chat surface, `/sim` no longer contains it, navigation order is Sim then Chat, and existing API/control
 tests remain green. **Classification:** loop-safe web UI; live/PIE chat verification remains required.
+
+**Implementation evidence 2026-07-21:** `/chat` now owns APC selection, operator identity, transcript,
+send, guide, and resume controls; `/sim` retains simulation status, survey progress, controls, and the
+decision feed without chat duplication; shared navigation is Sim → Chat → Map. Focused web tests and
+the full offline suite passed (50/50). Live chat behavior still requires PIE/model verification.
 
 ---
 

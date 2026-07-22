@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Chat · Unreal World Sim{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="/">Home</a> / Chat</div>
+
+<h2>Direct APC chat</h2>
+<p><small>Talk to one loaded APC through the standalone runner at <code>{{ runner_url }}</code>.
+Opening a chat safely stops that APC; other APCs continue normally.</small></p>
+
+<article id="chat-card">
+  <header><strong>Conversation</strong> <small id="chat-state">select an APC</small></header>
+  <div class="grid">
+    <label>APC
+      <select id="chat-agent"><option value="">Select an APC...</option></select>
+    </label>
+    <label>Your in-world name
+      <input id="chat-source" value="Operator" maxlength="80">
+    </label>
+  </div>
+  <button id="btn-chat-open" type="button">Open chat</button>
+  <div id="chat-transcript" style="min-height:6rem; max-height:18rem; overflow:auto; margin:1rem 0; padding:.75rem; border:1px solid #ddd; border-radius:4px; background:#fafafa;">
+    <small>No conversation open.</small>
+  </div>
+  <label for="chat-message">Message or temporary direction</label>
+  <textarea id="chat-message" rows="3" maxlength="2000" placeholder="Dufus, are you stuck? Try backing up and going around the wagon."></textarea>
+  <div role="group">
+    <button id="btn-chat-send" type="button">Send message</button>
+    <button id="btn-chat-guide" type="button" class="secondary">Guide with this</button>
+    <button id="btn-chat-end" type="button" class="secondary outline">Resume prior work</button>
+  </div>
+  <small style="color:#666;">Guidance stays temporary; releasing the APC resumes the goal and route it had before chat.</small>
+</article>
+
+<script>
+async function getJSON(u){ const r = await fetch(u); return r.json(); }
+async function postJSON(u, body){ const r = await fetch(u, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})}); return r.json(); }
+function escapeHTML(value){
+  return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+let latestOperatorMessage = '';
+let lastChatAgent = '';
+function selectedChatAgent(){ return document.getElementById('chat-agent').value; }
+
+function renderTranscript(active){
+  const box = document.getElementById('chat-transcript');
+  const chat = active?.payload?.chat;
+  const messages = chat?.messages || [];
+  if(!chat){ box.innerHTML = '<small>No conversation open.</small>'; return; }
+  latestOperatorMessage = [...messages].reverse().find(m => m.role === 'operator')?.text || latestOperatorMessage;
+  box.innerHTML = messages.length ? messages.map(m =>
+    `<p style="margin:.35rem 0"><strong>${m.role === 'operator' ? escapeHTML(active.source) : escapeHTML(selectedChatAgent())}:</strong> ${escapeHTML(m.text)}</p>`
+  ).join('') : '<small>Chat is open. Send a message.</small>';
+  box.scrollTop = box.scrollHeight;
+}
+
+async function refreshAgents(){
+  const status = await getJSON('/api/sim/status');
+  const agents = status.agents || [];
+  const select = document.getElementById('chat-agent');
+  const chosen = select.value;
+  select.innerHTML = '<option value="">Select an APC...</option>' + agents.map(a =>
+    `<option value="${escapeHTML(a.agent_id)}">${escapeHTML(a.agent_id)}</option>`).join('');
+  if(agents.some(a => a.agent_id === chosen)) select.value = chosen;
+  else if(agents.some(a => a.agent_id === 'dufus')) select.value = 'dufus';
+}
+
+async function refreshChat(){
+  const id = selectedChatAgent();
+  if(!id) return;
+  if(id !== lastChatAgent){ latestOperatorMessage = ''; lastChatAgent = id; }
+  try{
+    const detail = await getJSON(`/api/sim/agents/${encodeURIComponent(id)}`);
+    const active = detail.active_interrupt;
+    const chat = active?.payload?.chat;
+    document.getElementById('chat-state').textContent = chat?.state === 'open' ? 'chat open - movement paused' : chat?.state === 'guiding' ? 'following temporary guidance' : 'available';
+    renderTranscript(active);
+    document.getElementById('btn-chat-open').disabled = !!chat;
+    document.getElementById('btn-chat-send').disabled = chat?.state !== 'open';
+    document.getElementById('btn-chat-guide').disabled = chat?.state !== 'open';
+    document.getElementById('btn-chat-end').disabled = !chat;
+  }catch(e){}
+}
+
+document.getElementById('chat-agent').onchange = refreshChat;
+document.getElementById('btn-chat-open').onclick = async () => {
+  const id = selectedChatAgent();
+  const source = document.getElementById('chat-source').value.trim();
+  if(!id || !source) return;
+  const result = await postJSON(`/api/sim/agents/${encodeURIComponent(id)}/chat/start`, {source});
+  if(result.error) alert(result.error);
+  await refreshChat();
+};
+document.getElementById('btn-chat-send').onclick = async () => {
+  const id = selectedChatAgent();
+  const input = document.getElementById('chat-message');
+  const message = input.value.trim();
+  if(!id || !message) return;
+  document.getElementById('chat-state').textContent = 'waiting for reply...';
+  const result = await postJSON(`/api/sim/agents/${encodeURIComponent(id)}/chat/message`, {message});
+  if(result.error) alert(result.error); else { latestOperatorMessage = message; input.value = ''; }
+  await refreshChat();
+};
+document.getElementById('btn-chat-guide').onclick = async () => {
+  const id = selectedChatAgent();
+  const typed = document.getElementById('chat-message').value.trim();
+  const direction = typed || latestOperatorMessage;
+  if(!id || !direction){ alert('Type a direction first, or send one as your latest message.'); return; }
+  const result = await postJSON(`/api/sim/agents/${encodeURIComponent(id)}/chat/guide`, {direction});
+  if(result.error) alert(result.error);
+  await refreshChat();
+};
+document.getElementById('btn-chat-end').onclick = async () => {
+  const id = selectedChatAgent();
+  if(!id) return;
+  const result = await postJSON(`/api/sim/agents/${encodeURIComponent(id)}/chat/end`);
+  if(result.error) alert(result.error);
+  await refreshChat();
+};
+
+async function refresh(){
+  try{ await refreshAgents(); await refreshChat(); }catch(e){}
+}
+refresh();
+setInterval(refresh, 2000);
+</script>
+{% endblock %}

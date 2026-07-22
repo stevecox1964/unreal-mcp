@@ -120,12 +120,26 @@ def test_sim_page_renders_with_controls():
         check("sim page has a Reset agents button", "Reset agents" in text)
         check("sim page has a Reset places button", "Reset places" in text)
         check("sim page has a Capture starts button", "Capture starts" in text)
-        check("sim page has direct APC chat controls",
-              "Direct APC chat" in text and "Guide with this" in text
-              and "Resume prior work" in text)
+        check("sim page no longer duplicates direct chat controls",
+              "Direct APC chat" not in text and "Guide with this" not in text)
         check("sim page renders deterministic survey progress",
               "survey_progress" in text and "survey_heading" in text)
         check("sim page renders a timestamp per event", "fmtTime(e.timestamp)" in text)
+    _with_runner(StubRunner(), body)
+
+
+def test_chat_page_owns_controls_and_follows_sim_in_navigation():
+    def body(client):
+        text = client.get("/chat").text
+        check("chat page owns the complete direct-chat surface",
+              "Direct APC chat" in text and "Guide with this" in text
+              and "Resume prior work" in text and 'id="chat-agent"' in text)
+        check("chat page preserves all existing API operations",
+              "/chat/start" in text and "/chat/message" in text
+              and "/chat/guide" in text and "/chat/end" in text)
+        check("Chat navigation appears immediately after Sim",
+              text.index('href="/sim"') < text.index('href="/chat"')
+              < text.index('href="/map"'))
     _with_runner(StubRunner(), body)
 
 
@@ -252,6 +266,7 @@ def test_world_grid_proxied():
 
 def main():
     test_sim_page_renders_with_controls()
+    test_chat_page_owns_controls_and_follows_sim_in_navigation()
     test_api_status_online_and_offline()
     test_api_events_proxied()
     test_clear_feed_proxied()

@@ -7,7 +7,8 @@ to guide Dufus via chat if he gets stuck.”
 
 ## Locked MVP contract
 
-1. Chat lives in the Simulation cockpit and works for any loaded APC; Dufus is selected by default.
+1. Chat lives on the dedicated `/chat` page, immediately after Sim in primary navigation, and works
+   for any loaded APC; Dufus is selected by default. The Sim cockpit does not duplicate chat controls.
 2. The operator supplies an explicit in-world name. No player identity is hardcoded.
 3. Opening chat creates a priority-200 `operator_chat` through #38 and immediately stops movement
    when the chat receives active attention. A non-preemptible survey may make it wait in the queue.
@@ -30,7 +31,8 @@ to guide Dufus via chat if he gets stuck.”
 - `test_direct_chat.py` proves movement freeze, cognition suppression, multi-turn persistence,
   grounded temporary guidance, and exact prior-goal preservation/resume.
 - `test_runner_api.py` proves runner routes and client methods for start/message/guide/end.
-- `test_sim_controller.py` proves cockpit controls and web proxy routes.
+- `test_sim_controller.py` proves the dedicated Chat page, Sim/Chat/Map navigation order, absence of
+  duplicated controls on Sim, and the unchanged web proxy routes.
 - Existing interruption, prompt, pacing/reset, and agent-state suites remain green.
 - Full offline suite: **50/50 passed** on 2026-07-21.
 

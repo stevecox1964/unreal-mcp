@@ -758,6 +758,14 @@ async def sim_page(request: Request):
     })
 
 
+@app.get("/chat", response_class=HTMLResponse)
+async def chat_page(request: Request):
+    return templates.TemplateResponse(request, "chat.html", {
+        "request": request,
+        "runner_url": RUNNER_URL,
+    })
+
+
 @app.get("/api/sim/status")
 def api_sim_status():
     """Runner status, or ``{"online": false}`` when no runner is reachable."""
