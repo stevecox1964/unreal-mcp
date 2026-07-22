@@ -32,3 +32,9 @@ Applies to any function decorated with `@mcp.tool()` (typically under `Python/**
 - Parameter types must not be `Any`, `object`, `Optional[T]`, or `Union[T]`.
 - For an optional parameter with a default, use `x: T = None` and handle the default in the body — **not** `x: T | None = None`.
 - Every tool must have a docstring with example valid inputs, especially when type hints are sparse.
+
+## User workflow preferences
+
+- Do not create or update session handoffs unless the user explicitly requests a handoff. This preference
+  also applies at the end of autonomous or multi-task work; report results directly without spending
+  tokens on a handoff.
