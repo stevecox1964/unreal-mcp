@@ -9,22 +9,20 @@ Newest grooming: **2026-07-17**.
 
 ### Now
 
-- **#39 stale-cell re-observation:** make an existing but stale community composite eligible for a
-  deterministic refresh when an APC next has a valid survey opportunity.
+- **#40 grounded, visible deterministic survey progress:** expose the real heading/capture phase and
+  prevent Dufus from claiming unrecorded survey views.
 
 ### Next
 
-1. **#40 grounded, visible deterministic survey progress:** expose the real heading/capture phase and
-   prevent Dufus from claiming unrecorded survey views.
-2. **#41 truthful map survey status:** count saved survey composites independently of names and make
+1. **#41 truthful map survey status:** count saved survey composites independently of names and make
    stale wording agree with actual refresh behavior.
-3. **#37 dedicated Chat page:** move the chat controls out of the Sim cockpit onto `/chat`, with Chat
+2. **#37 dedicated Chat page:** move the chat controls out of the Sim cockpit onto `/chat`, with Chat
    immediately next to Sim in primary navigation, without changing chat behavior.
-4. **#36 ordered goals:** use deterministic completion evidence so a completed survey intent clears or
+3. **#36 ordered goals:** use deterministic completion evidence so a completed survey intent clears or
    advances instead of remaining Dufus's current goal.
-5. **#37 direct APC chat live verification:** verify the moved UI still stops Dufus, supports multiple
+4. **#37 direct APC chat live verification:** verify the moved UI still stops Dufus, supports multiple
    turns and temporary guidance, resumes prior work, and leaves Maren unaffected.
-6. **#35 survey expeditions:** choose the expedition cadence, target-selection surface, chaining/return
+5. **#35 survey expeditions:** choose the expedition cadence, target-selection surface, chaining/return
    policy, and retry bounds before extending the now-durable survey interruption.
 
 ### Waiting
@@ -1944,7 +1942,7 @@ verification.
 
 ## 39. Refresh stale community-cell surveys
 
-**Status:** **APPROVED / LOOP-SAFE — requested 2026-07-21** · **Source:** user after SR27: “cockpit
+**Status:** **OFFLINE COMPLETE 2026-07-21 — 50/50; LIVE PIE VERIFY PENDING** · **Source:** user after SR27: “cockpit
 says cells that have place cell in center but text says needs reobservation” · **Builds on:** #7 survey
 mechanics, #32 place-image lifecycle, and #38 survey interruptions
 
@@ -1963,6 +1961,12 @@ active/queued duplicate → no second survey, and completed refresh → fresh ce
 Do not call vision or PIE in the offline test. Live verification should confirm one red cell refreshes
 without sending an APC on repeated surveys. **Classification:** loop-safe runtime/database behavior plus
 live/PIE verification.
+
+**Implementation evidence 2026-07-21:** survey eligibility now requires a present, non-stale community
+composite. A stale existing image proceeds through #38, creates the next immutable visual revision, and
+becomes fresh when the capture is recorded; a fresh image still suppresses the survey. Focused
+`test_cell_sweep.py` and the full offline suite passed (50/50). Live verification should confirm one red
+cell refreshes once without repeat surveying.
 
 ---
 

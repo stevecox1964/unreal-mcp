@@ -467,6 +467,58 @@ def test_pulse_routes_active_sweep_without_llm():
                / f"{visual['place_image_id']}.png").is_file())
 
 
+def test_stale_visual_is_refreshed_once():
+    """#39: a stale composite is due again, but a fresh revision is not."""
+    import asyncio
+    with tempfile.TemporaryDirectory() as tmp:
+        bridge = _StubBridge({"x": 200.0, "y": 200.0, "z": 90.0})
+        mgr = _manager(tmp)
+        mgr.bridge = bridge
+        mgr.perceiver = _StubPerceiver()
+        mgr.llm = None
+        agent = _StubAgent("dufus")
+        mgr.agents = {"dufus": agent}
+
+        first = mgr.place_db.record_place_image(
+            "dufus", 5, 5, "places/images/old.png",
+            {"N": "old_n.png", "S": "old_s.png", "E": "old_e.png", "W": "old_w.png"},
+        )
+        check("fresh existing composite suppresses a survey",
+              not mgr._should_sweep_here(_obs(200.0, 200.0), "dufus"))
+        with mgr.place_db._connect() as conn:
+            conn.execute(
+                "UPDATE place_cells SET updated_at='2000-01-01T00:00:00+00:00' "
+                "WHERE col=5 AND row=5"
+            )
+        check("stale existing composite becomes survey eligible",
+              mgr._should_sweep_here(_obs(200.0, 200.0), "dufus"))
+
+        offered = mgr._act_agent(
+            agent, _idle_decision("dufus"),
+            _obs(200.0, 200.0, schedule={"status": "idle"}),
+        )
+        check("stale cell receives one durable survey offer",
+              offered["action"] == "survey_pending"
+              and agent.active_interrupt["interrupt_id"] == "survey:5,5"
+              and agent.interrupt_queue == [])
+
+        results = []
+        for _ in range(12):
+            results.append(asyncio.run(mgr.pulse_agent("dufus")))
+            if agent.active_interrupt is None:
+                break
+        refreshed = mgr.place_db.current_place_image("dufus", 5, 5)
+        check("refresh creates the next immutable visual revision",
+              refreshed is not None and refreshed["revision"] == 2
+              and refreshed["place_image_id"] != first["place_image_id"])
+        check("completed refresh makes the cell fresh again",
+              not mgr.place_db.is_stale(5, 5, 24 * 3600)
+              and not mgr._should_sweep_here(_obs(200.0, 200.0), "dufus"))
+        check("refresh resolves without queueing another survey",
+              agent.active_interrupt is None and agent.interrupt_queue == []
+              and results[-1].get("action") == "sweep_done")
+
+
 def test_observe_heading_direction_and_ingest():
     with tempfile.TemporaryDirectory() as tmp:
         bridge = _StubBridge({"x": 200.0, "y": 200.0, "z": 90.0})
@@ -560,6 +612,7 @@ def main():
     test_act_agent_travel_defers_sweep_on_entry()
     test_surveyor_travel_starts_center_sweep_before_route()
     test_pulse_routes_active_sweep_without_llm()
+    test_stale_visual_is_refreshed_once()
     test_observe_heading_direction_and_ingest()
     test_observe_heading_degrades_on_turn_failure()
     test_tick_routes_sweeping_agent()

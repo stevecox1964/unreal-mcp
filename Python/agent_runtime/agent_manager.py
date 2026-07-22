@@ -26,7 +26,8 @@ from . import route_map
 from . import route_planner
 from . import sim_run
 from .episodic_memory import EpisodicLog
-from .place_db import PLACE_EXTENT_CM, PlaceDB, yaw_to_compass
+from .place_db import (COMMUNITY_SURVEY_MAX_AGE_SECONDS, PLACE_EXTENT_CM,
+                       PlaceDB, yaw_to_compass)
 from .social_memory import SocialMemory, is_anonymous
 from .spatial_memory import SpatialMap
 from .world_clock import WorldClock
@@ -2155,8 +2156,7 @@ class AgentManager:
             )
             return None
 
-        if (self.place_db is not None
-                and self.place_db.current_place_image(agent.agent_id, col, row) is not None):
+        if self._survey_visual_is_current(agent.agent_id, col, row):
             self._terminate_active_interrupt(
                 agent,
                 "resolved", "survey target is already visually complete",
@@ -2174,7 +2174,7 @@ class AgentManager:
             action["_survey_interrupt_id"] = record["interrupt_id"]
             return action
 
-        complete = bool(self.place_db and self.place_db.current_place_image(agent.agent_id, col, row))
+        complete = self._survey_visual_is_current(agent.agent_id, col, row)
         self._terminate_active_interrupt(
             agent,
             "resolved" if complete else "failed",
@@ -2212,8 +2212,7 @@ class AgentManager:
                 return None
             # A name/breadcrumb is not visual memory; only a complete place
             # image makes this community cell survey-ready.
-            if (self.place_db is None
-                    or self.place_db.current_place_image(agent_id, col, row) is not None):
+            if self.place_db is None or self._survey_visual_is_current(agent_id, col, row):
                 return None
             sweep = cell_sweep.default_sweep(self.world_grid, col, row, z=xyz[2])
             if sweep is None:
@@ -2253,7 +2252,18 @@ class AgentManager:
         col, row = self._cell_col_row(observation.get("grid"))
         if col is None or self.place_db is None:
             return False
-        return self.place_db.current_place_image(agent_id, col, row) is None
+        return not self._survey_visual_is_current(agent_id, col, row)
+
+    def _survey_visual_is_current(self, agent_id: str, col: int, row: int) -> bool:
+        """True only when a community composite exists and is not stale."""
+        if self.place_db is None:
+            return False
+        return bool(
+            self.place_db.current_place_image(agent_id, col, row) is not None
+            and not self.place_db.is_stale(
+                col, row, COMMUNITY_SURVEY_MAX_AGE_SECONDS
+            )
+        )
 
     def _episodic(self, agent_id: str) -> EpisodicLog:
         """Load (and cache) this agent's append-only episodic event log."""

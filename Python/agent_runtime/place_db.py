@@ -11,6 +11,7 @@ from pathlib import Path
 # Compass directions in clockwise order starting from North.
 # UE convention: yaw 0 = +X (East), 90 = +Y (South), -90/270 = -Y (North).
 COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+COMMUNITY_SURVEY_MAX_AGE_SECONDS = 24 * 3600
 
 _SCHEMA = """
 PRAGMA journal_mode=WAL;
