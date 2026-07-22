@@ -9,16 +9,18 @@ Newest grooming: **2026-07-17**.
 
 ### Now
 
-- **Live/PIE verification bundle:** verify #39 stale refresh, #40 E/S/W/N yaw/progress, and #37 chat
-  on its dedicated page with Dufus and Maren running.
+- **Live/PIE verification bundle:** #39 stale refresh and #41 truthful counts passed in SR28; finish
+  #40 visible-yaw/narration grounding and verify #37 chat on its dedicated page with Dufus and Maren.
 
 ### Next
 
-1. **#36 ordered goals:** design the structured goal/completion link so a completed survey intent clears or
-   advances instead of remaining Dufus's current goal.
-2. **#37 direct APC chat live verification:** verify the moved UI still stops Dufus, supports multiple
+1. **#36 JSON agenda + daily ledger:** implement the approved authored task schema, deterministic
+   active/completed/blocked transitions, and compact Today so far / Right now / Next prompt context.
+2. **#43 APC profile agenda UI:** after #36's storage contract lands, restore an obvious APC navigation
+   entry and edit/view the authored agenda plus live daily execution state.
+3. **#37 direct APC chat live verification:** verify the moved UI still stops Dufus, supports multiple
    turns and temporary guidance, resumes prior work, and leaves Maren unaffected.
-3. **#35 survey expeditions:** choose the expedition cadence, target-selection surface, chaining/return
+4. **#35 survey expeditions:** choose the expedition cadence, target-selection surface, chaining/return
    policy, and retry bounds before extending the now-durable survey interruption.
 
 ### Waiting
@@ -1812,7 +1814,7 @@ whole-map coverage verification.
 
 ## 36. Ordered primary and secondary goals per APC
 
-**Status:** **IDEA / DESIGN GATE — requested 2026-07-17** · **Source:** user: “Dufus and other APCs
+**Status:** **APPROVED JSON AGENDA DESIGN 2026-07-21; IMPLEMENTATION PENDING** · **Source:** user: “Dufus and other APCs
 to have multiple goals, primary and secondary etc. So when a goal is met, start running the next
 goal.” · **Builds on:** #10 planner/sequencer, #31 event-driven cognition, #35's durable survey
 intent, and the generic interruption lifecycle in #38
@@ -1837,6 +1839,64 @@ but Dufus retained “I need to survey this cell thoroughly” as his current go
 narrating more survey work. When a deterministic completion corresponds to the active goal, #36 must
 consume that evidence exactly once and visibly clear or advance the goal; it must not infer completion
 from free-form model narration.
+
+**Additional live evidence 2026-07-21 (SR28):** Dufus immediately pursued the authored “go home and
+find my hat” goal, reached his motel-room home, returned to his starting area for a deterministic survey,
+went home again, and after the interruption resolved headed back toward the village. His persisted goal,
+daily schedule destination, suspended route, and survey interruption each behaved plausibly in isolation,
+but their arbitration produced visible backtracking. The #36 design must define which intent wins after
+arrival and interruption resolution, preserve the exact suspended intent, and prevent schedule/goal
+oscillation unless a logged goal transition or new fact justifies it. Acceptance evidence must include
+this home → survey → resume scenario with no unexplained return to a superseded destination.
+
+**Design locked 2026-07-21:** use an editable JSON agenda with deterministic execution state, not a
+general-purpose behavior tree. Authored tasks use this minimum schema:
+
+```json
+{
+  "tasks": [
+    {
+      "id": "morning_square",
+      "start": "08:30",
+      "end": "09:00",
+      "place": "village square",
+      "objective": "Travel to the village square",
+      "completion": {"type": "arrive_at_place"}
+    }
+  ]
+}
+```
+
+Keep authored agenda data separate from runtime execution. Runtime tracks each task as `pending`,
+`active`, `interrupted`, `completed`, or `blocked`, with timestamps and grounded completion evidence.
+Supported first-slice completion policies are `arrive_at_place`, `time_block_ends`, and
+`time_or_llm_confirmed`; implementation must validate unknown policy names rather than silently guessing.
+Unknown/stale community-cell surveys and direct chat are interruptions: they suspend the exact active
+task and resume it afterward unless an explicit, logged reprioritization changes the agenda.
+
+Existing `episodes.jsonl` remains episodic memory, but it is not the authoritative daily ledger: prompt
+retrieval is relevance-based and `last_activity` stores only one string. Build a compact chronological
+daily ledger from task transitions and interruption outcomes, then provide the decision LLM these three
+grounded sections on every applicable cognition event:
+
+- **Today so far:** completed/blocked work and serviced interruptions, with time ranges and evidence;
+- **Right now:** the one active task, current place/destination, arrival verdict, and grounded route;
+- **Next:** the next eligible unfinished task and the deterministic condition that activates it.
+
+The deterministic executive selects/advances/resumes the task; the LLM chooses the in-character actions
+used to carry out its objective. When Dufus arrives in `village square`, `arrive_at_place` completes the
+travel task and the next eligible square activity becomes active, instead of asking the model to invent
+a new goal. Other than bounded unknown/stale cell interruptions, Dufus follows his agenda until all
+eligible tasks are done; only then does free goal-driven behavior become the default.
+
+Acceptance evidence: schema validation and migration/fallback tests; deterministic transitions for
+arrival, time expiry, LLM-confirmed completion, blocked work, and day rollover; Today so far / Right now /
+Next prompt snapshots derived from runtime facts; survey and chat interrupt/resume tests preserving the
+same task; no duplicate completion; and a live run in which Dufus completes morning work, services a
+survey, reaches the named village square, advances to its next activity, and does not backtrack to a
+completed destination. **Classification:** loop-safe data/sequencer/prompt work plus live/PIE behavior
+verification. **Open implementation choices:** durable authored filename/versioning, migration of the
+current generated schedule, and which narrowly defined evidence permits `time_or_llm_confirmed`.
 
 ---
 
@@ -1942,7 +2002,7 @@ verification.
 
 ## 39. Refresh stale community-cell surveys
 
-**Status:** **OFFLINE COMPLETE 2026-07-21 — 50/50; LIVE PIE VERIFY PENDING** · **Source:** user after SR27: “cockpit
+**Status:** **OFFLINE + LIVE VERIFIED 2026-07-21 (SR28)** · **Source:** user after SR27: “cockpit
 says cells that have place cell in center but text says needs reobservation” · **Builds on:** #7 survey
 mechanics, #32 place-image lifecycle, and #38 survey interruptions
 
@@ -1968,11 +2028,15 @@ becomes fresh when the capture is recorded; a fresh image still suppresses the s
 `test_cell_sweep.py` and the full offline suite passed (50/50). Live verification should confirm one red
 cell refreshes once without repeat surveying.
 
+**Live evidence 2026-07-21 (SR28):** Dufus refreshed stale cells `(5,5)`, `(6,5)`, and `(7,5)` exactly
+once, producing revision-2 place-history composites and leaving the map at zero stale cells. Mark the
+stale-refresh behavior live-verified; retain broader expedition/goal behavior under #35/#36.
+
 ---
 
 ## 40. Ground and expose deterministic survey progress
 
-**Status:** **OFFLINE COMPLETE 2026-07-21 — 50/50; LIVE PIE VERIFY PENDING** · **Source:** user after SR27: “Dufus says
+**Status:** **TELEMETRY LIVE-VERIFIED 2026-07-21 (SR28); VISIBLE YAW + NARRATION FIX PENDING** · **Source:** user after SR27: “Dufus says
 he needs to survey cells, but I do not see him rotating.”
 
 SR27 did execute distinct E/S/W/N captures and resolve `survey:6,6`, but each facing change is an
@@ -1999,11 +2063,22 @@ already attempted headings; and prompts explicitly distinguish deterministic sav
 narration. Focused sweep/feed/prompt/web tests and the full offline suite passed (50/50). PIE must still
 confirm visible yaw changes align with the E/S/W/N capture files.
 
+**Live evidence and remaining defect 2026-07-21 (SR28):** all three surveys emitted successful ordered
+E/S/W/N heading events and distinct capture files with no failed headings, confirming that deterministic
+survey progress is live. After `(7,5)` resolved, however, ordinary cognition again narrated that headings
+still needed surveying and claimed views had been saved even though no `survey_heading` action occurred.
+The data layer correctly rejected redundant work, but prompt-only grounding was insufficient. Desired
+behavior now includes a compact authoritative current-cell survey fact (fresh/active/completed headings)
+and deterministic validation or suppression of unsupported “saved/surveyed” claims. Acceptance evidence:
+after a completed survey, subsequent ordinary decisions neither claim missing headings nor claim a saved
+capture without a matching deterministic event. **Classification:** loop-safe cognition/action-policy
+work plus live/PIE model verification.
+
 ---
 
 ## 41. Make map survey counts and stale wording truthful
 
-**Status:** **OFFLINE COMPLETE 2026-07-21 — 50/50** · **Source:** SR27 cockpit review
+**Status:** **OFFLINE + LIVE VERIFIED 2026-07-21 (SR28)** · **Source:** SR27 cockpit review
 
 The map assigns one exclusive display state: a named cell is `named` even when it also has `swept_at`
 and a saved composite. This produced `named 8, swept 0` while multiple blue center markers proved survey
@@ -2024,6 +2099,53 @@ matches refresh capability. **Classification:** loop-safe database/web UI work.
 the legend counts blue-marker community surveys rather than unnamed-only sweep state; and stale copy
 states that an older saved survey is eligible for refresh under #39. Focused map tests and the full
 offline suite passed (50/50).
+
+**Live evidence 2026-07-21 (SR28):** after the three refreshes, the database/map facts reported 8 named,
+6 surveyed, and 0 stale cells. The independent survey/stale accounting is live-verified.
+
+---
+
+## 42. Preserve actionable bridge/action error details in the decision feed
+
+**Status:** **INVESTIGATION / BACKLOGGED 2026-07-21** · **Source:** SR28 log review
+
+SR28 recorded one Dufus `speak_to` action as an error after roughly 15 seconds, then recovered on the
+next attempt. The decision feed retained the action and error status but not the underlying bridge/error
+detail, so the cause cannot be distinguished among timeout, target resolution, transport, or another
+runtime failure.
+
+Desired behavior: failed actions retain a bounded, safe diagnostic code/message and elapsed phase in the
+sim-run-attributed decision event, without exposing secrets or unbounded provider output. Acceptance
+evidence: an induced bridge/action failure can be traced from the decision feed to a specific failure
+category, while successful events remain compact and existing recovery behavior is unchanged.
+**Classification:** loop-safe logging/tests, with live/PIE verification for a real bridge failure.
+
+---
+
+## 43. Make APC profiles discoverable and edit the JSON agenda
+
+**Status:** **APPROVED 2026-07-21; IMPLEMENTATION PENDING** · **Source:** user: “I don't see the APC
+profile page anywhere, did we lose that? I thought we had a way to set goals and etc on APCs in the
+webUI?” · **Depends on:** #36 authored/runtime agenda contract
+
+The APC editor still exists at `/worlds/{level}/agents/{agent_id}` and currently edits identity,
+behavior settings, `current_goal`, `character.md`, `goals.md`, `rules.md`, and allowed actions. It appears
+lost because the primary navigation has no clearly labeled APC/Worlds entry; users must click the
+`Unreal World Sim` brand to return to the world list and then click an agent's `Edit` button. The page
+also cannot edit the generated daily schedule or show structured task completion state.
+
+Desired behavior: add an obvious **APCs** primary-navigation destination; keep the per-world agent list
+and existing editor reachable from it; add a validated editor for #36's authored JSON agenda; and add a
+read-only live panel showing **Today so far**, **Right now**, and **Next**, including active task state,
+completion evidence, and any suspended interruption. Preserve the existing character/goals/rules/action
+editing rather than replacing it.
+
+Acceptance evidence: navigation/template tests prove APCs are reachable without knowing a URL; Dufus's
+profile round-trips a valid agenda without overwriting unrelated authored files; invalid JSON/schema is
+rejected with actionable inline errors and no partial write; the runtime panel distinguishes authored
+agenda from execution state; and live verification shows task transitions without a page restart.
+**Classification:** loop-safe web/storage tests plus live web/PIE verification. **Open implementation
+choice:** raw JSON textarea versus a structured task-row editor; retain a raw/advanced view either way.
 
 ---
 
@@ -2306,8 +2428,9 @@ rolling window + consolidation vs full episodic history?
 
 ## 6. Map feature — named-place query + manual capture + lizard-brain routing
 
-**Status:** **Superseded as an umbrella** — query/authoring/visualization/routing landed through
-#16, #17, #18, #23, and #27. Retain this section as original design history. · **Independence:**
+**Status:** **QUERY/ROUTE-PROMPT SLICE REOPENED 2026-07-21** — query/authoring/visualization and
+coarse routing landed through #1, #16, #17, #18, #23, and #27; the navmesh path-as-facts query and
+guaranteed pre-decision delivery remain outstanding. · **Independence:**
 Builds on #1 (place resolver) · **Source:** user, 2026-06-26
 
 A first-class **"map"**: a queryable set of **named places**. An agent asks the map *what
@@ -2335,6 +2458,24 @@ the **map query surface**, a **manual authoring mode**, and the **routing call**
 - [ ] **Lizard-brain routing** — agent asks "route me to <named place>"; lizard brain uses a nav
       primitive (navmesh **path query**) and returns a **path** — a sequence of waypoints/headings
       to the place. The LLM still *decides whether to follow it*; lizard brain only reports the route.
+
+**Renewed requirement and live evidence 2026-07-21 (SR28):** the world now contains a named community
+cell called `village square`, yet Dufus followed competing home/survey/schedule intents and backtracked
+before heading toward the village. When cognition says “I have to go to the village square,” lizard brain
+must query the canonical PlaceDB name resolver for the matching grid cell, query a traversable route from
+the APC's current position to that cell, and place both facts in the same decision context: resolved name,
+target `(col,row)`, target world center/arrival region, reachability, and a bounded semantic waypoint or
+heading sequence. Do not depend on the LLM remembering where the name is, and do not let the model invent
+engine coordinates. The route is factual context; the LLM retains the choice to follow or revise it.
+
+Acceptance evidence: with `village square` named in PlaceDB, a travel decision receives its exact resolved
+cell and a valid current-position-to-target path before choosing an action; an unknown or ambiguous name
+produces an explicit grounded failure/candidate list; route progress is refreshed after deviation or an
+interruption; and a live run reaches the village square without returning to an obsolete starting point.
+**Classification:** C++/editor nav-query integration plus loop-safe resolver/context/policy tests and
+live/PIE navigation verification. **Dependency/open decision:** reuse the existing UE navigation bridge
+if it can return path points; otherwise add a read-only path-query primitive. Preserve #27's movement
+execution and #36's intent arbitration rather than embedding goal priority in the route provider.
 
 **Design tension to resolve (human):** returning a *path* brushes against the **lizard-brain
 contract** ([[feedback_lizard_brain_contract]], [[architecture_lizard_brain_sensing]]): lizard
