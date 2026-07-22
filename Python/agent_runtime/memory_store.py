@@ -171,3 +171,17 @@ class MemoryStore:
         }
         with open(self.decisions_log, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
+
+    def record_survey_event(self, agent_id: str, progress: dict) -> None:
+        """Append one deterministic survey-heading result to the decision feed."""
+        if not self.decisions_log:
+            return
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "sim_run": self.sim_run_id,
+            "agent_id": agent_id,
+            "event": "survey_heading",
+            "survey_progress": dict(progress),
+        }
+        with open(self.decisions_log, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")

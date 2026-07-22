@@ -97,12 +97,31 @@ def test_interrupt_events_are_attributed_to_the_sim_run():
                                      "priority": 200, "status": "active"})
 
 
+def test_survey_heading_events_are_attributed_and_structured():
+    with tempfile.TemporaryDirectory() as t:
+        ms = _store(Path(t))
+        ms.sim_run_id = "SR78"
+        ms.record_survey_event("dufus", {
+            "col": 5, "row": 5, "heading": "E", "status": "success",
+            "completed_headings": ["E"], "failed_headings": [],
+        })
+        event = ms.get_recent_events(1, sim_run_id="SR78")[0]
+        check("survey event records run, agent, and semantic event",
+              event["sim_run"] == "SR78" and event["agent_id"] == "dufus"
+              and event["event"] == "survey_heading")
+        check("survey event exposes deterministic heading result",
+              event["survey_progress"]["heading"] == "E"
+              and event["survey_progress"]["status"] == "success"
+              and event["survey_progress"]["completed_headings"] == ["E"])
+
+
 def main():
     test_record_then_read_with_timestamp()
     test_clear_empties_feed_but_keeps_path()
     test_feed_can_show_only_the_active_run()
     test_clear_on_empty_is_safe()
     test_interrupt_events_are_attributed_to_the_sim_run()
+    test_survey_heading_events_are_attributed_and_structured()
     print("\nAll decision-feed checks passed.")
 
 

@@ -129,8 +129,14 @@ def test_agent_survey_priority_policy():
 
 
 class _StubMemory:
+    def __init__(self):
+        self.survey_events = []
+
     def record(self, **kwargs):
         pass
+
+    def record_survey_event(self, agent_id, progress):
+        self.survey_events.append((agent_id, progress))
 
 
 def _manager(tmp):
@@ -272,6 +278,8 @@ class _StubAgent:
         self.bound_unreal_actor_name = f"BP_{agent_id}"
         self.bound_unreal_actor_label = agent_id
         self.unreal_actor_name = agent_id
+        self.blueprint_class = None
+        self.tier = "standard"
         self.has_unreal_binding = True
         self.is_active = True
         self.is_busy = False
@@ -319,6 +327,13 @@ class _StubAgent:
     def set_active_interrupt_preemptible(self, preemptible, agents_dir):
         self._active_interrupt["preemptible"] = preemptible
 
+    def replace_active_interrupt(self, record, agents_dir):
+        if (self._active_interrupt is None
+                or record.get("interrupt_id") != self._active_interrupt.get("interrupt_id")):
+            return False
+        self._active_interrupt = record
+        return True
+
     def _set_interruptions(self, result):
         self._active_interrupt = result.get("active")
         self._interrupt_queue = result.get("queue") or []
@@ -356,7 +371,8 @@ def test_act_agent_starts_sweep_interrupt():
         check("sweep owns a persisted survey interruption",
               agent.active_interrupt and agent.active_interrupt["kind"] == "survey")
         check("survey carries its stable grid target",
-              agent.active_interrupt["payload"] == {"col": 5, "row": 5})
+              agent.active_interrupt["payload"]["col"] == 5
+              and agent.active_interrupt["payload"]["row"] == 5)
         check("pre-dispatch survey remains preemptible",
               agent.active_interrupt["preemptible"] is True)
         check("tick was recorded", agent.ticked == 1)
@@ -458,6 +474,18 @@ def test_pulse_routes_active_sweep_without_llm():
         check("last pulse reports sweep_done", results[-1].get("action") == "sweep_done")
         check("breadcrumb dropped", mgr.place_db.is_explored(5, 5))
         check("turned through all 4 cardinal headings", len(bridge.turns) == 4)
+        check("each attempted heading emits authoritative progress",
+              [event[1]["heading"] for event in mgr.memory.survey_events]
+              == ["E", "S", "W", "N"]
+              and all(event[1]["status"] == "success"
+                      for event in mgr.memory.survey_events))
+        progress = agent.last_interrupt["payload"]["survey_progress"]
+        check("terminal survey retains exact successful headings",
+              progress["phase"] == "complete"
+              and progress["completed_headings"] == ["E", "S", "W", "N"]
+              and progress["failed_headings"] == [])
+        check("inspect clears transient progress after resolution",
+              mgr.inspect_agent("dufus")["survey_progress"] is None)
         cells = mgr.place_db.map_cells()
         check("every heading ingested its landmark", cells and cells[0]["landmarks"] == 4)
         visual = mgr.place_db.current_place_image("dufus", 5, 5)
@@ -589,9 +617,61 @@ def test_persisted_survey_recovers_after_manager_state_loss():
         mgr._cell_sweeps.clear()  # process restart loses execution-only state
         result = asyncio.run(mgr.pulse_agent("dufus"))
         check("persisted survey stays active after restart recovery",
-              agent.active_interrupt and agent.active_interrupt["payload"] == {"col": 5, "row": 5})
+              agent.active_interrupt
+              and agent.active_interrupt["payload"]["col"] == 5
+              and agent.active_interrupt["payload"]["row"] == 5)
         check("restart reconstructs the manager-local sweep", "dufus" in mgr._cell_sweeps)
         check("recovered sweep remains deterministic", result.get("sweep") is True)
+
+
+def test_persisted_survey_progress_resumes_remaining_headings():
+    """#40: restart recovery must not report or repeat completed headings."""
+    import asyncio
+    with tempfile.TemporaryDirectory() as tmp:
+        bridge = _StubBridge({"x": 200.0, "y": 200.0, "z": 90.0})
+        mgr = _manager(tmp)
+        mgr.bridge = bridge
+        mgr.perceiver = _StubPerceiver()
+        mgr.llm = None
+        agent = _StubAgent("dufus")
+        mgr.agents = {"dufus": agent}
+        mgr._act_agent(agent, _idle_decision("dufus"),
+                       _obs(200.0, 200.0, schedule={"status": "idle"}))
+        asyncio.run(mgr.pulse_agent("dufus"))
+        before = mgr.inspect_agent("dufus")["survey_progress"]
+        check("active inspect exposes completed E heading",
+              before["phase"] == "surveying"
+              and before["completed_headings"] == ["E"])
+
+        mgr._cell_sweeps.clear()
+        for _ in range(10):
+            asyncio.run(mgr.pulse_agent("dufus"))
+            if agent.active_interrupt is None:
+                break
+        check("restart executes only remaining headings",
+              bridge.turns == [0.0, 90.0, 180.0, 270.0])
+
+
+def test_failed_heading_is_authoritative_and_audited():
+    import asyncio
+    with tempfile.TemporaryDirectory() as tmp:
+        bridge = _StubBridge({"x": 200.0, "y": 200.0, "z": 90.0}, fail_turn=True)
+        mgr = _manager(tmp)
+        mgr.bridge = bridge
+        mgr.perceiver = _StubPerceiver()
+        mgr.llm = None
+        agent = _StubAgent("dufus")
+        mgr.agents = {"dufus": agent}
+        mgr._act_agent(agent, _idle_decision("dufus"),
+                       _obs(200.0, 200.0, schedule={"status": "idle"}))
+        asyncio.run(mgr.pulse_agent("dufus"))
+        progress = mgr.inspect_agent("dufus")["survey_progress"]
+        check("failed E is not counted as saved",
+              progress["completed_headings"] == []
+              and progress["failed_headings"] == ["E"])
+        check("failed attempt has an error decision event",
+              mgr.memory.survey_events[-1][1]["heading"] == "E"
+              and mgr.memory.survey_events[-1][1]["status"] == "error")
 
 
 def main():
@@ -617,6 +697,8 @@ def main():
     test_observe_heading_degrades_on_turn_failure()
     test_tick_routes_sweeping_agent()
     test_persisted_survey_recovers_after_manager_state_loss()
+    test_persisted_survey_progress_resumes_remaining_headings()
+    test_failed_heading_is_authoritative_and_audited()
     print("\nAll cell-sweep checks passed.")
 
 

@@ -66,7 +66,8 @@ class CellSweep:
 
 
 def default_sweep(world_grid: WorldGrid, col: int, row: int, z: float,
-                  arrive_tolerance: float = None) -> CellSweep | None:
+                  arrive_tolerance: float = None,
+                  headings: list[float] = None) -> CellSweep | None:
     """Build a :class:`CellSweep` targeting the center of cell ``(col, row)``.
 
     Returns None when the grid is unbounded (no cell center exists). The default
@@ -76,4 +77,4 @@ def default_sweep(world_grid: WorldGrid, col: int, row: int, z: float,
     if center is None:
         return None
     tol = arrive_tolerance if arrive_tolerance is not None else world_grid.cell_size / 4.0
-    return CellSweep(center=center, z=z, arrive_tolerance=tol)
+    return CellSweep(center=center, z=z, headings=headings, arrive_tolerance=tol)

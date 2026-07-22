@@ -113,8 +113,11 @@ async function refreshStatus(){
   if(!s.online){ line.textContent = 'no sim runner running'; document.getElementById('agents').textContent = ''; return; }
   line.textContent = `${s.running ? 'running' : 'idle'} · tick ${s.tick_count ?? 0} · ${s.agent_count ?? 0} agents · ${s.mode ?? ''}`;
   const agents = s.agents || [];
-  document.getElementById('agents').innerHTML = agents.map(a =>
-    `<small><strong>${a.agent_id}</strong> — ${a.current_goal||''}</small>`).join('<br>');
+  document.getElementById('agents').innerHTML = agents.map(a => {
+    const p = a.survey_progress;
+    const survey = p ? ` · survey ${p.completed_headings?.length || 0}/4${p.current_heading ? ` heading ${p.current_heading}` : ''}` : '';
+    return `<small><strong>${a.agent_id}</strong> — ${a.current_goal||''}${survey}</small>`;
+  }).join('<br>');
   const select = document.getElementById('chat-agent');
   const chosen = select.value;
   select.innerHTML = '<option value="">Select an APC...</option>' + agents.map(a =>
@@ -130,7 +133,13 @@ function fmtTime(ts){
 async function refreshEvents(){
   const {events} = await getJSON('/api/sim/events');
   document.getElementById('events').textContent =
-    (events||[]).map(e => `${fmtTime(e.timestamp)} [${e.agent_id}] ${e.action_type||''} — ${e.thought||''}`).join('\n') || '(no events yet)';
+    (events||[]).map(e => {
+      if(e.event === 'survey_heading'){
+        const p = e.survey_progress || {};
+        return `${fmtTime(e.timestamp)} [${e.agent_id}] survey heading ${p.heading || '?'} — ${p.status || '?'}`;
+      }
+      return `${fmtTime(e.timestamp)} [${e.agent_id}] ${e.action_type||e.event||''} — ${e.thought||''}`;
+    }).join('\n') || '(no events yet)';
 }
 async function refresh(){ try{ await refreshStatus(); await refreshEvents(); await refreshChat(); }catch(e){} }
 

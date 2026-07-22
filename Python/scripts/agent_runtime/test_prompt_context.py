@@ -174,6 +174,20 @@ def test_active_interrupt_prompt_fact():
     check("template contains active interruption section", "## Active Interruption" in _USER_TEMPLATE_VISION)
     check("fallback prompt contains active interruption section", "## Active Interruption" in _USER_TEMPLATE)
 
+    survey = _active_interrupt_note({
+        "kind": "survey", "source": "world", "reason": "survey cell (5,5)",
+        "priority": 100, "payload": {"col": 5, "row": 5, "survey_progress": {
+            "phase": "surveying", "current_heading": None,
+            "completed_headings": ["E", "S"], "failed_headings": [],
+        }},
+    })
+    check("survey prompt renders only deterministic saved headings",
+          "E, S" in survey and "2/4" in survey and "authoritative" in survey.lower())
+    check("survey prompt forbids invented capture progress",
+          "Do not claim" in survey and "uncaptured" in survey)
+    check("no-active prompt also forbids invented survey completion",
+          "No deterministic survey is active" in _active_interrupt_note(None))
+
 
 def main():
     test_acquaintance_lines()

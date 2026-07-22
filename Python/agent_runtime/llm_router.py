@@ -747,7 +747,8 @@ def _sense_note(observation: dict) -> str:
 def _active_interrupt_note(record: dict | None) -> str:
     """Render one grounded active interruption without inventing a speaker."""
     if not isinstance(record, dict):
-        return "No active interruption."
+        return ("No active interruption.\nNo deterministic survey is active. "
+                "Do not claim any compass view was captured or saved.")
     source = str(record.get("source") or "unknown requester").strip()
     reason = str(record.get("reason") or "no reason supplied").strip()
     kind = str(record.get("kind") or "interruption").strip()
@@ -758,7 +759,21 @@ def _active_interrupt_note(record: dict | None) -> str:
     if isinstance(chat, dict) and chat.get("state") == "guiding":
         direction = str(chat.get("direction") or "").strip()
     direction_line = f"\nOperator direction to follow now: {direction}" if direction else ""
-    return (f"Priority {priority} {kind} from {source}: {reason}{direction_line}\n"
+    survey_line = ""
+    if kind == "survey":
+        progress = payload.get("survey_progress") if isinstance(payload, dict) else None
+        if isinstance(progress, dict):
+            completed = [str(x) for x in progress.get("completed_headings") or []]
+            failed = [str(x) for x in progress.get("failed_headings") or []]
+            saved = ", ".join(completed) if completed else "none"
+            current = progress.get("current_heading") or "none"
+            survey_line = (
+                f"\nAuthoritative deterministic survey progress: "
+                f"{len(completed)}/4 saved ({saved}); current heading {current}; "
+                f"failed {', '.join(failed) if failed else 'none'}. "
+                "Do not claim an uncaptured heading was saved."
+            )
+    return (f"Priority {priority} {kind} from {source}: {reason}{direction_line}{survey_line}\n"
             "This active interruption outranks your routine until it is resolved.")
 
 

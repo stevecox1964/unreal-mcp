@@ -2080,6 +2080,62 @@ class AgentManager:
         if callable(writer) and isinstance(record, dict):
             writer(agent.agent_id, event, record)
 
+    @staticmethod
+    def _survey_progress_from_record(record: dict | None) -> dict | None:
+        if not isinstance(record, dict) or record.get("kind") != "survey":
+            return None
+        progress = (record.get("payload") or {}).get("survey_progress")
+        return copy.deepcopy(progress) if isinstance(progress, dict) else None
+
+    def _survey_progress(self, agent: Agent) -> dict | None:
+        """Return authoritative transient progress for an active survey only."""
+        return self._survey_progress_from_record(self._active_survey_interrupt(agent))
+
+    def _update_survey_progress(self, agent: Agent, **changes) -> dict | None:
+        """Persist a same-interruption survey progress update."""
+        active = self._active_survey_interrupt(agent)
+        progress = self._survey_progress_from_record(active)
+        if active is None or progress is None:
+            return None
+        progress.update(changes)
+        updated = copy.deepcopy(active)
+        updated.setdefault("payload", {})["survey_progress"] = progress
+        replace = getattr(agent, "replace_active_interrupt", None)
+        if not callable(replace) or not replace(updated, self._agents_dir):
+            return None
+        return progress
+
+    def _finish_survey_heading(self, agent: Agent, result: dict) -> None:
+        """Persist and audit one attempted deterministic heading."""
+        progress = self._survey_progress(agent)
+        if progress is None:
+            return
+        heading = str(result.get("direction") or progress.get("current_heading") or "?")
+        succeeded = result.get("status") == "success"
+        completed = list(progress.get("completed_headings") or [])
+        failed = list(progress.get("failed_headings") or [])
+        target = completed if succeeded else failed
+        if heading not in target:
+            target.append(heading)
+        last_result = {"heading": heading,
+                       "status": "success" if succeeded else "error"}
+        if result.get("error"):
+            last_result["error"] = str(result["error"])
+        progress = self._update_survey_progress(
+            agent, phase="surveying", current_heading=None,
+            completed_headings=completed, failed_headings=failed,
+            last_result=last_result,
+        )
+        writer = getattr(self.memory, "record_survey_event", None)
+        if callable(writer) and progress is not None:
+            payload = (agent.active_interrupt.get("payload") or {})
+            writer(agent.agent_id, {
+                "col": payload.get("col"), "row": payload.get("row"),
+                "heading": heading, "status": last_result["status"],
+                "completed_headings": completed, "failed_headings": failed,
+                **({"error": last_result["error"]} if last_result.get("error") else {}),
+            })
+
     def _record_offer_events(self, agent: Agent, record: dict, result: dict) -> None:
         """Record an offer plus its immediate activation/preemption outcome."""
         self._record_interrupt_event(agent, "offered", record)
@@ -2121,7 +2177,13 @@ class AgentManager:
             source="world",
             reason=f"Grid cell ({col},{row}) needs a community survey",
             requested_at=str(observation.get("world_time") or self.world_clock.now_text()),
-            payload={"col": col, "row": row},
+            payload={
+                "col": col, "row": row,
+                "survey_progress": {
+                    "phase": "pending", "current_heading": None,
+                    "completed_headings": [], "failed_headings": [],
+                },
+            },
             resume_context={
                 "current_goal": str(getattr(agent, "current_goal", "idle")),
                 "schedule": dict(observation.get("schedule") or {}),
@@ -2149,6 +2211,7 @@ class AgentManager:
         try:
             col, row = int(payload["col"]), int(payload["row"])
         except (KeyError, TypeError, ValueError):
+            self._update_survey_progress(agent, phase="failed", current_heading=None)
             self._terminate_active_interrupt(
                 agent,
                 "failed", "survey payload has no valid grid target",
@@ -2157,6 +2220,7 @@ class AgentManager:
             return None
 
         if self._survey_visual_is_current(agent.agent_id, col, row):
+            self._update_survey_progress(agent, phase="complete", current_heading=None)
             self._terminate_active_interrupt(
                 agent,
                 "resolved", "survey target is already visually complete",
@@ -2171,10 +2235,22 @@ class AgentManager:
             self._cell_sweeps.pop(agent.agent_id, None)
         action = self._sweep_step(agent.agent_id, observation, start=True, target=(col, row))
         if action is not None:
+            if action.get("type") == "observe_heading":
+                self._update_survey_progress(
+                    agent, phase="capturing",
+                    current_heading=yaw_to_compass(float(action.get("yaw", 0.0))),
+                )
+            elif action.get("type") == "walk_to":
+                self._update_survey_progress(
+                    agent, phase="moving_to_center", current_heading=None,
+                )
             action["_survey_interrupt_id"] = record["interrupt_id"]
             return action
 
         complete = self._survey_visual_is_current(agent.agent_id, col, row)
+        self._update_survey_progress(
+            agent, phase="complete" if complete else "incomplete", current_heading=None,
+        )
         self._terminate_active_interrupt(
             agent,
             "resolved" if complete else "failed",
@@ -2214,7 +2290,18 @@ class AgentManager:
             # image makes this community cell survey-ready.
             if self.place_db is None or self._survey_visual_is_current(agent_id, col, row):
                 return None
-            sweep = cell_sweep.default_sweep(self.world_grid, col, row, z=xyz[2])
+            progress = self._survey_progress(
+                self.agents.get(agent_id)
+            ) if self.agents.get(agent_id) is not None else None
+            attempted = set((progress or {}).get("completed_headings") or [])
+            attempted.update((progress or {}).get("failed_headings") or [])
+            remaining = [
+                yaw for yaw in cell_sweep.compass_headings()
+                if yaw_to_compass(yaw) not in attempted
+            ]
+            sweep = cell_sweep.default_sweep(
+                self.world_grid, col, row, z=xyz[2], headings=remaining
+            )
             if sweep is None:
                 return None
             active = {"sweep": sweep, "col": col, "row": row, "views": []}
@@ -2591,6 +2678,8 @@ class AgentManager:
 
         agent.set_active_interrupt_preemptible(False, self._agents_dir)
         result = self._execute_world_action(agent, action, observation)
+        if action.get("type") == "observe_heading":
+            self._finish_survey_heading(agent, result)
         agent.mark_ticked(self._agents_dir)
         return {"agent_id": agent_id, "action": action, "result": result,
                 "grid": grid, "sweep": True}
@@ -3029,6 +3118,7 @@ class AgentManager:
             "active_interrupt": a.active_interrupt,
             "interrupt_queue": a.interrupt_queue,
             "last_interrupt": a.last_interrupt,
+            "survey_progress": self._survey_progress(a),
             "state":           a.state,
         }
 
@@ -3408,6 +3498,7 @@ class AgentManager:
             "current_goal":      a.current_goal,
             "last_tick_time":    a.state.get("last_tick_time"),
             "active_interrupt": a.active_interrupt,
+            "survey_progress": self._survey_progress(a),
             "interrupt_queue_count": len(a.interrupt_queue),
         }
 

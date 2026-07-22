@@ -9,20 +9,18 @@ Newest grooming: **2026-07-17**.
 
 ### Now
 
-- **#40 grounded, visible deterministic survey progress:** expose the real heading/capture phase and
-  prevent Dufus from claiming unrecorded survey views.
+- **#41 truthful map survey status:** count saved survey composites independently of names and make
+  stale wording agree with actual refresh behavior.
 
 ### Next
 
-1. **#41 truthful map survey status:** count saved survey composites independently of names and make
-   stale wording agree with actual refresh behavior.
-2. **#37 dedicated Chat page:** move the chat controls out of the Sim cockpit onto `/chat`, with Chat
+1. **#37 dedicated Chat page:** move the chat controls out of the Sim cockpit onto `/chat`, with Chat
    immediately next to Sim in primary navigation, without changing chat behavior.
-3. **#36 ordered goals:** use deterministic completion evidence so a completed survey intent clears or
+2. **#36 ordered goals:** use deterministic completion evidence so a completed survey intent clears or
    advances instead of remaining Dufus's current goal.
-4. **#37 direct APC chat live verification:** verify the moved UI still stops Dufus, supports multiple
+3. **#37 direct APC chat live verification:** verify the moved UI still stops Dufus, supports multiple
    turns and temporary guidance, resumes prior work, and leaves Maren unaffected.
-5. **#35 survey expeditions:** choose the expedition cadence, target-selection surface, chaining/return
+4. **#35 survey expeditions:** choose the expedition cadence, target-selection surface, chaining/return
    policy, and retry bounds before extending the now-durable survey interruption.
 
 ### Waiting
@@ -1972,7 +1970,7 @@ cell refreshes once without repeat surveying.
 
 ## 40. Ground and expose deterministic survey progress
 
-**Status:** **APPROVED / LOOP-SAFE — requested 2026-07-21** · **Source:** user after SR27: “Dufus says
+**Status:** **OFFLINE COMPLETE 2026-07-21 — 50/50; LIVE PIE VERIFY PENDING** · **Source:** user after SR27: “Dufus says
 he needs to survey cells, but I do not see him rotating.”
 
 SR27 did execute distinct E/S/W/N captures and resolve `survey:6,6`, but each facing change is an
@@ -1991,6 +1989,13 @@ accurate success/failure sets, prompt facts derived only from deterministic stat
 resolution/restart, and rendering of active heading/progress. Live verification confirms visible yaw
 changes and matching captures. **Classification:** loop-safe runtime/log/API/web work plus live/PIE
 verification.
+
+**Implementation evidence 2026-07-21:** the persisted survey interruption now owns phase, current
+heading, successful headings, failed headings, and the last result. Agent inspection/status and the Sim
+cockpit expose it; each attempt emits a sim-run-attributed `survey_heading` event; restart recovery skips
+already attempted headings; and prompts explicitly distinguish deterministic saved views from model
+narration. Focused sweep/feed/prompt/web tests and the full offline suite passed (50/50). PIE must still
+confirm visible yaw changes align with the E/S/W/N capture files.
 
 ---
 

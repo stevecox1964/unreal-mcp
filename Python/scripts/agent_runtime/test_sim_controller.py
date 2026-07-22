@@ -123,6 +123,8 @@ def test_sim_page_renders_with_controls():
         check("sim page has direct APC chat controls",
               "Direct APC chat" in text and "Guide with this" in text
               and "Resume prior work" in text)
+        check("sim page renders deterministic survey progress",
+              "survey_progress" in text and "survey_heading" in text)
         check("sim page renders a timestamp per event", "fmtTime(e.timestamp)" in text)
     _with_runner(StubRunner(), body)
 
