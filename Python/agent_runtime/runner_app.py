@@ -160,6 +160,37 @@ def build_control_app(manager) -> FastAPI:
     async def agent_tick(agent_id: str):
         return _tick_response(await manager.pulse_agent(agent_id))
 
+    @app.post("/agents/{agent_id}/chat/start")
+    async def start_chat(agent_id: str, request: Request) -> dict:
+        body = await _json_body(request)
+        result = await manager.start_chat(agent_id, body.get("source"))
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("error", "chat could not start"))
+        return result
+
+    @app.post("/agents/{agent_id}/chat/message")
+    async def send_chat_message(agent_id: str, request: Request) -> dict:
+        body = await _json_body(request)
+        result = await manager.send_chat_message(agent_id, body.get("message"))
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("error", "message failed"))
+        return result
+
+    @app.post("/agents/{agent_id}/chat/guide")
+    async def guide_from_chat(agent_id: str, request: Request) -> dict:
+        body = await _json_body(request)
+        result = await manager.guide_from_chat(agent_id, body.get("direction"))
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("error", "guidance failed"))
+        return result
+
+    @app.post("/agents/{agent_id}/chat/end")
+    async def end_chat(agent_id: str) -> dict:
+        result = await manager.end_chat(agent_id)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("error", "chat could not end"))
+        return result
+
     @app.post("/reset_agents")
     async def reset_agents() -> dict:
         return await manager.reset_agents()

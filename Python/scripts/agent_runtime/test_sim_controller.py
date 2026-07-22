@@ -74,6 +74,26 @@ class StubRunner:
         self.calls.append(("capture_starts",))
         return {"status": "captured", "captured": ["dufus", "maren"]}
 
+    def inspect_agent(self, agent_id):
+        self.calls.append(("inspect_agent", agent_id))
+        return {"agent_id": agent_id, "active_interrupt": None}
+
+    def start_chat(self, agent_id, source):
+        self.calls.append(("chat_start", agent_id, source))
+        return {"status": "open", "agent_id": agent_id}
+
+    def send_chat_message(self, agent_id, message):
+        self.calls.append(("chat_message", agent_id, message))
+        return {"status": "replied", "reply": "I can try that."}
+
+    def guide_from_chat(self, agent_id, direction):
+        self.calls.append(("chat_guide", agent_id, direction))
+        return {"status": "guiding"}
+
+    def end_chat(self, agent_id):
+        self.calls.append(("chat_end", agent_id))
+        return {"status": "resumed"}
+
     def generate_world_grid(self, cell_size=3000.0, padding=800.0):
         if not self.online:
             raise RuntimeError("offline")
@@ -100,6 +120,9 @@ def test_sim_page_renders_with_controls():
         check("sim page has a Reset agents button", "Reset agents" in text)
         check("sim page has a Reset places button", "Reset places" in text)
         check("sim page has a Capture starts button", "Capture starts" in text)
+        check("sim page has direct APC chat controls",
+              "Direct APC chat" in text and "Guide with this" in text
+              and "Resume prior work" in text)
         check("sim page renders a timestamp per event", "fmtTime(e.timestamp)" in text)
     _with_runner(StubRunner(), body)
 
@@ -162,6 +185,31 @@ def test_control_actions_proxy_to_runner():
     _with_runner(stub, body)
 
 
+def test_chat_actions_proxy_to_runner():
+    stub = StubRunner()
+
+    def body(client):
+        check("chat inspect proxied",
+              client.get("/api/sim/agents/dufus").json()["agent_id"] == "dufus")
+        check("chat start proxied",
+              client.post("/api/sim/agents/dufus/chat/start",
+                          json={"source": "Avery"}).json()["status"] == "open")
+        check("chat message proxied",
+              client.post("/api/sim/agents/dufus/chat/message",
+                          json={"message": "Are you stuck?"}).json()["reply"] == "I can try that.")
+        check("chat guidance proxied",
+              client.post("/api/sim/agents/dufus/chat/guide",
+                          json={"direction": "Go left."}).json()["status"] == "guiding")
+        check("chat release proxied",
+              client.post("/api/sim/agents/dufus/chat/end").json()["status"] == "resumed")
+        check("chat calls preserve explicit operator content", stub.calls[-5:] == [
+            ("inspect_agent", "dufus"), ("chat_start", "dufus", "Avery"),
+            ("chat_message", "dufus", "Are you stuck?"),
+            ("chat_guide", "dufus", "Go left."), ("chat_end", "dufus"),
+        ])
+    _with_runner(stub, body)
+
+
 def test_world_grid_proxied():
     """#13.2: POST /api/world/grid proxies to the runner's generate_world_grid."""
     stub = StubRunner()
@@ -206,6 +254,7 @@ def main():
     test_api_events_proxied()
     test_clear_feed_proxied()
     test_control_actions_proxy_to_runner()
+    test_chat_actions_proxy_to_runner()
     test_world_grid_proxied()
     print("\nAll sim-controller checks passed.")
 

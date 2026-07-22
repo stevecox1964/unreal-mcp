@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import math
@@ -954,7 +955,8 @@ class AgentManager:
         """
         ready = [
             a for a in self.agents.values()
-            if a.is_active and not a.is_busy and a.cooldown_expired()
+            if (a.is_active and not a.is_busy and a.cooldown_expired()
+                and not self._has_open_chat(a))
         ]
         # Agents mid-sweep (#11.1) run a deterministic, bridge-only, no-LLM step —
         # keep them out of the perceive/decide phases until the sweep finishes.
@@ -1020,6 +1022,9 @@ class AgentManager:
         agent = self.agents.get(agent_id)
         if not agent:
             return {"error": f"Agent '{agent_id}' not loaded"}
+        if self._has_open_chat(agent):
+            return {"status": "chat_open", "agent_id": agent_id,
+                    "error": "End or convert the open chat before pulsing this APC"}
         if self._has_active_survey(agent):
             return self._pulse_sweep(agent)
         if self.mode == "explore":
@@ -2093,6 +2098,7 @@ class AgentManager:
         self._record_interrupt_event(agent, status, result.get("last_interrupt"))
         if result.get("active") is not None:
             self._record_interrupt_event(agent, "activated", result.get("active"))
+            self._pause_for_open_chat(agent)
         return result
 
     def _offer_survey_interrupt(self, agent: Agent, observation: dict) -> dict | None:
@@ -2440,6 +2446,7 @@ class AgentManager:
         schedule = observation.get("schedule") or {}
         scheduled_place = str(schedule.get("place") or "").strip()
         if (schedule.get("status") == "travel" and scheduled_place
+                and not isinstance(getattr(agent, "active_interrupt", None), dict)
                 and (t == "wander" or (t == "walk_to" and action.get("direction")))):
             action = {"type": "walk_to", "target_location": scheduled_place}
             t = "walk_to"
@@ -3090,6 +3097,159 @@ class AgentManager:
             "active_interrupt": result.get("active"),
             "interrupt_queue_count": len(result.get("queue") or []),
         }
+
+    @staticmethod
+    def _chat_payload(record: dict | None) -> dict | None:
+        """Return a valid direct-chat payload owned by an interruption."""
+        if not isinstance(record, dict) or record.get("kind") not in {
+                "operator_chat", "operator_direction"}:
+            return None
+        payload = record.get("payload")
+        chat = payload.get("chat") if isinstance(payload, dict) else None
+        if not isinstance(chat, dict) or chat.get("state") not in {"open", "guiding"}:
+            return None
+        if not isinstance(chat.get("messages"), list):
+            return None
+        return chat
+
+    def _has_open_chat(self, agent: Agent) -> bool:
+        chat = self._chat_payload(getattr(agent, "active_interrupt", None))
+        return bool(chat and chat.get("state") == "open")
+
+    def _pause_for_open_chat(self, agent: Agent) -> None:
+        """Halt physical movement whenever a queued chat receives attention."""
+        if (not self._has_open_chat(agent) or self.bridge is None
+                or not agent.has_unreal_binding):
+            return
+        self.bridge.execute_action(agent.bound_unreal_actor_name, {"type": "stop"})
+        self._set_activity(agent, "chatting")
+
+    async def start_chat(self, agent_id: str, source: str) -> dict:
+        """Open a durable, movement-frozen direct conversation with one APC."""
+        return await self._run_tick_entry(
+            f"chat_start:{agent_id}", lambda: self._start_chat_impl(agent_id, source)
+        )
+
+    async def _start_chat_impl(self, agent_id: str, source: str) -> dict:
+        agent = self.agents.get(agent_id)
+        if agent is None:
+            return {"status": "error", "error": f"Agent '{agent_id}' not loaded"}
+        if not isinstance(source, str) or not source.strip():
+            return {"status": "error", "error": "source must be a non-empty string"}
+        existing = self._chat_payload(agent.active_interrupt)
+        if existing and existing.get("state") == "open":
+            return {"status": "open", "agent_id": agent_id,
+                    "active_interrupt": agent.active_interrupt}
+
+        source = source.strip()
+        result = self.request_interrupt(
+            agent_id, kind="operator_chat", source=source,
+            reason=f"{source} opened a direct conversation.", priority=200,
+            payload={"chat": {"state": "open", "messages": []}},
+            preemptible=False,
+        )
+        active = result.get("active_interrupt")
+        if (isinstance(active, dict) and active.get("kind") == "operator_chat"
+                and active.get("source") == source):
+            self._pause_for_open_chat(agent)
+            result["status"] = "open"
+        else:
+            result["status"] = "queued"
+        return result
+
+    async def send_chat_message(self, agent_id: str, message: str) -> dict:
+        """Append one operator turn and obtain a durable in-character reply."""
+        return await self._run_tick_entry(
+            f"chat_message:{agent_id}",
+            lambda: self._send_chat_message_impl(agent_id, message),
+        )
+
+    async def _send_chat_message_impl(self, agent_id: str, message: str) -> dict:
+        agent = self.agents.get(agent_id)
+        if agent is None:
+            return {"status": "error", "error": f"Agent '{agent_id}' not loaded"}
+        if not isinstance(message, str) or not message.strip():
+            return {"status": "error", "error": "message must be a non-empty string"}
+        message = message.strip()
+        if len(message) > 2000:
+            return {"status": "error", "error": "message must be 2000 characters or fewer"}
+        active = agent.active_interrupt
+        chat = self._chat_payload(active)
+        if not chat or chat.get("state") != "open" or active.get("kind") != "operator_chat":
+            return {"status": "error", "error": "Agent has no open direct chat"}
+
+        updated = copy.deepcopy(active)
+        updated_chat = updated["payload"]["chat"]
+        operator_turn = {"role": "operator", "text": message,
+                         "at": self.world_clock.now_text()}
+        proposed = [*updated_chat["messages"], operator_turn][-50:]
+        context = updated.get("resume_context") or {}
+        memories = self.memory.get_relevant_memories(agent_id)
+        reply = await asyncio.to_thread(self.llm.chat, agent, proposed, context, memories)
+        if not isinstance(reply, str) or not reply.strip():
+            return {"status": "error", "error": "The APC model did not return a reply"}
+        reply = reply.strip()[:4000]
+        proposed.append({"role": "agent", "text": reply,
+                         "at": self.world_clock.now_text()})
+        updated_chat["messages"] = proposed[-50:]
+        if not agent.replace_active_interrupt(updated, self._agents_dir):
+            return {"status": "error", "error": "Chat changed before the reply could be saved"}
+        return {"status": "replied", "agent_id": agent_id, "reply": reply,
+                "active_interrupt": agent.active_interrupt}
+
+    async def guide_from_chat(self, agent_id: str, direction: str) -> dict:
+        """Convert an open chat into temporary actionable operator guidance."""
+        return await self._run_tick_entry(
+            f"chat_guide:{agent_id}",
+            lambda: self._guide_from_chat_impl(agent_id, direction),
+        )
+
+    async def _guide_from_chat_impl(self, agent_id: str, direction: str) -> dict:
+        agent = self.agents.get(agent_id)
+        if agent is None:
+            return {"status": "error", "error": f"Agent '{agent_id}' not loaded"}
+        if not isinstance(direction, str) or not direction.strip():
+            return {"status": "error", "error": "direction must be a non-empty string"}
+        direction = direction.strip()
+        if len(direction) > 2000:
+            return {"status": "error", "error": "direction must be 2000 characters or fewer"}
+        active = agent.active_interrupt
+        chat = self._chat_payload(active)
+        if not chat or chat.get("state") != "open" or active.get("kind") != "operator_chat":
+            return {"status": "error", "error": "Agent has no open direct chat"}
+        updated = copy.deepcopy(active)
+        updated["kind"] = "operator_direction"
+        updated["reason"] = f"Temporary direction from {updated['source']}: {direction}"
+        updated["payload"]["chat"]["state"] = "guiding"
+        updated["payload"]["chat"]["direction"] = direction
+        updated["preemptible"] = False
+        if not agent.replace_active_interrupt(updated, self._agents_dir):
+            return {"status": "error", "error": "Chat changed before guidance could be saved"}
+        self._record_interrupt_event(agent, "guiding", agent.active_interrupt)
+        return {"status": "guiding", "agent_id": agent_id,
+                "active_interrupt": agent.active_interrupt}
+
+    async def end_chat(self, agent_id: str) -> dict:
+        """Release chat/direction ownership and resume the captured prior work."""
+        return await self._run_tick_entry(
+            f"chat_end:{agent_id}", lambda: self._end_chat_impl(agent_id)
+        )
+
+    async def _end_chat_impl(self, agent_id: str) -> dict:
+        agent = self.agents.get(agent_id)
+        if agent is None:
+            return {"status": "error", "error": f"Agent '{agent_id}' not loaded"}
+        active = agent.active_interrupt
+        if self._chat_payload(active) is None:
+            return {"status": "error", "error": "Agent has no active chat or guidance"}
+        result = self._terminate_active_interrupt(
+            agent, "resolved", "operator released APC to resume prior work",
+            self.world_clock.now_text(),
+        )
+        return {"status": "resumed", "agent_id": agent_id,
+                "active_interrupt": result.get("active"),
+                "last_interrupt": result.get("last_interrupt"),
+                "interrupt_queue_count": len(result.get("queue") or [])}
 
     def resolve_interrupt(self, agent_id: str, status: str, outcome: str) -> dict:
         """Terminally resolve the one active interruption and expose its successor."""

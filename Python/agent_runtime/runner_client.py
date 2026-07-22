@@ -95,6 +95,24 @@ class RunnerClient:
             "status": status, "outcome": outcome,
         }).json()
 
+    def start_chat(self, agent_id: str, source: str) -> dict:
+        return self._client.post(f"/agents/{agent_id}/chat/start", json={
+            "source": source,
+        }).json()
+
+    def send_chat_message(self, agent_id: str, message: str) -> dict:
+        return self._client.post(f"/agents/{agent_id}/chat/message", json={
+            "message": message,
+        }).json()
+
+    def guide_from_chat(self, agent_id: str, direction: str) -> dict:
+        return self._client.post(f"/agents/{agent_id}/chat/guide", json={
+            "direction": direction,
+        }).json()
+
+    def end_chat(self, agent_id: str) -> dict:
+        return self._client.post(f"/agents/{agent_id}/chat/end").json()
+
     def pulse_agent(self, agent_id: str) -> dict:
         """Tick one agent now, ignoring its cooldown."""
         return self._client.post(f"/agents/{agent_id}/tick").json()

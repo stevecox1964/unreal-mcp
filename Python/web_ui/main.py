@@ -827,6 +827,57 @@ def api_sim_capture_starts():
     return JSONResponse(get_runner().capture_starts())
 
 
+@app.get("/api/sim/agents/{agent_id}")
+def api_sim_agent(agent_id: str):
+    """Inspect one loaded APC, including durable chat/interruption state."""
+    try:
+        return JSONResponse(get_runner().inspect_agent(agent_id))
+    except Exception:
+        return JSONResponse({"status": "error", "error": "no sim runner running"},
+                            status_code=503)
+
+
+@app.post("/api/sim/agents/{agent_id}/chat/start")
+async def api_sim_chat_start(agent_id: str, request: Request):
+    body = await _maybe_json(request)
+    try:
+        return JSONResponse(get_runner().start_chat(agent_id, str(body.get("source", ""))))
+    except Exception:
+        return JSONResponse({"status": "error", "error": "no sim runner running"},
+                            status_code=503)
+
+
+@app.post("/api/sim/agents/{agent_id}/chat/message")
+async def api_sim_chat_message(agent_id: str, request: Request):
+    body = await _maybe_json(request)
+    try:
+        return JSONResponse(get_runner().send_chat_message(
+            agent_id, str(body.get("message", ""))))
+    except Exception:
+        return JSONResponse({"status": "error", "error": "chat message failed"},
+                            status_code=503)
+
+
+@app.post("/api/sim/agents/{agent_id}/chat/guide")
+async def api_sim_chat_guide(agent_id: str, request: Request):
+    body = await _maybe_json(request)
+    try:
+        return JSONResponse(get_runner().guide_from_chat(
+            agent_id, str(body.get("direction", ""))))
+    except Exception:
+        return JSONResponse({"status": "error", "error": "guidance failed"},
+                            status_code=503)
+
+
+@app.post("/api/sim/agents/{agent_id}/chat/end")
+def api_sim_chat_end(agent_id: str):
+    try:
+        return JSONResponse(get_runner().end_chat(agent_id))
+    except Exception:
+        return JSONResponse({"status": "error", "error": "chat release failed"},
+                            status_code=503)
+
+
 async def _maybe_json(request: Request) -> dict:
     try:
         data = await request.json()

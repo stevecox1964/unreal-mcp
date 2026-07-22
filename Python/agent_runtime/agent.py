@@ -273,6 +273,22 @@ class Agent:
         self._save_state(agents_dir)
         return True
 
+    def replace_active_interrupt(self, record: dict, agents_dir: Path) -> bool:
+        """Persist a validated update to the currently active interruption.
+
+        Chat owns mutable transcript/mode data inside its interruption payload.
+        Restrict replacement to the same active id so a stale request cannot
+        overwrite a newly promoted or preempting interruption.
+        """
+        current = self.active_interrupt
+        updated = interruptions.validate_record(record)
+        if (current is None or updated is None or updated.get("status") != "active"
+                or updated.get("interrupt_id") != current.get("interrupt_id")):
+            return False
+        self.state["active_interrupt"] = updated
+        self._save_state(agents_dir)
+        return True
+
     def cancel_interrupts(self, kind: str, outcome: str, agents_dir: Path,
                           resolved_at: str = "") -> dict:
         """Cancel persisted interruptions of one semantic kind."""

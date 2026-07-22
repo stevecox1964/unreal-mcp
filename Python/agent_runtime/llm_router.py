@@ -561,6 +561,59 @@ class LLMRouter:
             logger.error("[%s] ask() failed: %s", agent.agent_id, e)
             return None
 
+    def chat(self, agent: "Agent", transcript: list[dict], context: dict,
+             memories: list[dict]) -> Optional[str]:
+        """Return one in-character direct-chat reply as plain text.
+
+        This is deliberately separate from ``decide``: an open conversation
+        freezes physical action, so the model must answer the operator without
+        emitting action JSON or claiming that an action already happened.
+        """
+        provider = self._resolve_provider(agent)
+        model = self._resolve_model(agent, provider)
+        if not model:
+            return None
+        if not self._resolve_api_key(provider):
+            logger.error("%s API key not set - cannot chat()", provider)
+            return None
+
+        system = f"""You are {agent.display_name}, a character in an Unreal Engine world.
+
+Character:
+{agent.character_text.strip()}
+
+Goals:
+{agent.goals_text.strip()}
+
+Rules:
+{agent.rules_text.strip()}
+
+Reply directly to the operator in character. Be concise and concrete. You may
+accept, question, or decline guidance according to your character and grounded
+facts. The conversation has paused your movement: do not claim you have already
+performed an action. Do not output JSON or markdown."""
+        lines = [
+            f"Current goal: {context.get('current_goal') or agent.current_goal}",
+            f"Paused route destination: {context.get('route_destination') or 'none'}",
+            "Relevant memories:",
+            _memory_lines(memories),
+            "Conversation:",
+        ]
+        for message in transcript[-20:]:
+            role = "Operator" if message.get("role") == "operator" else agent.display_name
+            lines.append(f"{role}: {str(message.get('text') or '').strip()}")
+        lines.append(f"Reply as {agent.display_name}:")
+        prompt = "\n".join(lines)
+        try:
+            if provider == "ollama":
+                return self._decide_ollama(model, system, prompt)
+            if provider == "openai":
+                return self._openai_text(model, system, prompt)
+            return self._decide_anthropic(model, system, prompt)
+        except Exception as e:
+            logger.error("[%s] chat() failed: %s", agent.agent_id, e)
+            return None
+
     def _decide_ollama(
         self, model: str, system_text: str, user_text: str, image_path: str | None = None
     ) -> str:
@@ -624,6 +677,38 @@ class LLMRouter:
 
         raise ValueError("OpenAI response did not include output_text")
 
+    def _openai_text(self, model: str, system_text: str, user_text: str) -> str:
+        """OpenAI Responses call for plain conversational text, not action JSON."""
+        import requests
+
+        response = requests.post(
+            "https://api.openai.com/v1/responses",
+            headers={
+                "Authorization": f"Bearer {self._resolve_api_key('openai')}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model,
+                "instructions": system_text,
+                "input": user_text,
+                "max_output_tokens": 512,
+            },
+            timeout=60,
+        )
+        if response.status_code >= 400:
+            logger.error("OpenAI API error %s: %s", response.status_code, response.text[:500])
+            response.raise_for_status()
+        payload = response.json()
+        output_text = payload.get("output_text")
+        if output_text:
+            return _strip_markdown_fences(output_text.strip())
+        for item in payload.get("output", []):
+            for content in item.get("content", []):
+                text = content.get("text")
+                if text:
+                    return _strip_markdown_fences(text.strip())
+        raise ValueError("OpenAI response did not include output_text")
+
 
 def _memory_lines(memories: list[dict]) -> str:
     return "\n".join(
@@ -667,7 +752,13 @@ def _active_interrupt_note(record: dict | None) -> str:
     reason = str(record.get("reason") or "no reason supplied").strip()
     kind = str(record.get("kind") or "interruption").strip()
     priority = record.get("priority", "?")
-    return (f"Priority {priority} {kind} from {source}: {reason}\n"
+    direction = ""
+    payload = record.get("payload")
+    chat = payload.get("chat") if isinstance(payload, dict) else None
+    if isinstance(chat, dict) and chat.get("state") == "guiding":
+        direction = str(chat.get("direction") or "").strip()
+    direction_line = f"\nOperator direction to follow now: {direction}" if direction else ""
+    return (f"Priority {priority} {kind} from {source}: {reason}{direction_line}\n"
             "This active interruption outranks your routine until it is resolved.")
 
 

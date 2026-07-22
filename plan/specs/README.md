@@ -42,6 +42,8 @@ guess.
 | WP8 | [WP8-grid-first-routing.md](WP8-grid-first-routing.md) | #17 grid-first routing (multi-leg travel) | **DONE 2026-07-07** | none |
 | WP9 | [WP9-generic-apc-interruptions.md](WP9-generic-apc-interruptions.md) | #38 generic APC interruption lifecycle | **DONE 2026-07-17 — 49/49** | user approved recommended v1 |
 
+| WP10 | [WP10-direct-apc-chat.md](WP10-direct-apc-chat.md) | #37 direct APC chat + temporary guidance | **OFFLINE MVP 2026-07-21 — 50/50** | user approved stuck-rescue use case |
+
 ## Why these five existed
 
 The loop-safe queue had been drained, so this architect pass converted five ambiguous

@@ -99,6 +99,22 @@ class StubManager:
         return {"status": status, "agent_id": agent_id,
                 "last_interrupt": {"status": status, "outcome": outcome}}
 
+    async def start_chat(self, agent_id: str, source: str) -> dict:
+        self.calls.append(("chat_start", agent_id, source))
+        return {"status": "open", "agent_id": agent_id}
+
+    async def send_chat_message(self, agent_id: str, message: str) -> dict:
+        self.calls.append(("chat_message", agent_id, message))
+        return {"status": "replied", "agent_id": agent_id, "reply": "I hear you."}
+
+    async def guide_from_chat(self, agent_id: str, direction: str) -> dict:
+        self.calls.append(("chat_guide", agent_id, direction))
+        return {"status": "guiding", "agent_id": agent_id}
+
+    async def end_chat(self, agent_id: str) -> dict:
+        self.calls.append(("chat_end", agent_id))
+        return {"status": "resumed", "agent_id": agent_id}
+
     async def pulse_agent(self, agent_id: str) -> dict:
         self.calls.append(("pulse", agent_id))
         if self.pulse_busy:
@@ -191,6 +207,18 @@ def test_director_routes():
           resolved.json()["last_interrupt"]["outcome"] == "met at gate"
           and mgr.calls[-1] == ("resolve_interrupt", "dufus", "resolved", "met at gate"))
 
+    check("chat start route", client.post("/agents/dufus/chat/start", json={
+        "source": "Avery"}).json()["status"] == "open"
+        and mgr.calls[-1] == ("chat_start", "dufus", "Avery"))
+    check("chat message route", client.post("/agents/dufus/chat/message", json={
+        "message": "Are you stuck?"}).json()["reply"] == "I hear you."
+        and mgr.calls[-1] == ("chat_message", "dufus", "Are you stuck?"))
+    check("chat guide route", client.post("/agents/dufus/chat/guide", json={
+        "direction": "Go around the wagon."}).json()["status"] == "guiding"
+        and mgr.calls[-1] == ("chat_guide", "dufus", "Go around the wagon."))
+    check("chat end route", client.post("/agents/dufus/chat/end").json()["status"] == "resumed"
+        and mgr.calls[-1] == ("chat_end", "dufus"))
+
     check("per-agent tick pulses now", client.post("/agents/maren/tick").json()["agent_id"] == "maren")
     check("pulse recorded", mgr.calls[-1] == ("pulse", "maren"))
 
@@ -224,6 +252,12 @@ def test_runner_client_director_methods():
           and mgr.calls[-1][0:2] == ("request_interrupt", "dufus"))
     check("client.resolve_interrupt forwards terminal outcome",
           rc.resolve_interrupt("dufus", "resolved", "talked")["last_interrupt"]["outcome"] == "talked")
+    check("client.start_chat", rc.start_chat("dufus", "Avery")["status"] == "open")
+    check("client.send_chat_message",
+          rc.send_chat_message("dufus", "Help?")["reply"] == "I hear you.")
+    check("client.guide_from_chat",
+          rc.guide_from_chat("dufus", "Step left.")["status"] == "guiding")
+    check("client.end_chat", rc.end_chat("dufus")["status"] == "resumed")
     check("client.pulse_agent", rc.pulse_agent("dufus")["agent_id"] == "dufus")
     check("client.reset_agents", rc.reset_agents()["status"] == "reset")
     check("client.reset_places", rc.reset_places()["status"] == "reset")
