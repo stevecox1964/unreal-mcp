@@ -47,6 +47,10 @@ def test_map_cells_reports_named_swept_and_visual_metrics():
         check("bare-visit cell is not on the map", (9, 9) not in by)
         check("named + swept cells are both on the map", set(by) == {(3, 4), (7, 2)})
         check("named cell reports state=named", by[(3, 4)]["state"] == "named")
+        check("named is an independent map fact",
+              by[(3, 4)]["named"] is True and by[(7, 2)]["named"] is False)
+        check("breadcrumb alone is not a completed visual survey",
+              by[(7, 2)]["swept"] is True and by[(7, 2)]["surveyed"] is False)
         check("named cell carries its name", by[(3, 4)]["name"] == "Village Square")
         check("visual metric counts direction/label rows",
               by[(3, 4)]["visual_observations"] == 3)
@@ -138,10 +142,15 @@ def test_api_map_returns_grid_and_cells():
             check("api exposes surveyed-cell image metadata",
                   mapped["place_image_id"] and mapped["place_image_revision"] == 1
                   and mapped["place_image_captured_by"] == "maren")
+            check("named surveyed cell exposes both non-exclusive facts",
+                  mapped["named"] is True and mapped["surveyed"] is True)
             check("api exposes a browser-safe composite URL",
                   mapped["place_image_url"].startswith(
                       "/api/map/place-image?level=TestWorld&place_image_id="))
-            check("api counts named + swept", data["counts"]["named"] == 1 and data["counts"]["swept"] == 1)
+            check("api independently counts named and surveyed cells",
+                  data["counts"]["named"] == 1
+                  and data["counts"]["surveyed"] == 1
+                  and data["counts"]["mapped"] == 2)
             check("api carries owned places with geometry (#11.2/#6c)",
                   data["owned"] == [{"col": 3, "row": 4, "owner": "maren", "name": "My Home",
                                      "dx": 120.0, "dy": -80.0, "extent_cm": 900.0}])
@@ -201,8 +210,9 @@ def test_map_page_renders_with_legend_and_polls_api():
         def body(client):
             text = client.get("/map?level=TestWorld").text
             check("map page names the world", "TestWorld" in text)
-            check("map page has a legend for named/swept/unexplored",
-                  "named" in text.lower() and "swept" in text.lower() and "unexplored" in text.lower())
+            check("map page has independent named/surveyed/unexplored legend",
+                  'id="n-named"' in text and 'id="n-surveyed"' in text
+                  and "unexplored" in text.lower() and 'id="n-swept"' not in text)
             check("map page has an owned-place legend + marker style",
                   "owned place" in text and "owned-mark" in text)
             check("map page has clickable surveyed-community markers",
@@ -215,6 +225,9 @@ def test_map_page_renders_with_legend_and_polls_api():
             check("map page labels counts as visual observations, not physical landmarks",
                   "visual observations" in text.lower()
                   and "${cell.landmarks} landmark(s)" not in text)
+            check("stale wording explains saved surveys remain refreshable",
+                  "saved survey older than" in text.lower()
+                  and "eligible for refresh" in text.lower())
             check("grid lines are visible (not the near-invisible pale gap)",
                   "#8b95a1" in text and "background:#ddd" not in text)
             check("map page fetches /api/map to build out live", "/api/map" in text)

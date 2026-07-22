@@ -9,18 +9,16 @@ Newest grooming: **2026-07-17**.
 
 ### Now
 
-- **#41 truthful map survey status:** count saved survey composites independently of names and make
-  stale wording agree with actual refresh behavior.
+- **#37 dedicated Chat page:** move the chat controls out of the Sim cockpit onto `/chat`, with Chat
+  immediately next to Sim in primary navigation, without changing chat behavior.
 
 ### Next
 
-1. **#37 dedicated Chat page:** move the chat controls out of the Sim cockpit onto `/chat`, with Chat
-   immediately next to Sim in primary navigation, without changing chat behavior.
-2. **#36 ordered goals:** use deterministic completion evidence so a completed survey intent clears or
+1. **#36 ordered goals:** use deterministic completion evidence so a completed survey intent clears or
    advances instead of remaining Dufus's current goal.
-3. **#37 direct APC chat live verification:** verify the moved UI still stops Dufus, supports multiple
+2. **#37 direct APC chat live verification:** verify the moved UI still stops Dufus, supports multiple
    turns and temporary guidance, resumes prior work, and leaves Maren unaffected.
-4. **#35 survey expeditions:** choose the expedition cadence, target-selection surface, chaining/return
+3. **#35 survey expeditions:** choose the expedition cadence, target-selection surface, chaining/return
    policy, and retry bounds before extending the now-durable survey interruption.
 
 ### Waiting
@@ -2001,7 +1999,7 @@ confirm visible yaw changes align with the E/S/W/N capture files.
 
 ## 41. Make map survey counts and stale wording truthful
 
-**Status:** **APPROVED / LOOP-SAFE — requested 2026-07-21** · **Source:** SR27 cockpit review
+**Status:** **OFFLINE COMPLETE 2026-07-21 — 50/50** · **Source:** SR27 cockpit review
 
 The map assigns one exclusive display state: a named cell is `named` even when it also has `swept_at`
 and a saved composite. This produced `named 8, swept 0` while multiple blue center markers proved survey
@@ -2016,6 +2014,12 @@ eligible for refresh. Preserve the existing visual distinctions and center-marke
 Acceptance evidence: offline map/API/template tests cover a named surveyed cell contributing to both
 counts, an unnamed surveyed cell, a stale surveyed cell with its blue marker intact, and wording that
 matches refresh capability. **Classification:** loop-safe database/web UI work.
+
+**Implementation evidence 2026-07-21:** `map_cells` now exposes independent `named`, `swept`, and
+`surveyed` booleans. The API counts named, surveyed, mapped, stale, and owned without overlap errors;
+the legend counts blue-marker community surveys rather than unnamed-only sweep state; and stale copy
+states that an older saved survey is eligible for refresh under #39. Focused map tests and the full
+offline suite passed (50/50).
 
 ---
 

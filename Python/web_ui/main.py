@@ -20,7 +20,8 @@ from agent_runtime.map_capture import (MAP_CAMERA_ACTOR, MAP_CAMERA_ROTATION,
 from agent_runtime import provider_profiles
 from agent_runtime import run_replay
 from agent_runtime.runner_client import RunnerClient, DEFAULT_BASE_URL
-from agent_runtime.place_db import PLACE_EXTENT_CM, PlaceDB
+from agent_runtime.place_db import (COMMUNITY_SURVEY_MAX_AGE_SECONDS,
+                                    PLACE_EXTENT_CM, PlaceDB)
 from agent_runtime.world_grid import WorldGrid
 from web_ui import unreal_client
 
@@ -28,7 +29,7 @@ BASE_DIR = Path(__file__).parent
 WORLDS_DIR = BASE_DIR.parent / "worlds"
 ENV_PATH = BASE_DIR.parent / ".env"   # provider/model config the settings page manages
 CONFIG_PATH = BASE_DIR.parent / "config.json"   # named provider profiles + role assignments
-MAP_STALE_SECONDS = 24 * 3600   # a place cell older than this is flagged for re-observation
+MAP_STALE_SECONDS = COMMUNITY_SURVEY_MAX_AGE_SECONDS
 
 app = FastAPI(title="Unreal World Sim")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -229,7 +230,7 @@ def build_map(level: str) -> dict:
 
         {level, cell_size, has_bounds, cols, rows, bounds, origin_x, origin_y,
          image_url, cells: [...], owned: [{col,row,owner,name,dx,dy,extent_cm}],
-         counts: {named, swept, stale, owned, total_cells}}
+         counts: {named, surveyed, swept, mapped, stale, owned, total_cells}}
 
     ``bounds``/``origin_x``/``origin_y`` (world cm) + ``image_url`` let the page
     draw the grid and place cells over the real top-down capture (#6c):
@@ -254,8 +255,9 @@ def build_map(level: str) -> dict:
             if image_id else None
         )
     owned = db.all_owned_places() if db else []
-    named = sum(1 for c in cells if c["state"] == "named")
-    swept = sum(1 for c in cells if c["state"] == "swept")
+    named = sum(1 for c in cells if c["named"])
+    swept = sum(1 for c in cells if c["swept"])
+    surveyed = sum(1 for c in cells if c["surveyed"])
     stale = sum(1 for c in cells if c.get("stale"))
     return {
         "level": level,
@@ -275,7 +277,8 @@ def build_map(level: str) -> dict:
         "owned": [{"col": o["col"], "row": o["row"], "owner": o["owner"], "name": o["name"],
                    "dx": o["dx"], "dy": o["dy"], "extent_cm": o["extent_cm"]}
                   for o in owned],
-        "counts": {"named": named, "swept": swept, "stale": stale, "owned": len(owned),
+        "counts": {"named": named, "surveyed": surveyed, "swept": swept,
+                   "mapped": len(cells), "stale": stale, "owned": len(owned),
                    "total_cells": (cols or 0) * (rows or 0)},
     }
 

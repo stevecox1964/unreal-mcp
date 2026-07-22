@@ -376,10 +376,12 @@ class PlaceDB:
 
         One dict per row in place_cells that has a name or a sweep::
 
-            {col, row, name, named_by, named_at, swept_at, swept_by,
-             updated_at, landmarks, state}
+            {col, row, name, named, swept, surveyed, named_by, named_at,
+             swept_at, swept_by, updated_at, landmarks, state}
 
-        ``state`` is ``"named"`` if the cell has a name, else ``"swept"``.
+        ``named``, ``swept``, and ``surveyed`` are independent facts. ``state``
+        remains the mutually exclusive paint class (named first, then swept)
+        for backwards-compatible map styling.
         ``landmarks`` counts distinct compass observations at/above the confidence
         floor. Cells with only agent visits (no name, no sweep) are excluded — a
         bare visit doesn't make a place cell. Ordered by (col, row). This is what
@@ -415,6 +417,9 @@ class PlaceDB:
                 "name": r["name"], "named_by": r["named_by"], "named_at": r["named_at"],
                 "swept_at": r["swept_at"], "swept_by": r["swept_by"],
                 "updated_at": r["updated_at"],
+                "named": bool(r["name"]),
+                "swept": bool(r["swept_at"]),
+                "surveyed": bool(r["place_image_id"]),
                 "visual_observations": 0,
                 "distinct_visual_labels": 0,
                 "visual_sightings": 0,

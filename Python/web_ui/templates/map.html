@@ -74,15 +74,14 @@
 
   <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap; margin-bottom:.75rem;">
     <span><span class="swatch" style="background:rgba(45,106,79,.55)"></span> named <b id="n-named">0</b></span>
-    <span><span class="swatch" style="background:rgba(233,196,106,.6)"></span> swept <b id="n-swept">0</b></span>
+    <span><span class="swatch" style="background:#2f80ed; border-radius:50%; border:2px solid #fff"></span> surveyed community <b id="n-surveyed">0</b></span>
     <span><span class="swatch" style="border:1px solid #8b95a1"></span> unexplored</span>
     <span><span class="swatch" style="box-shadow:inset 0 0 0 2px #c0392b"></span> stale <b id="n-stale">0</b></span>
-    <span><span class="swatch" style="background:#2f80ed; border-radius:50%; border:2px solid #fff"></span> surveyed community</span>
     <span><span class="swatch" style="border:2px solid #6f42c1; background:rgba(111,66,193,.3)"></span> owned place <b id="n-owned">0</b></span>
     <span><span class="swatch" style="background:#e63946; border-radius:50%; border:2px solid #fff"></span> agent (live)</span>
     <span id="pct" style="color:#666"></span>
   </div>
-  <p class="breadcrumb" style="margin-top:-.25rem;">stale = not re-observed in over {{ map.stale_after_hours }}h (real time)</p>
+  <p class="breadcrumb" style="margin-top:-.25rem;">stale = saved survey older than {{ map.stale_after_hours }}h (real time); eligible for refresh at the next survey opportunity</p>
 
   <div id="grid-align-panel" style="display:none; border:1px solid #8b95a1; border-radius:4px;
        padding:.75rem; margin-bottom:.75rem; max-width:1024px;">
@@ -312,7 +311,7 @@
         if (!el) continue;
         el.className = "cell " + cell.state + (cell.stale ? " stale" : "");
         const who = cell.state === "named" ? `named "${cell.name}" by ${cell.named_by}` : `swept by ${cell.swept_by}`;
-        const age = cell.stale ? " · STALE (needs re-observation)" : "";
+        const age = cell.stale ? " · STALE saved survey (eligible for refresh)" : "";
         el.dataset.tip = `(${cell.col}, ${cell.row}) — ${who} · ` +
           `${cell.visual_observations} visual observations · ` +
           `${cell.distinct_visual_labels} textual labels · ` +
@@ -378,10 +377,10 @@
       } catch (e) { /* runner offline — no dots */ }
 
       document.getElementById("n-named").textContent = data.counts.named;
-      document.getElementById("n-swept").textContent = data.counts.swept;
+      document.getElementById("n-surveyed").textContent = data.counts.surveyed;
       document.getElementById("n-stale").textContent = data.counts.stale;
       document.getElementById("n-owned").textContent = data.counts.owned || 0;
-      const built = data.counts.named + data.counts.swept;
+      const built = data.counts.mapped;
       const total = data.counts.total_cells || 1;
       document.getElementById("pct").textContent =
         `${built}/${total} cells built out (${(100 * built / total).toFixed(1)}%)`;
