@@ -9,17 +9,22 @@ Newest grooming: **2026-07-17**.
 
 ### Now
 
-- **#37 direct APC chat design:** use #38's completed generic interruption API to define selected-APC
-  message delivery, conversation release, movement behavior during chat, transcript retention, and the
-  explicit choice between resuming prior work or promoting the user's direction into #36 goal state.
+- **#39 stale-cell re-observation:** make an existing but stale community composite eligible for a
+  deterministic refresh when an APC next has a valid survey opportunity.
 
 ### Next
 
-1. **#37 direct APC chat MVP:** selected-APC message delivery through #38, visible pause/resume, and an
-   explicit choice to resume prior work or retain the user's direction, after its design choices close.
-2. **#36 ordered goals:** primary/secondary progression and completion evidence, consuming #38 for
-   temporary interruptions and #37 for user-directed reprioritization.
-3. **#35 survey expeditions:** choose the expedition cadence, target-selection surface, chaining/return
+1. **#40 grounded, visible deterministic survey progress:** expose the real heading/capture phase and
+   prevent Dufus from claiming unrecorded survey views.
+2. **#41 truthful map survey status:** count saved survey composites independently of names and make
+   stale wording agree with actual refresh behavior.
+3. **#37 dedicated Chat page:** move the chat controls out of the Sim cockpit onto `/chat`, with Chat
+   immediately next to Sim in primary navigation, without changing chat behavior.
+4. **#36 ordered goals:** use deterministic completion evidence so a completed survey intent clears or
+   advances instead of remaining Dufus's current goal.
+5. **#37 direct APC chat live verification:** verify the moved UI still stops Dufus, supports multiple
+   turns and temporary guidance, resumes prior work, and leaves Maren unaffected.
+6. **#35 survey expeditions:** choose the expedition cadence, target-selection surface, chaining/return
    policy, and retry bounds before extending the now-durable survey interruption.
 
 ### Waiting
@@ -40,10 +45,17 @@ Newest grooming: **2026-07-17**.
 
 ### Loop-safe
 
-The prior unattended queue and #38's approved engine-neutral package are complete. #38 passed the full
-offline suite at **49/49** on `auto-loop/2026-07-17-interruptions`; no Unreal/PIE or paid-model run was
-performed. #37 transport/UI and #36 goal-state work become loop-safe only after their remaining
-interaction semantics are explicit.
+Approved 2026-07-21 for autonomous execution, in order: **#39**, **#40**, **#41**, and the dedicated
+Chat-page slice of **#37**. Their deterministic Python/web behavior must be test-first and offline;
+each item retains its listed PIE verification. #36 remains design-gated except for consuming explicit
+deterministic completion evidence supplied by these slices. #38's prior engine-neutral package passed
+49/49 on `auto-loop/2026-07-17-interruptions`.
+
+**Execution note 2026-07-21:** autonomous preflight was attempted after approval and correctly blocked
+on the pre-existing dirty tree: the uncommitted #37 direct-chat implementation overlaps runtime, runner,
+web, tests, backlog, handoff, and spec files, with `places.json` also untracked. Preserve and reconcile
+that work into a reviewed clean baseline before starting #39; do not stash, discard, or absorb it into an
+unrelated survey commit.
 
 > **Historical status log below.** Dated banners and the 2026-07-01 queues are retained
 > as evidence, not as current priority. The active view above is authoritative.
@@ -872,7 +884,7 @@ is its config artifact), #16 (the editor that writes this file), [[grid-place-ce
 
 ## 16. Click-to-author places on the /map — the no-Unreal place editor
 
-**Status:** **REOPENED / DESIGN DIRECTION 2026-07-17**; original implementation ✅ **DONE
+**Status:** **USER LIVE-VERIFIED 2026-07-21** (author-place flow “looks good”); original implementation ✅ **DONE
 2026-07-07** (suite 41/41). "Author places" toggle on `/map`: fill
 name/owner/extent, click the registered map → `POST /api/places` writes `places.json` (same
 normalized name = move/edit, no duplicates) and **re-applies the whole manifest to PlaceDB
@@ -1827,11 +1839,17 @@ completion (LLM, deterministic facts, user, or a combination), how recurring and
 and how goals interact with daily schedules and direct user directions from #37. **Classification:**
 design decision, then loop-safe goal-state/sequencer tests plus live/PIE behavior verification.
 
+**New evidence 2026-07-21:** SR27 deterministically resolved `survey:6,6` with outcome `survey completed`,
+but Dufus retained “I need to survey this cell thoroughly” as his current goal and immediately resumed
+narrating more survey work. When a deterministic completion corresponds to the active goal, #36 must
+consume that evidence exactly once and visibly clear or advance the goal; it must not infer completion
+from free-form model narration.
+
 ---
 
 ## 37. Direct operator chat and direction for a selected APC
 
-**Status:** **IDEA / DESIGN GATE — requested 2026-07-17** · **Source:** user: “I want to have a
+**Status:** **OFFLINE MVP COMPLETE 2026-07-21 — 50/50; LIVE PIE/MODEL VERIFY NEXT** · **Source:** user: “I want to have a
 feature where I can ‘chat’ with a particular APC… interrupt [its] current goal… and give direction
 to the APC.” · **Builds on:** #10.5 interrupt/resume policy, #12 interaction memory, #31 event-driven
 cognition, #36 multi-goal state, and the generic interruption lifecycle in #38
@@ -1848,8 +1866,19 @@ ending chat either resumes it or applies the new direction according to an expli
 and resulting goal transition are auditable and available to appropriate memory. Open decisions: where
 chat lives (cockpit, map, or both), whether movement freezes during the session, whether a direction is
 a temporary interrupt or may insert/reprioritize #36 goals, how the user ends/releases the conversation,
-and which transcript details persist. **Classification:** design decision, then loop-safe UI/control/
-state tests plus live/PIE conversation and interruption verification.
+and which transcript details persist. **Implemented MVP:** Simulation-cockpit selector and explicit
+operator identity; open chat freezes the selected APC; multiple turns persist in the interruption;
+“Guide with this” converts chat into temporary prompt-grounded direction; “Resume prior work” resolves
+it without changing the prior goal/schedule/route. Permanent goal promotion remains #36 and permanent
+transcript memory remains #12.2. See `plan/specs/WP10-direct-apc-chat.md`. **Classification:** offline
+UI/control/state complete; live/PIE conversation, physical stop/guidance, and unaffected-peer verify pending.
+
+**Approved UI follow-up 2026-07-21:** move all direct-chat cockpit controls to their own `/chat` page.
+Place **Chat** immediately next to **Sim** in the primary navigation, remove the chat panel from `/sim`
+rather than duplicating it, and preserve APC selection, operator identity, transcript, send, guide, and
+resume behavior. Acceptance evidence: offline route/template tests prove `/chat` contains the complete
+chat surface, `/sim` no longer contains it, navigation order is Sim then Chat, and existing API/control
+tests remain green. **Classification:** loop-safe web UI; live/PIE chat verification remains required.
 
 ---
 
@@ -1910,6 +1939,74 @@ verification.
   No Unreal/PIE or paid-model call was made.
 - #38 deliberately stops at the generic control surface. Multi-turn chat/transcripts and accepted
   direction semantics remain #37; ordered/reprioritized goals remain #36.
+
+---
+
+## 39. Refresh stale community-cell surveys
+
+**Status:** **APPROVED / LOOP-SAFE — requested 2026-07-21** · **Source:** user after SR27: “cockpit
+says cells that have place cell in center but text says needs reobservation” · **Builds on:** #7 survey
+mechanics, #32 place-image lifecycle, and #38 survey interruptions
+
+A saved center composite and a stale outline describe different facts: the composite exists, while the
+cell has not been updated in over 24 real hours. The cockpit currently labels that state “needs
+re-observation,” but `_should_sweep_here` rejects every cell that already has a current place image, so
+no automatic path can perform the advertised refresh.
+
+Desired behavior: an otherwise eligible APC visit may offer one deterministic survey interruption for
+a stale community cell even when a prior composite exists; a fresh composite still suppresses redundant
+surveys; completing the refresh replaces/advances the current place image and updates the cell timestamp
+so it is no longer stale. Queueing and duplicate suppression must continue to use #38.
+
+Acceptance evidence: offline tests establish fresh-existing → no sweep, stale-existing → one survey,
+active/queued duplicate → no second survey, and completed refresh → fresh cell with a current composite.
+Do not call vision or PIE in the offline test. Live verification should confirm one red cell refreshes
+without sending an APC on repeated surveys. **Classification:** loop-safe runtime/database behavior plus
+live/PIE verification.
+
+---
+
+## 40. Ground and expose deterministic survey progress
+
+**Status:** **APPROVED / LOOP-SAFE — requested 2026-07-21** · **Source:** user after SR27: “Dufus says
+he needs to survey cells, but I do not see him rotating.”
+
+SR27 did execute distinct E/S/W/N captures and resolve `survey:6,6`, but each facing change is an
+instant teleport rotation, individual heading steps are absent from the decision feed/cockpit, and the
+ordinary LLM loop claimed views were saved both before and after the real deterministic sweep. Operators
+therefore cannot distinguish actual survey work from invented narration.
+
+Desired behavior: publish the active survey cell, phase, current heading, completed headings, and capture
+result through inspect/API state and compact sim-attributed decision events; show that progress on the
+web surface; ground cognition with that authoritative state and prohibit claims that an uncaptured
+heading was saved. Completion clears transient progress. This item does not require a turn animation;
+PIE must still verify that the actor's yaw changes for each real heading.
+
+Acceptance evidence: offline tests observe ordered E/S/W/N progress, one event per attempted heading,
+accurate success/failure sets, prompt facts derived only from deterministic state, no stale progress after
+resolution/restart, and rendering of active heading/progress. Live verification confirms visible yaw
+changes and matching captures. **Classification:** loop-safe runtime/log/API/web work plus live/PIE
+verification.
+
+---
+
+## 41. Make map survey counts and stale wording truthful
+
+**Status:** **APPROVED / LOOP-SAFE — requested 2026-07-21** · **Source:** SR27 cockpit review
+
+The map assigns one exclusive display state: a named cell is `named` even when it also has `swept_at`
+and a saved composite. This produced `named 8, swept 0` while multiple blue center markers proved survey
+history existed. The stale tooltip simultaneously promises “needs re-observation” although the current
+scheduler cannot refresh such cells.
+
+Desired behavior: expose and count independent facts—named, has completed survey/composite, stale, and
+owned—rather than treating named and swept as mutually exclusive. Until #39 is active, stale copy must
+describe age without promising an unavailable action; after #39 lands it may explicitly say the cell is
+eligible for refresh. Preserve the existing visual distinctions and center-marker click target.
+
+Acceptance evidence: offline map/API/template tests cover a named surveyed cell contributing to both
+counts, an unnamed surveyed cell, a stale surveyed cell with its blue marker intact, and wording that
+matches refresh capability. **Classification:** loop-safe database/web UI work.
 
 ---
 
