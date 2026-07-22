@@ -14,10 +14,10 @@ Newest grooming: **2026-07-17**.
 
 ### Next
 
-1. **#36 JSON agenda + daily ledger:** implement the approved authored task schema, deterministic
-   active/completed/blocked transitions, and compact Today so far / Right now / Next prompt context.
-2. **#43 APC profile agenda UI:** after #36's storage contract lands, restore an obvious APC navigation
-   entry and edit/view the authored agenda plus live daily execution state.
+1. **#36 JSON agenda + daily ledger:** implementation and offline coverage are complete at 51/51;
+   user-run live verification still needs interruption/resume plus the post-arrival `current_goal` sync fix.
+2. **#43 APC profile agenda UI:** build a friendly expandable cockpit drill-down for authored agenda,
+   execution, ledger, and other APC JSON state; retain raw JSON only as an advanced view.
 3. **#37 direct APC chat live verification:** verify the moved UI still stops Dufus, supports multiple
    turns and temporary guidance, resumes prior work, and leaves Maren unaffected.
 4. **#35 survey expeditions:** choose the expedition cadence, target-selection surface, chaining/return
@@ -1814,7 +1814,7 @@ whole-map coverage verification.
 
 ## 36. Ordered primary and secondary goals per APC
 
-**Status:** **APPROVED JSON AGENDA DESIGN 2026-07-21; IMPLEMENTATION PENDING** · **Source:** user: “Dufus and other APCs
+**Status:** **IMPLEMENTATION + OFFLINE TESTS COMPLETE 2026-07-22 — 51/51; LIVE VERIFY PARTIAL** · **Source:** user: “Dufus and other APCs
 to have multiple goals, primary and secondary etc. So when a goal is met, start running the next
 goal.” · **Builds on:** #10 planner/sequencer, #31 event-driven cognition, #35's durable survey
 intent, and the generic interruption lifecycle in #38
@@ -1895,8 +1895,23 @@ Next prompt snapshots derived from runtime facts; survey and chat interrupt/resu
 same task; no duplicate completion; and a live run in which Dufus completes morning work, services a
 survey, reaches the named village square, advances to its next activity, and does not backtrack to a
 completed destination. **Classification:** loop-safe data/sequencer/prompt work plus live/PIE behavior
-verification. **Open implementation choices:** durable authored filename/versioning, migration of the
-current generated schedule, and which narrowly defined evidence permits `time_or_llm_confirmed`.
+verification.
+
+**Implementation and verification evidence 2026-07-22:** authored data now lives in validated, atomically written
+per-APC `agenda.json` files using schema version 1; deterministic execution and the chronological ledger
+remain separate in ignored `runtime.json`. Dufus and Maren have tracked authored agendas, while APCs
+without one retain a generated-schedule compatibility fallback. Runtime transitions cover pending,
+active, interrupted, completed, and blocked work; arrival and time policies use deterministic facts;
+`time_or_llm_confirmed` accepts only the exact active task, at its required place, after a successful
+world action, with a bounded explicit evidence statement. Decision prompts receive authoritative Today
+so far / Right now / Next sections, route/arrival facts, and interruption state. Agent inspection exposes
+authored data, validation errors, execution state, and ledger context. Sol authored schema, persistence,
+transition, interruption, prompt, manager-boundary, state, navigation, and real-agenda tests; Terra ran
+the complete offline suite with **51/51 passing**. In the user's live run, Dufus completed
+`morning_home`, traveled to the square with grounded arrival, and activated `square_morning` without
+runtime agenda errors. That run exposed stale legacy `current_goal` text after the task transition; the
+executive now synchronizes it to the active agenda objective. Restarted-process live verification of
+that fix and an interruption/resume cycle remain required.
 
 ---
 
@@ -2124,7 +2139,7 @@ category, while successful events remain compact and existing recovery behavior 
 
 ## 43. Make APC profiles discoverable and edit the JSON agenda
 
-**Status:** **APPROVED 2026-07-21; IMPLEMENTATION PENDING** · **Source:** user: “I don't see the APC
+**Status:** **APPROVED 2026-07-21; NAV ENTRY IMPLEMENTED 2026-07-22; DRILL-DOWN/EDITOR PENDING** · **Source:** user: “I don't see the APC
 profile page anywhere, did we lose that? I thought we had a way to set goals and etc on APCs in the
 webUI?” · **Depends on:** #36 authored/runtime agenda contract
 
@@ -2140,12 +2155,24 @@ read-only live panel showing **Today so far**, **Right now**, and **Next**, incl
 completion evidence, and any suspended interruption. Preserve the existing character/goals/rules/action
 editing rather than replacing it.
 
+**Cockpit drill-down requirement added 2026-07-22:** the user found raw endpoint JSON too painful to
+read and requested “a way to see these JSON files in the cockpit in a nice drill down way, not just raw
+web view file dump.” The cockpit/APC profile should render authored agenda tasks, runtime task states,
+ledger events, completion evidence, interruptions, and other useful per-APC JSON as labeled summaries
+with expandable nested details. Users should be able to collapse noise, distinguish authored data from
+runtime facts at a glance, and navigate directly from the APC list. A raw JSON view may remain for
+diagnostics but must be secondary/advanced, not the primary experience.
+
 Acceptance evidence: navigation/template tests prove APCs are reachable without knowing a URL; Dufus's
 profile round-trips a valid agenda without overwriting unrelated authored files; invalid JSON/schema is
 rejected with actionable inline errors and no partial write; the runtime panel distinguishes authored
 agenda from execution state; and live verification shows task transitions without a page restart.
+The drill-down acceptance additionally requires nested objects/arrays to expand and collapse without
+losing labels, task statuses and completion evidence to be readable without inspecting JSON syntax,
+and malformed or unavailable runtime data to render a bounded error state rather than a file dump.
 **Classification:** loop-safe web/storage tests plus live web/PIE verification. **Open implementation
-choice:** raw JSON textarea versus a structured task-row editor; retain a raw/advanced view either way.
+choice:** structured task-row editor and dedicated state components versus a reusable recursive JSON
+viewer; retain a raw/advanced view either way.
 
 ---
 

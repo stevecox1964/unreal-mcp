@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Optional
 
 from dotenv import load_dotenv
 
+from . import agenda
+
 if TYPE_CHECKING:
     from .agent import Agent
 
@@ -89,6 +91,8 @@ Time: {world_time}
 ## Active Interruption
 {active_interrupt_note}
 
+{agenda_context}
+
 ## Your Routine Right Now
 {schedule_note}
 {route_map_note}
@@ -148,6 +152,12 @@ The "Place" line above is what you have previously called the spot you are stand
 {sense_note}
 Based on what you observe, choose exactly ONE next action. Return ONLY valid JSON: no prose, no markdown fences.
 
+If and only if the active task under "Right now" uses completion
+`time_or_llm_confirmed`, and this action will finish that entire objective, set
+`task_completion` to {{"task_id":"<exact active id>","confirmed":true,
+"evidence":"<one grounded sentence>"}}. Otherwise set it to null. Never confirm
+an interrupted task.
+
 {{
   "agent_id": "{agent_id}",
   "thought_summary": "one sentence describing what you see and why",
@@ -156,6 +166,7 @@ Based on what you observe, choose exactly ONE next action. Return ONLY valid JSO
   }},
   "place": "short name for the spot you are standing on (e.g. 'vegetable truck', 'village square'), or null if unsure",
   "speech": null,
+  "task_completion": null,
   "memory_update": null,
   "importance": 0.5
 }}
@@ -180,6 +191,8 @@ Place: {place}
 
 ## Your Schedule Right Now
 {schedule_line}
+
+{agenda_context}
 
 ## Where You Can Go Next — neighboring grid cells (one step ~15m away)
 {next_cells_text}
@@ -222,7 +235,14 @@ _USER_TEMPLATE = """\
 ## Active Interruption
 {active_interrupt_note}
 
+{agenda_context}
+
 Choose exactly ONE next action. Return ONLY valid JSON: no prose, no markdown fences.
+
+If and only if the active task under "Right now" uses completion
+`time_or_llm_confirmed`, and this action will finish that entire objective, set
+`task_completion` to {{"task_id":"<exact active id>","confirmed":true,
+"evidence":"<one grounded sentence>"}}. Otherwise set it to null.
 
 {{
   "agent_id": "{agent_id}",
@@ -231,6 +251,7 @@ Choose exactly ONE next action. Return ONLY valid JSON: no prose, no markdown fe
     "type": "..."
   }},
   "speech": null,
+  "task_completion": null,
   "memory_update": null,
   "importance": 0.5
 }}
@@ -418,6 +439,8 @@ class LLMRouter:
             place=place_str,
             known_line=known_line,
             schedule_line=_wake_schedule_line(context.get("schedule")),
+            agenda_context=agenda.prompt_text(
+                context.get("agenda") or (context.get("schedule") or {}).get("agenda")),
             next_cells_text=_direction_lines(context.get("directions")),
             x=loc.get("x", 0),
             y=loc.get("y", 0),
@@ -483,6 +506,7 @@ class LLMRouter:
                 current_action=action_state,
                 current_goal=agent.current_goal,
                 active_interrupt_note=_active_interrupt_note(observation.get("active_interrupt")),
+                agenda_context=agenda.prompt_text(observation.get("agenda")),
                 sense_note=_sense_note(observation),
                 schedule_note=_schedule_note(observation.get("schedule")),
                 route_map_note=_route_map_note(observation),
@@ -498,6 +522,7 @@ class LLMRouter:
                 observation=json.dumps(obs_for_text, indent=2),
                 current_goal=agent.current_goal,
                 active_interrupt_note=_active_interrupt_note(observation.get("active_interrupt")),
+                agenda_context=agenda.prompt_text(observation.get("agenda")),
             )
 
         # Travel ticks may carry a rendered route map (#6b/WP5) — attach it so

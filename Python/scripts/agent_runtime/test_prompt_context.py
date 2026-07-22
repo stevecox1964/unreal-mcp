@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]      # Python/
 sys.path.insert(0, str(ROOT))
 
+from agent_runtime import agenda  # noqa: E402
 from agent_runtime.llm_router import (             # noqa: E402
     _USER_TEMPLATE_VISION,
     _USER_TEMPLATE,
@@ -106,12 +107,54 @@ def test_nearby_character_lines():
 
 def test_template_contract():
     for placeholder in ("{acquaintance_lines}", "{known_place_lines}", "{episode_lines}",
-                        "{nearby_character_lines}"):
+                        "{nearby_character_lines}", "{agenda_context}"):
         check(f"template has {placeholder}", placeholder in _USER_TEMPLATE_VISION)
     check("template has People You Know heading", "## People You Know" in _USER_TEMPLATE_VISION)
     check("template has Places You Know heading", "## Places You Know" in _USER_TEMPLATE_VISION)
     check("sighting rule references People You Know",
           'A CHARACTER sighting matching\na name under "People You Know"' in _USER_TEMPLATE_VISION)
+    check("fallback template also receives agenda context", "{agenda_context}" in _USER_TEMPLATE)
+    check("vision output reserves bounded completion claim", '"task_completion": null' in _USER_TEMPLATE_VISION)
+    check("fallback output reserves bounded completion claim", '"task_completion": null' in _USER_TEMPLATE)
+    check("completion guidance names exact policy/task/evidence",
+          "time_or_llm_confirmed" in _USER_TEMPLATE_VISION
+          and "exact active id" in _USER_TEMPLATE_VISION
+          and "grounded sentence" in _USER_TEMPLATE_VISION)
+
+
+def test_agenda_prompt_context():
+    facts = {
+        "today_so_far": [{
+            "world_time": "Day 1, 08:30", "event": "completed",
+            "task_id": "home", "objective": "Eat breakfast",
+        }],
+        "right_now": {
+            "task_id": "square", "status": "active", "objective": "Travel to square",
+            "place": "village square", "arrival_verdict": "not_at_place",
+            "completion": {"type": "arrive_at_place"},
+            "route": {"leg": 1, "total": 3, "to_cell": [6, 5]},
+        },
+        "next": {
+            "task_id": "greet", "objective": "Greet people", "place": "village square",
+            "activates_at": "09:00",
+            "activation_condition": "start time reached and all earlier tasks are terminal",
+        },
+    }
+    rendered = agenda.prompt_text(facts)
+    check("agenda prompt has three authority sections",
+          all(heading in rendered for heading in ("## Today so far", "## Right now", "## Next")))
+    check("ledger completion rendered", "completed" in rendered and "Eat breakfast" in rendered)
+    check("active task policy and arrival rendered",
+          "Task square" in rendered and "arrive_at_place" in rendered and "not_at_place" in rendered)
+    check("grounded route rendered", "Route leg 1 of 3" in rendered and "[6, 5]" in rendered)
+    check("next activation condition rendered", "all earlier tasks are terminal" in rendered)
+
+    waiting = agenda.prompt_text({
+        "today_so_far": [],
+        "right_now": {"task_id": None, "status": "waiting"},
+        "next": facts["next"],
+    })
+    check("between-task prompt forbids free-goal work", "do not begin free-goal work" in waiting)
 
 
 def test_reaction_gate_template():
@@ -195,6 +238,7 @@ def main():
     test_episode_lines()
     test_nearby_character_lines()
     test_template_contract()
+    test_agenda_prompt_context()
     test_reaction_gate_template()
     test_schedule_note_weighting()
     test_active_interrupt_prompt_fact()

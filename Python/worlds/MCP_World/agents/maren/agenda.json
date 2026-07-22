@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "tasks": [
+    {
+      "id": "morning_square_walk",
+      "start": "06:00",
+      "end": "07:00",
+      "place": "village square",
+      "objective": "Walk the square and observe what changed overnight",
+      "completion": {"type": "time_block_ends"}
+    },
+    {
+      "id": "open_vegetable_truck",
+      "start": "07:00",
+      "end": "08:00",
+      "place": "the vegetable truck",
+      "objective": "Travel to the vegetable truck and arrange the vegetables",
+      "completion": {"type": "time_or_llm_confirmed"}
+    },
+    {
+      "id": "morning_sales",
+      "start": "08:00",
+      "end": "12:00",
+      "place": "the vegetable truck",
+      "objective": "Tend the vegetables and greet customers",
+      "completion": {"type": "time_block_ends"}
+    },
+    {
+      "id": "lunch_at_dons",
+      "start": "12:00",
+      "end": "13:00",
+      "place": "Don's Donuts",
+      "objective": "Close the truck, travel to Don's Donuts, and eat lunch",
+      "completion": {"type": "time_or_llm_confirmed"}
+    },
+    {
+      "id": "afternoon_sales",
+      "start": "13:00",
+      "end": "18:00",
+      "place": "the vegetable truck",
+      "objective": "Tend the vegetables and greet afternoon customers",
+      "completion": {"type": "time_block_ends"}
+    },
+    {
+      "id": "sheriff_news",
+      "start": "18:00",
+      "end": "19:00",
+      "place": "Sheriff's office",
+      "objective": "Close the truck, visit the Sheriff's office, and swap village news",
+      "completion": {"type": "time_or_llm_confirmed"}
+    },
+    {
+      "id": "return_home",
+      "start": "19:00",
+      "end": "24:00",
+      "place": "home",
+      "objective": "Return home for the night",
+      "completion": {"type": "arrive_at_place"}
+    }
+  ]
+}

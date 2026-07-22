@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import agenda
 from . import interruptions
 
 logger = logging.getLogger("AgentRuntime")
@@ -19,6 +20,7 @@ class Agent:
         "last_tick_time", "last_spoke_time", "current_goal", "is_busy", "last_bound_time",
         "bound_unreal_actor_name", "bound_unreal_actor_label", "bound_unreal_actor_class",
         "daily_schedule", "last_activity", "active_interrupt", "interrupt_queue", "last_interrupt",
+        "agenda_execution",
     })
 
     def __init__(
@@ -29,6 +31,8 @@ class Agent:
         goals_text: str,
         rules_text: str,
         allowed_actions: list[str],
+        authored_agenda: dict | None = None,
+        agenda_errors: list[str] | None = None,
     ):
         self.agent_id = agent_id
         self.state = state
@@ -36,6 +40,8 @@ class Agent:
         self.goals_text = goals_text
         self.rules_text = rules_text
         self.allowed_actions = allowed_actions
+        self.authored_agenda = authored_agenda
+        self.agenda_errors = list(agenda_errors or [])
 
     # Factory
 
@@ -55,6 +61,19 @@ class Agent:
         goals = (path / "goals.md").read_text(encoding="utf-8")
         rules = (path / "rules.md").read_text(encoding="utf-8")
         tools = json.loads((path / "tools.json").read_text(encoding="utf-8"))
+        authored_agenda = None
+        agenda_errors = []
+        agenda_path = path / "agenda.json"
+        if agenda_path.exists():
+            try:
+                authored_agenda = agenda.validate_document(
+                    json.loads(agenda_path.read_text(encoding="utf-8")))
+            except json.JSONDecodeError as exc:
+                agenda_errors = [f"invalid JSON: {exc.msg} at line {exc.lineno}, column {exc.colno}"]
+            except agenda.AgendaValidationError as exc:
+                agenda_errors = exc.errors
+            if agenda_errors:
+                logger.error("[%s] agenda.json rejected: %s", agent_id, "; ".join(agenda_errors))
         return cls(
             agent_id=agent_id,
             state=state,
@@ -62,6 +81,8 @@ class Agent:
             goals_text=goals,
             rules_text=rules,
             allowed_actions=tools.get("allowed_actions", []),
+            authored_agenda=authored_agenda,
+            agenda_errors=agenda_errors,
         )
 
     # Properties
@@ -175,6 +196,12 @@ class Agent:
         """The scheduled activity from the previous tick, for block-transition
         detection in ``planner.step`` (empty on a fresh run)."""
         return self.state.get("last_activity", "")
+
+    @property
+    def agenda_execution(self) -> dict:
+        """Deterministic per-day task state and ledger from the authored agenda."""
+        value = self.state.get("agenda_execution")
+        return value if isinstance(value, dict) else {}
 
     @property
     def tick_interval(self) -> int:
@@ -309,6 +336,22 @@ class Agent:
         self.state["last_activity"] = activity
         self._save_state(agents_dir)
 
+    def set_agenda_execution(self, execution: dict, agents_dir: Path) -> None:
+        """Persist runtime agenda state separately from authored ``agenda.json``."""
+        if execution != self.state.get("agenda_execution"):
+            self.state["agenda_execution"] = execution
+            self._save_state(agents_dir)
+
+    def replace_authored_agenda(self, raw: dict, agents_dir: Path) -> dict:
+        """Atomically validate/save ``agenda.json`` and invalidate stale execution."""
+        path = agents_dir / self.agent_id / "agenda.json"
+        document = agenda.write_document(path, raw)
+        self.authored_agenda = document
+        self.agenda_errors = []
+        self.state.pop("agenda_execution", None)
+        self._save_state(agents_dir)
+        return document
+
     def set_active(self, active: bool, agents_dir: Path) -> None:
         self.state["is_active"] = active
         self._save_state(agents_dir)
@@ -337,7 +380,7 @@ class Agent:
         like the first one (the schedule regenerates for the new run/day)."""
         for key in ("last_tick_time", "last_spoke_time", "current_goal",
                     "daily_schedule", "last_activity", "active_interrupt",
-                    "interrupt_queue", "last_interrupt"):
+                    "interrupt_queue", "last_interrupt", "agenda_execution"):
             self.state.pop(key, None)
         self.state["is_busy"] = False
         self._save_state(agents_dir)

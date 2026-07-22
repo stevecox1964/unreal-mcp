@@ -140,6 +140,8 @@ def test_chat_page_owns_controls_and_follows_sim_in_navigation():
         check("Chat navigation appears immediately after Sim",
               text.index('href="/sim"') < text.index('href="/chat"')
               < text.index('href="/map"'))
+        check("APCs primary navigation is visible and links to the APC/world list",
+              '>APCs</a>' in text and 'href="/">APCs</a>' in text)
     _with_runner(StubRunner(), body)
 
 

@@ -13,6 +13,7 @@ from typing import Optional
 
 from .agent import Agent
 from .action_validator import validate
+from . import agenda
 from . import explorer
 from . import interruptions
 from .perception import VisionPerceiver
@@ -719,8 +720,14 @@ class AgentManager:
                     continue
 
                 goal = str(orientation.get("current_goal") or "").strip()
+                agenda_goal = str(
+                    (((context.get("schedule") or {}).get("agenda") or {})
+                     .get("right_now") or {}).get("objective") or ""
+                ).strip()
+                if agenda_goal:
+                    goal = agenda_goal
                 if goal:
-                    agent.set_goal(goal, self._agents_dir)
+                    self._sync_agenda_goal(agent, goal)
 
                 self._record_place(agent.agent_id, loc, orientation.get("place"))
 
@@ -1353,30 +1360,11 @@ class AgentManager:
         """
         world_time = observation.get("world_time", "")
         day = planner.day_of(world_time)
-        schedule = getattr(agent, "daily_schedule_blocks", None)
-        if not schedule or getattr(agent, "daily_schedule_day", "") != day:
+        agenda_doc, source = self._agenda_document(agent, day, generate=False)
+        if agenda_doc is None:
             return None
-        minute = planner.minute_of_day(world_time)
-        block = planner.current_block(schedule, minute)
-        if block is None:
-            return planner.step(
-                schedule, minute, current_place=None,
-                prev_activity=getattr(agent, "last_activity", None), at_place=None,
-            )
-        if not block.get("place"):
-            return None
-        at_place = self._at_scheduled_place(
-            agent.agent_id, block, observation, seed_if_unknown=False,
-        )
-        if at_place is None:
-            return None
-        place_context = observation.get("place_context") or {}
-        place_names = observation.get("place") or []
-        current_place = place_context.get("name") or (place_names[0] if place_names else None)
-        return planner.step(
-            schedule, minute, current_place=current_place,
-            prev_activity=getattr(agent, "last_activity", None), at_place=at_place,
-        )
+        return self._advance_agenda(agent, observation, agenda_doc, source,
+                                    seed_if_unknown=False)
 
     def _detect_stuck(self, agent_id: str, xyz, moving: bool) -> bool:
         """True when the avatar reports moving but isn't actually advancing.
@@ -1496,17 +1484,13 @@ class AgentManager:
         break a tick."""
         try:
             world_time = observation.get("world_time", "")
-            ask = getattr(self.llm, "ask", None)
-            schedule = planner.ensure_daily_plan(
-                agent, planner.day_of(world_time),
-                ask=(lambda p: ask(agent, p)) if ask else None,
-                agents_dir=self._agents_dir,
-            )
+            day = planner.day_of(world_time)
+            agenda_doc, source = self._agenda_document(agent, day, generate=True)
+            if agenda_doc is None:
+                observation["schedule"] = None
+                return
+            schedule = agenda.to_schedule(agenda_doc)
             self._validate_schedule(agent, schedule, planner.day_of(world_time))
-            pc = observation.get("place_context") or {}
-            place_list = observation.get("place") or []
-            current_place = pc.get("name") or (place_list[0] if place_list else None)
-            minute = planner.minute_of_day(world_time)
             # Geometric "am I already there?" beats name matching: on a fresh
             # world nothing is named yet, and the old name-only check sent an
             # agent hunting for the place it was standing at (Maren's wake bug).
@@ -1517,19 +1501,139 @@ class AgentManager:
             if (_loc_xyz(observation.get("location")) is not None
                     and self._cell_col_row(observation.get("grid"))[0] is not None):
                 self._wake_stepped.add(agent.agent_id)
-            at_place = self._at_scheduled_place(
-                agent.agent_id, planner.current_block(schedule, minute),
-                observation, seed_if_unknown=wake,
-            )
-            observation["schedule"] = planner.step(
-                schedule, minute,
-                current_place=current_place, prev_activity=agent.last_activity,
-                at_place=at_place,
-            )
+            observation["schedule"] = self._advance_agenda(
+                agent, observation, agenda_doc, source, seed_if_unknown=wake)
             self._attach_route_progress(agent.agent_id, observation)
         except Exception as e:
             logger.warning(f"[{agent.agent_id}] schedule step failed: {e}")
             observation["schedule"] = None
+
+    def _agenda_document(self, agent: Agent, day: str,
+                         *, generate: bool) -> tuple[dict | None, str]:
+        """Choose authored agenda first, preserving generated schedules as fallback."""
+        if isinstance(getattr(agent, "authored_agenda", None), dict):
+            return agent.authored_agenda, "authored"
+        schedule_day = getattr(agent, "daily_schedule_day", "")
+        schedule_blocks = getattr(agent, "daily_schedule_blocks", None) or []
+        if schedule_day == day and schedule_blocks:
+            return agenda.from_schedule(schedule_blocks), "generated"
+        if not generate:
+            return None, "generated"
+        ask = getattr(self.llm, "ask", None)
+        schedule = planner.ensure_daily_plan(
+            agent, day,
+            ask=(lambda prompt: ask(agent, prompt)) if ask else None,
+            agents_dir=self._agents_dir,
+        )
+        return agenda.from_schedule(schedule), "generated"
+
+    @staticmethod
+    def _agenda_execution_for(agent) -> dict:
+        """Read agenda state from a real Agent or a legacy duck-typed caller."""
+        execution = getattr(agent, "agenda_execution", None)
+        if isinstance(execution, dict):
+            return execution
+        fallback = getattr(agent, "_agenda_execution", None)
+        return fallback if isinstance(fallback, dict) else {}
+
+    def _store_agenda_execution(self, agent, execution: dict) -> None:
+        """Persist through Agent when available; keep legacy stubs in memory."""
+        setter = getattr(agent, "set_agenda_execution", None)
+        if callable(setter):
+            setter(execution, self._agents_dir)
+        else:
+            agent._agenda_execution = copy.deepcopy(execution)
+
+    def _sync_agenda_goal(self, agent, goal: str) -> None:
+        """Keep legacy current_goal aligned without requiring the full Agent API."""
+        if not goal or getattr(agent, "current_goal", None) == goal:
+            return
+        setter = getattr(agent, "set_goal", None)
+        if callable(setter):
+            setter(goal, self._agents_dir)
+        else:
+            agent.current_goal = goal
+
+    def _advance_agenda(self, agent: Agent, observation: dict, agenda_doc: dict,
+                        source: str, *, seed_if_unknown: bool) -> dict:
+        """Apply grounded time/place/interrupt facts and return a legacy directive."""
+        world_time = str(observation.get("world_time") or self.world_clock.now_text())
+        minute = planner.minute_of_day(world_time)
+        day = planner.day_of(world_time)
+        checked_task_id = ""
+        at_place = None
+        result = None
+        tasks = agenda_doc.get("tasks", [])
+        for _ in range(len(tasks) + 1):
+            result = agenda.advance(
+                agenda_doc, self._agenda_execution_for(agent),
+                day=day, source=source, minute=minute, world_time=world_time,
+                active_interrupt=getattr(agent, "active_interrupt", None),
+                last_interrupt=getattr(agent, "last_interrupt", None),
+                at_place_task_id=checked_task_id, at_place=at_place,
+            )
+            self._store_agenda_execution(agent, result["execution"])
+            task = result.get("active_task")
+            if task is None or task["id"] == checked_task_id:
+                break
+            checked_task_id = task["id"]
+            block = agenda.to_schedule({"tasks": [task]})[0]
+            at_place = self._at_scheduled_place(
+                agent.agent_id, block, observation,
+                seed_if_unknown=seed_if_unknown,
+            )
+
+        facts = (result or {}).get("context") or agenda.context(
+            agenda_doc, self._agenda_execution_for(agent),
+            active_interrupt=getattr(agent, "active_interrupt", None))
+        observation["agenda"] = facts
+        task = (result or {}).get("active_task")
+        if task is None:
+            right_now = facts.get("right_now") or {}
+            right_now["current_place"] = ((observation.get("place_context") or {}).get("name")
+                                          or next(iter(observation.get("place") or []), None))
+            next_task = facts.get("next")
+            if next_task is not None:
+                activity = f"wait for {next_task['objective']} at {next_task['activates_at']}"
+                self._sync_agenda_goal(agent, activity)
+                hold_place = str(right_now.get("current_place") or "")
+                directive = {
+                    "block": None,
+                    "activity": activity,
+                    "place": hold_place,
+                    "status": "act",
+                    "transition": agent.last_activity != activity,
+                    "intent": (f"Your next agenda task begins at {next_task['activates_at']}: "
+                               f"{next_task['objective']}. Stay here until then; do not begin "
+                               "free-goal work."),
+                }
+                directive["agenda_status"] = "waiting"
+            else:
+                directive = planner.step([], minute, prev_activity=agent.last_activity)
+                directive["agenda_status"] = "idle"
+            directive["agenda"] = copy.deepcopy(facts)
+            return directive
+
+        block = agenda.to_schedule({"tasks": [task]})[0]
+        place_context = observation.get("place_context") or {}
+        place_names = observation.get("place") or []
+        current_place = place_context.get("name") or (place_names[0] if place_names else None)
+        directive = planner.step(
+            [block], minute, current_place=current_place,
+            prev_activity=agent.last_activity, at_place=at_place,
+        )
+        current = facts.get("right_now") or {}
+        self._sync_agenda_goal(agent, task["objective"])
+        current["current_place"] = current_place
+        current["destination"] = task.get("place") or None
+        current["arrival_verdict"] = (
+            "at_place" if at_place is True else
+            "not_at_place" if at_place is False else "unknown")
+        directive["task_id"] = task["id"]
+        directive["completion"] = copy.deepcopy(task["completion"])
+        directive["agenda_status"] = current.get("status", "active")
+        directive["agenda"] = copy.deepcopy(facts)
+        return directive
 
     def _attach_route_progress(self, agent_id: str, observation: dict) -> None:
         """Narrate the cached grid-first route on a travel tick (#17/WP8).
@@ -1556,6 +1660,12 @@ class AgentManager:
         directive["route"] = {"leg": min(leg, max(len(path) - 1, 1)),
                               "total": max(len(path) - 1, 1),
                               "to_cell": list(cell), "heading": heading}
+        agenda_facts = observation.get("agenda") or {}
+        right_now = agenda_facts.get("right_now") or {}
+        right_now["route"] = copy.deepcopy(directive["route"])
+        nested = directive.get("agenda") or {}
+        nested_right_now = nested.get("right_now") or {}
+        nested_right_now["route"] = copy.deepcopy(directive["route"])
 
     def _validate_schedule(self, agent: Agent, schedule: list | None, day: str) -> list:
         """Fail loud at plan time: warn for schedule blocks whose place resolves
@@ -1600,25 +1710,19 @@ class AgentManager:
         wake prompt falls back to its generic guidance).
         """
         try:
-            ask = getattr(self.llm, "ask", None)
-            schedule = planner.ensure_daily_plan(
-                agent, planner.day_of(world_time),
-                ask=(lambda p: ask(agent, p)) if ask else None,
-                agents_dir=self._agents_dir,
-            )
+            day = planner.day_of(world_time)
+            agenda_doc, source = self._agenda_document(agent, day, generate=True)
+            if agenda_doc is None:
+                return None
+            schedule = agenda.to_schedule(agenda_doc)
             self._validate_schedule(agent, schedule, planner.day_of(world_time))
-            minute = planner.minute_of_day(world_time)
-            obs = {"location": loc, "grid": grid}
+            obs = {"location": loc, "grid": grid, "world_time": world_time}
             seed = agent.agent_id not in self._wake_stepped
             if (_loc_xyz(loc) is not None
                     and self._cell_col_row(grid)[0] is not None):
                 self._wake_stepped.add(agent.agent_id)
-            at_place = self._at_scheduled_place(
-                agent.agent_id, planner.current_block(schedule, minute),
-                obs, seed_if_unknown=seed,
-            )
-            return planner.step(schedule, minute, current_place=None,
-                                prev_activity=None, at_place=at_place)
+            return self._advance_agenda(
+                agent, obs, agenda_doc, source, seed_if_unknown=seed)
         except Exception as e:
             logger.warning(f"[{agent.agent_id}] wake directive failed: {e}")
             return None
@@ -1732,6 +1836,8 @@ class AgentManager:
 
         result = self._execute_world_action(agent, action, observation)
         self._mark_first_walk_accepted(agent_id, action, result)
+        self._apply_task_completion_confirmation(
+            agent, decision, action, result, observation)
         timing = observation.setdefault("_timing", {})
         timing["act_ms"] = round((time.monotonic() - act_started) * 1000.0, 3)
         timing.update(self._movement_timing_snapshot(agent_id))
@@ -1771,6 +1877,76 @@ class AgentManager:
             "grid":     observation.get("grid"),
             "place":    observation.get("place"),
         }
+
+    def _apply_task_completion_confirmation(self, agent: Agent, decision: dict,
+                                            action: dict, result: dict,
+                                            observation: dict) -> bool:
+        """Accept bounded model evidence only for the exact active opt-in task."""
+        claim = decision.get("task_completion")
+        if claim is None:
+            return False
+        if not isinstance(claim, dict):
+            logger.warning("[%s] ignored malformed task_completion", agent.agent_id)
+            return False
+        right_now = (observation.get("agenda") or {}).get("right_now") or {}
+        task_id = str(claim.get("task_id") or "").strip()
+        statement = str(claim.get("evidence") or "").strip()
+        completion_type = (right_now.get("completion") or {}).get("type")
+        if (claim.get("confirmed") is not True or not task_id or not statement
+                or task_id != right_now.get("task_id")
+                or right_now.get("status") != "active"
+                or completion_type != "time_or_llm_confirmed"
+                or (right_now.get("place")
+                    and right_now.get("arrival_verdict") != "at_place")
+                or isinstance(agent.active_interrupt, dict)):
+            logger.warning(
+                "[%s] ignored out-of-contract task completion for %r",
+                agent.agent_id, task_id,
+            )
+            return False
+        result_status = str(result.get("status") or "").strip().lower()
+        action_succeeded = (
+            not result.get("error")
+            and result.get("success") is not False
+            and (result.get("success") is True
+                 or result_status in {"accepted", "success", "ok"})
+        )
+        if not action_succeeded:
+            logger.warning(
+                "[%s] task %s completion withheld because action did not succeed",
+                agent.agent_id, task_id,
+            )
+            return False
+
+        world_time = str(observation.get("world_time") or self.world_clock.now_text())
+        day = planner.day_of(world_time)
+        agenda_doc, source = self._agenda_document(agent, day, generate=False)
+        if agenda_doc is None:
+            return False
+        completed = agenda.advance(
+            agenda_doc, self._agenda_execution_for(agent),
+            day=day, source=source,
+            minute=planner.minute_of_day(world_time), world_time=world_time,
+            active_interrupt=agent.active_interrupt,
+            last_interrupt=agent.last_interrupt,
+            llm_confirmed_task_id=task_id,
+            llm_confirmation_evidence={
+                "statement": statement[:240],
+                "action_type": str(action.get("type") or ""),
+                "action_result": result_status or "success",
+            },
+        )
+        state = next((item for item in completed["execution"].get("tasks", [])
+                      if item.get("task_id") == task_id), None)
+        if not state or state.get("status") != "completed":
+            return False
+        self._store_agenda_execution(agent, completed["execution"])
+        observation["agenda"] = completed["context"]
+        if isinstance(observation.get("schedule"), dict):
+            observation["schedule"]["agenda"] = copy.deepcopy(completed["context"])
+        logger.info("[%s] agenda task %s completed by bounded model evidence",
+                    agent.agent_id, task_id)
+        return True
 
     def _bound_at_place_movement(self, agent: Agent, action: dict,
                                  observation: dict) -> dict:
@@ -2171,6 +2347,8 @@ class AgentManager:
                 return self._dispatch_active_survey(agent, observation)
 
         route = self._routes.get(agent.agent_id) or {}
+        schedule_resume = dict(observation.get("schedule") or {})
+        schedule_resume.pop("agenda", None)
         record = interruptions.make_record(
             interrupt_id=f"survey:{col},{row}",
             kind="survey",
@@ -2186,7 +2364,8 @@ class AgentManager:
             },
             resume_context={
                 "current_goal": str(getattr(agent, "current_goal", "idle")),
-                "schedule": dict(observation.get("schedule") or {}),
+                "schedule": schedule_resume,
+                "agenda": copy.deepcopy((observation.get("agenda") or {}).get("right_now")),
                 "route_destination": route.get("destination"),
             },
             preemptible=True,
@@ -3104,6 +3283,11 @@ class AgentManager:
         a = self.agents.get(agent_id)
         if not a:
             return {"error": f"Agent '{agent_id}' not loaded"}
+        agenda_execution = self._agenda_execution_for(a)
+        agenda_doc, _source = self._agenda_document(
+            a, agenda_execution.get("day") or planner.day_of(self.world_clock.now_text()),
+            generate=False,
+        )
         return {
             "agent_id":        a.agent_id,
             "unreal_actor_name": a.unreal_actor_name,
@@ -3118,6 +3302,13 @@ class AgentManager:
             "active_interrupt": a.active_interrupt,
             "interrupt_queue": a.interrupt_queue,
             "last_interrupt": a.last_interrupt,
+            "authored_agenda": copy.deepcopy(getattr(a, "authored_agenda", None)),
+            "agenda_errors": list(getattr(a, "agenda_errors", []) or []),
+            "agenda_execution": copy.deepcopy(agenda_execution),
+            "agenda_context": (agenda.context(
+                agenda_doc, agenda_execution,
+                active_interrupt=getattr(a, "active_interrupt", None),
+            ) if isinstance(agenda_doc, dict) and agenda_execution else None),
             "survey_progress": self._survey_progress(a),
             "state":           a.state,
         }
@@ -3139,6 +3330,7 @@ class AgentManager:
         """
         route = self._routes.get(agent.agent_id) or {}
         schedule = {}
+        agenda_now = None
         pos = self._live_pos.get(agent.agent_id)
         if pos is not None:
             cached_grid, cached_place = self._last_grid_place.get(agent.agent_id, (None, []))
@@ -3152,9 +3344,12 @@ class AgentManager:
             directive = self._existing_schedule_directive(agent, observation)
             if isinstance(directive, dict):
                 schedule = dict(directive)
+                agenda_now = copy.deepcopy((schedule.get("agenda") or {}).get("right_now"))
+                schedule.pop("agenda", None)
         return {
             "current_goal": agent.current_goal,
             "schedule": schedule,
+            "agenda": agenda_now,
             "route_destination": route.get("destination"),
         }
 
@@ -3487,6 +3682,9 @@ class AgentManager:
         return out
 
     def _agent_summary(self, a: Agent) -> dict:
+        agenda_execution = self._agenda_execution_for(a)
+        agenda_task = next((state for state in agenda_execution.get("tasks", [])
+                            if state.get("status") in {"active", "interrupted"}), None)
         return {
             "agent_id":          a.agent_id,
             "unreal_actor_name": a.unreal_actor_name,
@@ -3498,6 +3696,8 @@ class AgentManager:
             "current_goal":      a.current_goal,
             "last_tick_time":    a.state.get("last_tick_time"),
             "active_interrupt": a.active_interrupt,
+            "agenda_task": copy.deepcopy(agenda_task),
+            "agenda_source": agenda_execution.get("source"),
             "survey_progress": self._survey_progress(a),
             "interrupt_queue_count": len(a.interrupt_queue),
         }

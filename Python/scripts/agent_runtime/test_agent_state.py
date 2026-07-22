@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]      # Python/
 sys.path.insert(0, str(ROOT))
 
 from agent_runtime.agent import Agent   # noqa: E402
-from agent_runtime import interruptions  # noqa: E402
+from agent_runtime import agenda, interruptions  # noqa: E402
 
 
 def check(label, cond):
@@ -206,6 +206,65 @@ def test_malformed_interruptions_are_ignored_on_load():
         check("malformed terminal record is ignored", agent.last_interrupt is None)
 
 
+def _agenda_doc(objective="work"):
+    return {"schema_version": 1, "tasks": [{
+        "id": "work", "start": "08:00", "end": "09:00", "place": "stall",
+        "objective": objective, "completion": {"type": "time_block_ends"},
+    }]}
+
+
+def test_authored_agenda_load_replace_runtime_and_reset():
+    """Authored agenda stays tracked; execution is runtime-only and resettable."""
+    with tempfile.TemporaryDirectory() as tmp:
+        agents_dir = Path(tmp)
+        _scaffold(agents_dir, "dufus", CONFIG)
+        agent_dir = agents_dir / "dufus"
+        (agent_dir / "agenda.json").write_text(json.dumps(_agenda_doc()), encoding="utf-8")
+        agent = Agent.load(agents_dir, "dufus")
+        check("valid agenda loads", agent.authored_agenda["tasks"][0]["objective"] == "work")
+        check("valid agenda has no errors", agent.agenda_errors == [])
+
+        execution = agenda.prepare_execution(
+            agent.authored_agenda, None, day="Day 1", source="authored")
+        agent.set_agenda_execution(execution, agents_dir)
+        config = json.loads((agent_dir / "state.json").read_text())
+        runtime = json.loads((agent_dir / "runtime.json").read_text())
+        check("execution is excluded from state config", "agenda_execution" not in config)
+        check("execution persists in runtime", runtime["agenda_execution"]["day"] == "Day 1")
+
+        replacement = agent.replace_authored_agenda(_agenda_doc("new work"), agents_dir)
+        check("validated replacement updates tracked agenda",
+              json.loads((agent_dir / "agenda.json").read_text()) == replacement)
+        check("replacement invalidates old execution", agent.agenda_execution == {})
+        reloaded = Agent.load(agents_dir, "dufus")
+        check("replacement round-trips", reloaded.authored_agenda["tasks"][0]["objective"] == "new work")
+
+        reloaded.set_agenda_execution(
+            agenda.prepare_execution(reloaded.authored_agenda, None,
+                                     day="Day 1", source="authored"), agents_dir)
+        reloaded.reset_runtime_state(agents_dir)
+        check("day reset clears execution", reloaded.agenda_execution == {})
+        check("day reset preserves authored agenda file", (agent_dir / "agenda.json").exists())
+
+
+def test_bad_authored_agenda_fails_closed_with_actionable_errors():
+    with tempfile.TemporaryDirectory() as tmp:
+        agents_dir = Path(tmp)
+        _scaffold(agents_dir, "dufus", CONFIG)
+        agent_dir = agents_dir / "dufus"
+        (agent_dir / "agenda.json").write_text('{"tasks":[{"id":"bad"}]}', encoding="utf-8")
+        agent = Agent.load(agents_dir, "dufus")
+        check("invalid agenda is not activated", agent.authored_agenda is None)
+        check("schema errors identify task fields",
+              agent.agenda_errors and any("tasks[0]" in error for error in agent.agenda_errors))
+
+        (agent_dir / "agenda.json").write_text('{bad json', encoding="utf-8")
+        malformed = Agent.load(agents_dir, "dufus")
+        check("malformed JSON is not activated", malformed.authored_agenda is None)
+        check("JSON error includes location", "line" in malformed.agenda_errors[0]
+              and "column" in malformed.agenda_errors[0])
+
+
 def main():
     test_save_splits_config_from_runtime()
     test_daily_schedule_persists_to_runtime()
@@ -215,6 +274,8 @@ def main():
     test_reset_runtime_clears_runtime_file()
     test_interruptions_persist_in_runtime_and_reset()
     test_malformed_interruptions_are_ignored_on_load()
+    test_authored_agenda_load_replace_runtime_and_reset()
+    test_bad_authored_agenda_fails_closed_with_actionable_errors()
     print("\nAll agent-state checks passed.")
 
 

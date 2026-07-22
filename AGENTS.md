@@ -38,3 +38,11 @@ Applies to any function decorated with `@mcp.tool()` (typically under `Python/**
 - Do not create or update session handoffs unless the user explicitly requests a handoff. This preference
   also applies at the end of autonomous or multi-task work; report results directly without spending
   tokens on a handoff.
+- Do not write, modify, or execute tests unless the user explicitly asks for tests in the current task.
+- During feature implementation, it is acceptable to record a non-executable `TEST-FLAG` describing the
+  behavior that should be tested, the expected outcome, important edge cases, the suggested test level or
+  file, and whether verification requires offline code, Unreal/PIE, or a model call. A test flag tracks
+  future coverage only; it is not a test and must not be reported as completed coverage.
+- When tests are explicitly requested, the Sol agent writes or modifies the tests, but does not run them.
+  Delegate test execution to a Luna or Terra agent; if neither is available, report that tests were not run
+  instead of running them with Sol.
