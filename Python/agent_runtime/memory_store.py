@@ -1,11 +1,89 @@
+"""Decision/memory persistence for the sim's agents.
+
+TEST-FLAG (#42): ``classify_action_error`` must return None for successful and
+accepted results, map each known failure shape to its category (not_connected,
+timeout, target_unresolved, transport, runtime), bound the message length, and
+redact key-like substrings; ``MemoryStore.record`` must attach ``error`` with
+the elapsed act phase only for failed actions and leave successful entries
+compact. Edge cases: a result carrying both ``success: False`` and no message,
+a non-string error value, and a missing ``timing`` dict. Suggested level:
+offline unit coverage in ``scripts/agent_runtime``; a real bridge failure still
+needs live/PIE verification.
+"""
 from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger("AgentRuntime")
+
+# One decision event must stay small enough to scroll in the cockpit feed, and
+# provider/bridge text is untrusted length — hence a hard cap, not a hint.
+_MAX_ERROR_CHARS = 240
+
+# Anything key-shaped never reaches the log; the feed is copied into issues.
+_SECRET_PATTERNS = [
+    re.compile(r"\b(sk-|xoxb-|ghp_)[A-Za-z0-9_\-]{8,}", re.IGNORECASE),
+    re.compile(r"\b([A-Za-z0-9_]*(?:api[_-]?key|token|secret|password)[A-Za-z0-9_]*)"
+               r"\s*[=:]\s*\S+", re.IGNORECASE),
+]
+
+# Ordered because a message may match several; the first is the most actionable.
+_ERROR_CATEGORIES = [
+    ("not_connected", re.compile(r"not connected|no connection|connection refused"
+                                 r"|unreal (is )?offline", re.IGNORECASE)),
+    ("timeout", re.compile(r"timed? ?out|timeout|deadline exceeded", re.IGNORECASE)),
+    ("target_unresolved", re.compile(r"not found|no such actor|unknown actor|could not"
+                                     r" resolve|unresolved|does not exist", re.IGNORECASE)),
+    ("transport", re.compile(r"socket|broken pipe|reset by peer|eof|disconnect"
+                             r"|decode|json", re.IGNORECASE)),
+]
+
+
+def _redact(text: str) -> str:
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub(lambda m: (m.group(1) if m.re.groups and m.lastindex else "")
+                           + "[redacted]", text)
+    return text
+
+
+def classify_action_error(result: dict, elapsed_ms: float = None) -> dict | None:
+    """Summarise a failed world action as a bounded, safe diagnostic (#42).
+
+    SR28 lost the cause of a 15-second ``speak_to`` failure because only the
+    status survived. Returns None when the action did not fail, else
+    ``{"code": <category>, "message": <redacted, truncated>, "elapsed_ms": ...}``.
+
+    Example::
+
+        classify_action_error({"success": False, "error": "Unreal not connected"}, 15000)
+        # -> {"code": "not_connected", "message": "Unreal not connected",
+        #     "elapsed_ms": 15000}
+    """
+    if not isinstance(result, dict):
+        return None
+    failed = (result.get("status") == "error"
+              or result.get("success") is False
+              or bool(result.get("error")))
+    if not failed:
+        return None
+
+    raw = result.get("error") or result.get("message") or result.get("note") or ""
+    message = _redact(" ".join(str(raw).split()))[:_MAX_ERROR_CHARS]
+
+    code = "runtime"
+    for name, pattern in _ERROR_CATEGORIES:
+        if pattern.search(message):
+            code = name
+            break
+
+    diagnostic = {"code": code, "message": message or "(no detail reported)"}
+    if elapsed_ms is not None:
+        diagnostic["elapsed_ms"] = round(float(elapsed_ms), 3)
+    return diagnostic
 
 
 class MemoryStore:
@@ -122,6 +200,11 @@ class MemoryStore:
         }
         if timing:
             entry["timing"] = timing
+        # A failed action keeps enough detail to tell timeout from transport from
+        # target resolution (#42); successful entries stay exactly as compact.
+        diagnostic = classify_action_error(result, (timing or {}).get("act_ms"))
+        if diagnostic:
+            entry["error"] = diagnostic
         with open(self.decisions_log, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
 
@@ -150,6 +233,7 @@ class MemoryStore:
         logger.info(
             f"[{agent_id}] action={action.get('type')} "
             f"result={result.get('status', result.get('success', '?'))}"
+            + (f" error={diagnostic['code']}: {diagnostic['message']}" if diagnostic else "")
         )
 
     def record_interrupt_event(self, agent_id: str, event: str, interrupt: dict) -> None:

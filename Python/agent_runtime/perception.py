@@ -28,10 +28,15 @@ put and help map the town) from DYNAMIC characters (any human or person-shaped
 figure; game models may look blocky but are still people).
 
 {known_line}
+Also report what you are standing on: one of "pavement", "road", "dirt_path",
+"grass", "cultivated_field", "water", or "other" (use "other" and describe it
+in the caption if none fit).
+
 Schema:
 {{
   "landmarks":  [{{"label": "<place>", "bearing": "left|center|right", "distance": "near|mid|far", "confidence": 0.0}}],
   "characters": [{{"label": "<who, or 'unknown person'>", "bearing": "left|center|right", "distance": "near|mid|far", "confidence": 0.0}}],
+  "footing": "pavement|road|dirt_path|grass|cultivated_field|water|other",
   "caption": "one sentence describing the scene"
 }}
 
@@ -40,7 +45,7 @@ Use [] for an array with nothing to report. Confidence is 0.0-1.0."""
 
 def _empty(reason: str) -> dict:
     logger.debug("perceive: %s", reason)
-    return {"landmarks": [], "characters": [], "caption": "", "error": reason}
+    return {"landmarks": [], "characters": [], "footing": "", "caption": "", "error": reason}
 
 
 def _strip_fences(raw: str) -> str:
@@ -87,13 +92,14 @@ class VisionPerceiver:
         return provider, key, model
 
     def perceive(self, image_path: str, known_characters: list[str] | None = None) -> dict:
-        """Return ``{"landmarks", "characters", "caption"}`` for a screenshot.
+        """Return ``{"landmarks", "characters", "footing", "caption"}`` for a screenshot.
 
         Example return::
 
             {"landmarks": [{"label": "Don's Donuts", "bearing": "right",
                             "distance": "mid", "confidence": 0.85}],
-             "characters": [], "caption": "A small-town main street."}
+             "characters": [], "footing": "pavement",
+             "caption": "A small-town main street."}
 
         Never raises: on missing key, missing file, or a bad response it returns
         an empty result carrying an ``"error"`` key, so a perception failure
@@ -156,6 +162,7 @@ class VisionPerceiver:
         return {
             "landmarks": _clean(data.get("landmarks")),
             "characters": _clean(data.get("characters")),
+            "footing": str(data.get("footing", "")),
             "caption": str(data.get("caption", "")),
             "model": model,
         }

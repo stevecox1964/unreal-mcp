@@ -11,7 +11,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from agent_runtime import places_manifest
+from agent_runtime import agenda, places_manifest
 from agent_runtime.landmarks import merge_entries, scan_landmarks
 from agent_runtime.config_store import read_config, write_config, is_secret, setup_status
 from agent_runtime.map_capture import (MAP_CAMERA_ACTOR, MAP_CAMERA_ROTATION,
@@ -40,6 +40,20 @@ DEFAULT_ACTIONS = [
     "idle", "walk_to", "speak_to", "inspect_object",
     "follow_character", "attack", "flee", "observe", "remember",
 ]
+
+# Shown when an APC has no agenda.json yet, so the editor starts from something
+# valid rather than an empty box the author has to guess the schema for (#43).
+AGENDA_STARTER = json.dumps({
+    "schema_version": agenda.SCHEMA_VERSION,
+    "tasks": [{
+        "id": "morning_home",
+        "start": "07:00",
+        "end": "08:30",
+        "place": "home",
+        "objective": "wake up and get ready for the day",
+        "completion": {"type": "time_block_ends"},
+    }],
+}, indent=2)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -143,17 +157,50 @@ def load_agent(level: str, agent_id: str) -> dict:
     tools = json.loads(_contained(base, "tools.json", must_exist=True).read_text(encoding="utf-8"))
     memory_path = _contained(base, "memory.json")
     memory_raw = memory_path.read_text(encoding="utf-8") if memory_path.exists() else "{}"
+    agenda_text, agenda_errors = read_agenda(level, agent_id)
     return {
         "state": state,
         "character": character,
         "goals": goals,
         "rules": rules,
         "allowed_actions": "\n".join(tools.get("allowed_actions", DEFAULT_ACTIONS)),
+        "agenda_text": agenda_text,
+        "agenda_errors": agenda_errors,
         # raw JSON for the viewer panel
         "raw_state": json.dumps(state, indent=2),
         "raw_tools": json.dumps(tools, indent=2),
         "raw_memory": json.dumps(json.loads(memory_raw), indent=2),
     }
+
+
+def read_agenda(level: str, agent_id: str) -> tuple[str, list[str]]:
+    """Return the authored agenda text plus why the runtime would reject it.
+
+    The file is shown exactly as written even when invalid — an author has to be
+    able to see and fix their own typo, so we never silently substitute a
+    normalized document for what is actually on disk.
+    """
+    path = _agent_path(level, agent_id, "agenda.json")
+    if not path.exists():
+        return AGENDA_STARTER, []
+    text = path.read_text(encoding="utf-8")
+    return text, validate_agenda_text(text)[1]
+
+
+def validate_agenda_text(text: str) -> tuple[dict | None, list[str]]:
+    """Parse + validate agenda JSON, returning the document or its errors.
+
+    Mirrors ``Agent.load`` so the cockpit rejects exactly what the runtime
+    rejects, with the same wording.
+    """
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return None, [f"invalid JSON: {exc.msg} at line {exc.lineno}, column {exc.colno}"]
+    try:
+        return agenda.validate_document(raw), []
+    except agenda.AgendaValidationError as exc:
+        return None, list(exc.errors)
 
 
 def save_agent(level: str, agent_id: str, form: dict) -> None:
@@ -660,6 +707,8 @@ async def new_agent_form(request: Request, level: str):
         "goals": "",
         "rules": "# Rules\n\n- Do not invent tools or actions.\n- Return structured JSON decisions only.",
         "allowed_actions": "\n".join(DEFAULT_ACTIONS),
+        "agenda_text": AGENDA_STARTER,
+        "agenda_errors": [],
         "raw_state": None,
         "raw_tools": None,
         "raw_memory": None,
@@ -693,6 +742,8 @@ async def create_agent(request: Request, level: str):
             "goals": form.get("goals", ""),
             "rules": form.get("rules", ""),
             "allowed_actions": form.get("allowed_actions", ""),
+            "agenda_text": AGENDA_STARTER,
+            "agenda_errors": [],
         })
 
     save_agent(level, agent_id, form)
@@ -722,6 +773,44 @@ async def update_agent(request: Request, level: str, agent_id: str):
     form = dict(await request.form())
     save_agent(level, agent_id, form)
     return RedirectResponse(f"/worlds/{level}/agents/{agent_id}?saved=1", status_code=303)
+
+
+@app.post("/worlds/{level}/agents/{agent_id}/agenda")
+async def update_agent_agenda(request: Request, level: str, agent_id: str):
+    """Validate and atomically replace one APC's authored agenda (#43).
+
+    Deliberately separate from ``update_agent``: this route touches only
+    ``agenda.json``, so saving an agenda can never overwrite character/goals/
+    rules, and a rejected document leaves the previous agenda running rather
+    than half-writing one the runtime would then execute.
+    """
+    _agent_dir(level, agent_id, must_exist=True)
+    form = dict(await request.form())
+    text = form.get("agenda_text", "")
+
+    document, errors = validate_agenda_text(text)
+    if document is not None:
+        try:
+            agenda.write_document(_agent_path(level, agent_id, "agenda.json"), document)
+        except OSError as exc:
+            errors = [f"could not write agenda.json: {exc.strerror or exc}"]
+
+    if errors:
+        data = load_agent(level, agent_id)
+        # Keep the rejected text on screen; the file on disk is unchanged.
+        data["agenda_text"] = text
+        data["agenda_errors"] = errors
+        return templates.TemplateResponse(request, "agent.html", {
+            "request": request,
+            "level": level,
+            "agent_id": agent_id,
+            "is_new": False,
+            "saved": False,
+            "error": None,
+            **data,
+        })
+    return RedirectResponse(f"/worlds/{level}/agents/{agent_id}?saved=1#agenda",
+                            status_code=303)
 
 
 @app.post("/worlds/{level}/agents/{agent_id}/delete")

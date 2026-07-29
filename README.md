@@ -31,12 +31,14 @@ What the sim does each tick, per agent:
 
 | Stage | What happens |
 |-------|--------------|
-| **Perceive** | Capture the agent's in-game camera frame; a vision model turns it into landmarks + characters + a caption. |
+| **Perceive** | Capture the agent's in-game camera frame; a vision model turns it into landmarks + characters + footing (what the agent is standing on) + a caption. |
 | **Remember** | Sightings, places, and interactions are written to per-agent episodic + social memory and a shared spatial map. |
-| **Decide** | A decision LLM picks the next action from the agent's allowed action set, grounded in what it sees and remembers. |
+| **Decide** | A decision LLM picks the next action from the agent's allowed action set, grounded in what it sees and remembers, its authored agenda (`agenda.json`), and deterministic facts like footing and route progress. |
 | **Act** | The action is schema-validated, then executed in Unreal (walk to a named place, speak to someone, observe, idle, ...). |
 
-Decisions stream to `worlds/<level>/logs/agent_decisions.log` and to the web cockpit's live feed.
+Decisions stream to `worlds/<level>/logs/agent_decisions.log` (completed decisions only) and
+`worlds/<level>/logs/sim_runner.log` (every tick's outcome for every agent, including skips and
+exclusions — truncated per run), plus the web cockpit's live feed.
 
 > **Note (2026-06-28):** the **Python MCP editor-authoring tools were retired** (Actor Management,
 > Blueprint Development, Blueprint Node Graph, Editor Control, Camera, Project). Epic now ships an
@@ -285,6 +287,9 @@ A cognitive layer the agents build and share as they run (verified live in PIE, 
 - **Named-place navigation** â€” `walk_to "<place name>"` resolves a place name â†’ grid cell â†’ world location (`PlaceDB.find_named_cell` + `WorldGrid.cell_center`), so an agent navigates to a stated destination instead of idling. Unknown names fall back gracefully.
 - **Shared world map (place cells)** â€” a SQLite `world_places.db` of named grid cells + compass-indexed landmark observations, **shared across all agents** (one agent's discoveries steer the others). `known_places` surfaces the named-place map (bearing + distance, nearest first) to each agent so it can pick a destination by name.
 - **Episodic + social memory (per agent)** â€” `episodes.jsonl` records structured per-tick events `{world_time, grid_cell, place, saw[], action, outcome}`; `social.json` tracks acquaintances `{first_met, last_seen, meet_count, sentiment}` from perceived characters and speech. Recall blends recency + spatial proximity + social ties â€” beating the flat 30-item `memory.json` window for long/overnight runs.
+- **Deterministic identity recognition (#44)** â€” the vision model labels every figure "unknown person"; `agent_runtime/recognition.py` reconciles that against engine-known positions (geometry, not a model guess) so an APC recognizes another APC it has already met instead of every encounter reading as a first meeting.
+- **Authored agendas + daily ledger (#36)** â€” `agenda.json` per agent is stable, user-authored schedule input (tasks, places, completion policy); `agent_runtime/agenda.py` derives runtime task state and a chronological ledger from it deterministically each tick, separate from the authored file.
+- **Behavioral guardrail facts, not code-side blocking** â€” when an agent does something a simple rule should have prevented (wandering off-path, drifting farther from a destination), the fix is a louder deterministic fact in the decision prompt (`FOOTING: <surface>`, `PROGRESS WARNING`) plus an explicit line in `rules.md`, not a validator that blocks the action. Judgment stays with the LLM; code's job is making the relevant fact impossible to miss.
 - **Maintenance/monitor APC** â€” an optional system-worker role (`"role": "maintenance"` in `state.json`) with **no personality or LLM** that sweeps unexplored grid cells (walk to cell center â†’ 360 observe â†’ drop a *community breadcrumb*) so the personality NPCs skip the costly re-sweep. *Decision + navigation logic is complete and tested; the live 360 rotation+capture in Unreal is pending.*
 - **`.env` config store** â€” `agent_runtime/config_store.py` reads/writes provider/model settings with secrets shown set/unset only (backs a future settings UI; no hand-editing `.env`).
 

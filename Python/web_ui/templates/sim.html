@@ -72,7 +72,12 @@ async function refreshEvents(){
         const p = e.survey_progress || {};
         return `${fmtTime(e.timestamp)} [${e.agent_id}] survey heading ${p.heading || '?'} — ${p.status || '?'}`;
       }
-      return `${fmtTime(e.timestamp)} [${e.agent_id}] ${e.action_type||e.event||''} — ${e.thought||''}`;
+      // A failed action carries its bounded diagnostic (#42) so the feed alone
+      // tells timeout from transport from target resolution.
+      const err = e.error
+        ? ` ⚠ ${e.error.code}: ${e.error.message}${e.error.elapsed_ms != null ? ` after ${Math.round(e.error.elapsed_ms)}ms` : ''}`
+        : '';
+      return `${fmtTime(e.timestamp)} [${e.agent_id}] ${e.action_type||e.event||''} — ${e.thought||''}${err}`;
     }).join('\n') || '(no events yet)';
 }
 async function refresh(){ try{ await refreshStatus(); await refreshEvents(); }catch(e){} }

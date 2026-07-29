@@ -125,6 +125,7 @@ def test_perceive_via_anthropic_parses_and_passes_image():
         check("character parsed", seen["characters"][0]["label"] == "unknown person")
         check("caption parsed", seen["caption"] == "A small-town street.")
         check("model reported back", seen["model"] == "claude-haiku-4-5-20251001")
+        check("footing defaults to empty when the model omits it", seen["footing"] == "")
 
         # The call carried an image block and the right model.
         kw = fake.last_kwargs
@@ -148,6 +149,20 @@ def test_missing_anthropic_key_degrades():
                 os.environ["ANTHROPIC_API_KEY"] = saved
         check("missing key returns empty result", seen["landmarks"] == [])
         check("error names the right key", "ANTHROPIC_API_KEY" in seen.get("error", ""))
+
+
+def test_perceive_parses_footing():
+    reply = (
+        '{"landmarks": [], "characters": [], "footing": "cultivated_field", '
+        '"caption": "Rows of corn."}'
+    )
+
+    @_with_env("VISION_PROVIDER=anthropic\nANTHROPIC_API_KEY=sk-test-123\n")
+    def body(img):
+        p = VisionPerceiver()
+        p._make_anthropic_client = lambda key: _FakeAnthropic(reply)
+        seen = p.perceive(str(img))
+        check("footing parsed from the model reply", seen["footing"] == "cultivated_field")
 
 
 def test_media_type_sniffs_real_bytes():
@@ -217,6 +232,7 @@ def test_gemini_still_default():
 def main():
     test_resolves_anthropic_haiku_default()
     test_perceive_via_anthropic_parses_and_passes_image()
+    test_perceive_parses_footing()
     test_media_type_sniffs_real_bytes()
     test_perceive_sends_sniffed_media_type_for_jpeg()
     test_missing_anthropic_key_degrades()

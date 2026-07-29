@@ -106,7 +106,7 @@
   <!-- Raw JSON viewer -->
   {% if not is_new %}
   <article>
-    <header><strong>Raw Files</strong> <small style="font-weight:normal;color:#888">(read-only)</small></header>
+    <header><strong>Raw Files</strong> <small style="font-weight:normal;color:#888">(read-only — see Agenda below for the editable one)</small></header>
     <details>
       <summary><code>state.json</code></summary>
       <pre style="background:#f4f4f4;padding:1rem;border-radius:4px;overflow-x:auto;font-size:.8rem">{{ raw_state }}</pre>
@@ -137,6 +137,45 @@
 
 </form>
 
+{% if not is_new %}
+<!-- Authored agenda (#36 contract) — its own form so saving it never rewrites
+     character/goals/rules, and a rejected document leaves the file untouched. -->
+<article id="agenda">
+  <header><strong>Agenda</strong>
+    <small style="font-weight:normal;color:#888">— <code>agenda.json</code>, what this APC intends to do today</small>
+  </header>
+
+  {% if agenda_errors %}
+  <div class="flash-error">
+    <strong>Agenda not saved.</strong> The file on disk is unchanged.
+    <ul style="margin:.4rem 0 0 0">
+      {% for message in agenda_errors %}<li>{{ message }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <form method="post" action="/worlds/{{ level }}/agents/{{ agent_id }}/agenda">
+    <label for="agenda_text">Tasks <small>(each needs <code>id</code>, <code>start</code>, <code>end</code>,
+      <code>place</code>, <code>objective</code>, and a <code>completion.type</code> of
+      <code>arrive_at_place</code>, <code>time_block_ends</code>, or <code>time_or_llm_confirmed</code>)</small></label>
+    <textarea id="agenda_text" name="agenda_text" rows="18"
+      style="font-family:monospace; font-size:.8rem">{{ agenda_text }}</textarea>
+    <button type="submit">Save Agenda</button>
+  </form>
+</article>
+
+<!-- Live execution state (read-only) -->
+<article>
+  <header style="display:flex; justify-content:space-between; align-items:center">
+    <span><strong>Live Task State</strong>
+      <small style="font-weight:normal;color:#888">— what the runtime is actually doing</small></span>
+    <small id="apc-runtime-updated" style="color:#888"></small>
+  </header>
+  <div id="apc-runtime"><p style="font-size:.85rem;color:#888">Loading live APC state…</p></div>
+</article>
+{% endif %}
+
+<script src="/static/apc_drilldown.js"></script>
 <script>
   fetch('/api/unreal/actors')
     .then(r => r.json())
@@ -159,4 +198,36 @@
       document.getElementById('actor-sync-status').textContent = 'Could not reach Unreal';
     });
 </script>
+
+{% if not is_new %}
+<script>
+(function () {
+  const panel   = document.getElementById('apc-runtime');
+  const stamp   = document.getElementById('apc-runtime-updated');
+  const agentId = {{ agent_id | tojson }};
+  if (!panel) return;
+
+  function refresh() {
+    fetch(`/api/sim/agents/${encodeURIComponent(agentId)}`)
+      .then(r => r.json().catch(() => ({ status: 'error', error: 'Live APC state was not readable JSON.' })))
+      .then(data => {
+        // Task transitions land here without a page reload; a down runner or a
+        // malformed payload renders a bounded message, never a file dump.
+        apcDrilldown.renderRuntime(panel, data);
+        stamp.textContent = 'updated ' + new Date().toLocaleTimeString();
+      })
+      .catch(() => {
+        apcDrilldown.renderRuntime(panel, {
+          status: 'error',
+          error: 'No sim runner running — live task state is unavailable.'
+        });
+        stamp.textContent = '';
+      });
+  }
+
+  refresh();
+  setInterval(refresh, 3000);
+})();
+</script>
+{% endif %}
 {% endblock %}

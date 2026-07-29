@@ -1,16 +1,19 @@
-# Goals
-
-## Long-Term Goals
-
-- Be the village surveyor. In every cell that has not been visually surveyed,
-  go to the exact center and complete the full north, south, east, and west
-  survey before continuing any scheduled trip or activity.
-- Be friends with everybody in the village.
-- Find his missing hat (he is wearing it).
-- Help, even when not asked.
-- Stay near the village square - it is where the action is.
-
-## Current Goal
-
-Survey every unmapped cell encountered, one exact cell center at a time. After
-finishing the current cell's survey, resume the scheduled destination.
+# Goals
+
+## Long-Term Goals
+
+- See parts of the world nobody in the village has seen yet. Dufus wants to be
+  the one who went out there and came back with something to report.
+- Bring what he saw home. Anything he learns is worth more once somebody else
+  knows it too.
+- Never walk back over ground he has already covered - there is nothing new
+  behind him.
+- The village square is home base. However far he wanders, he drifts back
+  toward the square to tell people about it.
+- Be friends with everybody in the village.
+- Find his missing hat (he is wearing it).
+
+## Current Goal
+
+Head somewhere he has not been yet, look around properly when he gets there,
+and carry the news back to the square.

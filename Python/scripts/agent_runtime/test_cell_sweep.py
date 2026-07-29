@@ -194,6 +194,49 @@ def test_sweep_step_runs_then_drops_breadcrumb():
         check("sweep cleared when done", "sweeper" not in mgr._cell_sweeps)
 
 
+def test_explorer_surveys_in_place_without_backtracking():
+    """#48: a survey-priority APC is an explorer — it surveys the cell it is
+    crossing from where it stands, so it never doubles back to a center it has
+    already walked past. Ordinary APCs keep the walk-to-center behaviour. Both
+    still produce the same four-heading community capture.
+
+    Cell (5,5) spans x/y 0..400 with center (200,200); (350,350) is inside the
+    cell but 212cm off center — past the default 100cm tolerance, inside the
+    explorer's full-cell tolerance.
+    """
+    off_center = _obs(350.0, 350.0)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _manager(tmp)
+        ordinary = _StubAgent("sweeper")
+        mgr.agents = {"sweeper": ordinary}
+        first = mgr._sweep_step("sweeper", off_center)
+        check("ordinary APC still walks back to the cell center",
+              first["type"] == "walk_to" and first["location"] == [200.0, 200.0, 90.0])
+
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _manager(tmp)
+        explorer = _StubAgent("dufus")
+        explorer.survey_priority = True
+        mgr.agents = {"dufus": explorer}
+
+        first = mgr._sweep_step("dufus", off_center)
+        check("explorer starts observing immediately, no goto_center leg",
+              first["type"] == "observe_heading" and first.get("_sweep") == "observe")
+
+        actions = [first]
+        for _ in range(10):
+            a = mgr._sweep_step("dufus", off_center)
+            if a is None:
+                break
+            actions.append(a)
+        check("explorer never emits a walk_to anywhere in the survey",
+              not any(a["type"] == "walk_to" for a in actions))
+        check("explorer still captures the full four-heading community survey",
+              [a["yaw"] for a in actions if a["type"] == "observe_heading"]
+              == [0.0, 90.0, 180.0, 270.0])
+
+
 def test_should_sweep_here_gate():
     # This low-level gate answers only whether the cell needs a survey. Schedule
     # priority is applied by _act_agent (#34), so these raw results intentionally
@@ -685,6 +728,7 @@ def main():
     test_sweep_step_requires_place_visual_even_when_named()
     test_sweep_step_start_false_never_starts()
     test_sweep_step_runs_then_drops_breadcrumb()
+    test_explorer_surveys_in_place_without_backtracking()
     test_should_sweep_here_gate()
     test_explored_cells_set()
     test_act_agent_starts_sweep_interrupt()

@@ -1,12 +1,46 @@
+"""Deterministic place-survey mechanics and survey-claim grounding.
+
+TEST-FLAG (#40): ``filter_survey_claims`` must drop a saved-capture claim when
+no survey heading ran this tick, drop a still-needs-surveying claim when the
+cell's survey is current, keep both claims when the deterministic facts support
+them, and leave ordinary in-character narration (including unrelated uses of
+"saved") untouched; ``_cell_survey_note`` must render the fresh/due/active/
+unavailable verdicts. Edge cases: empty or non-string text, a sentence carrying
+both claims, and text whose every sentence is dropped. Suggested level: offline
+unit coverage in ``scripts/agent_runtime``; no Unreal or model call required.
+Live/PIE still owes the visible-yaw check and a post-survey model verification.
+"""
 from __future__ import annotations
 
 import math
+import re
 
 from .world_grid import WorldGrid
 
 # A place survey samples the four absolute cardinal headings. In UE yaw,
 # East=0, South=90, West=180, North=270.
 _CARDINAL_HEADINGS = [0.0, 90.0, 180.0, 270.0]
+
+# Sentence-level detectors for the two narration failures SR28 exposed (#40).
+# Deliberately narrow: they match a *claim about surveying*, not any mention of
+# looking around, so ordinary in-character description survives untouched.
+_CLAIMED_CAPTURE = re.compile(
+    r"\b(saved|captured|recorded|took|stored|surveyed|photographed|snapped)\b"
+    r"[^.!?]{0,60}?"
+    r"\b(view|views|image|images|snapshot|snapshots|photo|photos|capture|captures|"
+    r"heading|headings|survey|surveys|direction|directions|cell)\b",
+    re.IGNORECASE,
+)
+_CLAIMED_NEED = re.compile(
+    r"\b(need|needs|needed|still|must|should|have to|going to|will)\b"
+    r"[^.!?]{0,60}?"
+    r"\b(survey|surveying|observe|observing|capture|capturing|record|recording)\b"
+    r"[^.!?]{0,60}?"
+    r"\b(heading|headings|view|views|direction|directions|cell|here|this cell)\b",
+    re.IGNORECASE,
+)
+
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
 
 def compass_headings() -> list[float]:
@@ -15,6 +49,39 @@ def compass_headings() -> list[float]:
     Example: ``[0, 90, 180, 270]`` (E, S, W, N in UE coordinates).
     """
     return list(_CARDINAL_HEADINGS)
+
+
+def filter_survey_claims(text: str, *, captured: bool,
+                         needs_survey: bool) -> tuple[str, list[str]]:
+    """Drop survey claims the deterministic record does not support (#40).
+
+    ``captured`` is whether this tick actually completed a survey heading, and
+    ``needs_survey`` whether the database says the current cell is still due
+    one. Sentences making an unsupported claim are removed whole — editing
+    natural language in place cannot be done reliably, so the honest option is
+    to say less. Returns the surviving text and one reason per dropped claim.
+
+    Example::
+
+        filter_survey_claims("I saved the north view. I keep walking.",
+                             captured=False, needs_survey=False)
+        # -> ("I keep walking.", ["claimed a saved capture with no survey this tick"])
+    """
+    if not isinstance(text, str) or not text.strip():
+        return "", []
+
+    kept, reasons = [], []
+    for sentence in _SENTENCE_SPLIT.split(text.strip()):
+        if not sentence.strip():
+            continue
+        if not captured and _CLAIMED_CAPTURE.search(sentence):
+            reasons.append("claimed a saved capture with no survey heading this tick")
+            continue
+        if not needs_survey and _CLAIMED_NEED.search(sentence):
+            reasons.append("claimed this cell still needs surveying when its survey is current")
+            continue
+        kept.append(sentence.strip())
+    return " ".join(kept), reasons
 
 
 class CellSweep:

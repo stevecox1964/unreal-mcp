@@ -88,8 +88,14 @@ Time: {world_time}
 ## Current Goal
 {current_goal}
 
+## What You Just Heard
+{heard_note}
+
 ## Active Interruption
 {active_interrupt_note}
+
+## Survey State Of The Cell You Are Standing In
+{cell_survey_note}
 
 {agenda_context}
 
@@ -232,8 +238,14 @@ _USER_TEMPLATE = """\
 ## Current Goal
 {current_goal}
 
+## What You Just Heard
+{heard_note}
+
 ## Active Interruption
 {active_interrupt_note}
+
+## Survey State Of The Cell You Are Standing In
+{cell_survey_note}
 
 {agenda_context}
 
@@ -333,10 +345,12 @@ class LLMRouter:
                 2: "gpt-5.4-mini",
             }.get(agent.tier, "gpt-5.4-mini")
 
+        # Decision role only — vision resolves separately (perception.py), so the
+        # VLM stays on Haiku 4.5 regardless of what an APC decides with.
         return {
-            1: "claude-sonnet-4-6",
-            2: "claude-haiku-4-5-20251001",
-        }.get(agent.tier, "claude-haiku-4-5-20251001")
+            1: "claude-sonnet-5",
+            2: "claude-sonnet-5",
+        }.get(agent.tier, "claude-sonnet-5")
 
     def _system_text(self, agent: "Agent") -> str:
         action_lines = "\n".join(
@@ -506,6 +520,8 @@ class LLMRouter:
                 current_action=action_state,
                 current_goal=agent.current_goal,
                 active_interrupt_note=_active_interrupt_note(observation.get("active_interrupt")),
+                cell_survey_note=_cell_survey_note(observation),
+                heard_note=_heard_note(observation),
                 agenda_context=agenda.prompt_text(observation.get("agenda")),
                 sense_note=_sense_note(observation),
                 schedule_note=_schedule_note(observation.get("schedule")),
@@ -522,6 +538,8 @@ class LLMRouter:
                 observation=json.dumps(obs_for_text, indent=2),
                 current_goal=agent.current_goal,
                 active_interrupt_note=_active_interrupt_note(observation.get("active_interrupt")),
+                cell_survey_note=_cell_survey_note(observation),
+                heard_note=_heard_note(observation),
                 agenda_context=agenda.prompt_text(observation.get("agenda")),
             )
 
@@ -661,7 +679,10 @@ performed an action. Do not output JSON or markdown."""
         client = self._anthropic_client()
         response = client.messages.create(
             model=model,
-            max_tokens=512,
+            # Sonnet 5 tokenizes ~30% heavier than Haiku 4.5, so the 512 that fit a
+            # decision JSON before now holds noticeably less. Headroom here is cheap
+            # (we only pay for what is generated); a truncated JSON is a lost tick.
+            max_tokens=1024,
             system=[{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": content}],
         )
@@ -802,6 +823,66 @@ def _active_interrupt_note(record: dict | None) -> str:
             "This active interruption outranks your routine until it is resolved.")
 
 
+def _heard_note(observation: dict) -> str:
+    """Render speech this agent actually received this tick (#45).
+
+    The reaction gate lets "someone is speaking to you" interrupt the routine;
+    this is the only place that clause can get a grounded speaker from, so an
+    empty result must say plainly that nobody spoke — otherwise the model is
+    free to imagine a conversation.
+    """
+    heard = observation.get("heard")
+    if not heard:
+        return "Nobody has spoken to you. Do not answer or refer to anything unsaid."
+    lines = [f'- {item.get("speaker", "someone")} said: "{item.get("text", "")}"'
+             + (f' ({item["distance_cm"]:.0f} cm away)'
+                if item.get("distance_cm") is not None else "")
+             for item in heard[:5]]
+    return ("These people spoke within earshot just now. Being spoken to is one of the "
+            "two things that may interrupt your routine — you may answer this tick.\n"
+            + "\n".join(lines))
+
+
+def _cell_survey_note(observation: dict) -> str:
+    """The authoritative survey verdict for the cell underfoot (#40).
+
+    SR28 showed that "no survey is active" was not enough grounding: with no
+    statement about *this cell*, cognition kept narrating that headings here
+    still needed surveying after the survey had already resolved. This states
+    the deterministic verdict and forbids both inventions explicitly.
+    """
+    facts = observation.get("cell_survey")
+    if not isinstance(facts, dict):
+        return ("Survey state for this cell is unavailable. Do not claim this cell "
+                "needs surveying and do not claim any view here was captured or saved.")
+
+    cell = facts.get("cell", "?")
+    total = facts.get("total_headings") or 4
+    if facts.get("active_here"):
+        completed = [str(x) for x in facts.get("completed_headings") or []]
+        failed = [str(x) for x in facts.get("failed_headings") or []]
+        return (
+            f"Cell ({cell}) is being surveyed right now: {len(completed)}/{total} headings "
+            f"saved ({', '.join(completed) if completed else 'none'}); "
+            f"failed {', '.join(failed) if failed else 'none'}. "
+            "Only the deterministic survey saves headings. Do not claim you saved a "
+            "heading that is not listed above."
+        )
+    if facts.get("fresh"):
+        return (
+            f"Cell ({cell}) has a complete, current community survey. It does NOT need "
+            "surveying and no heading here is missing. Do not say you need to survey, "
+            "observe, or capture headings here, and do not claim you saved a view — "
+            "no capture is happening this tick."
+        )
+    return (
+        f"Cell ({cell}) has no current community survey, so it is eligible for one. "
+        "You are not surveying it right now: a survey only happens when it is offered "
+        "to you as a deterministic interruption. Do not claim any view here has been "
+        "captured or saved."
+    )
+
+
 def _route_map_note(observation: dict) -> str:
     """The "Your Map" section for a travel tick (#6b/WP5) — facts + the image
     legend. Empty when no route map was built this tick. The map describes the
@@ -921,6 +1002,8 @@ def _seen_text(seen: dict | None) -> str:
     lines = []
     if seen.get("caption"):
         lines.append(seen["caption"])
+    if seen.get("footing"):
+        lines.append(f"FOOTING: {seen['footing']}")
     for lm in seen.get("landmarks") or []:
         lines.append(f"- {lm['label']} ({lm.get('bearing', '?')}, {lm.get('distance', '?')})")
     for ch in seen.get("characters") or []:
@@ -994,6 +1077,12 @@ def _schedule_note(directive: dict | None) -> str:
             heading = f", heading {r['heading']}" if r.get("heading") else ""
             en_route = (f"You are en route: leg {r['leg']} of {r['total']}{heading} "
                         f"toward cell ({r['to_cell'][0]}, {r['to_cell'][1]}).\n")
+            delta_cm = r.get("delta_cm")
+            if delta_cm is not None and delta_cm > 0:
+                en_route += (
+                    f"PROGRESS WARNING: your last move took you {round(delta_cm / 100)}m "
+                    f"FARTHER from your destination, not closer. Correct course toward it "
+                    f"now — this overrides any other movement urge.\n")
         return (f"{en_route}{intent}\nThis is your priority right now: use walk_to with "
                 f"target_location \"{directive['place']}\" and keep going until you "
                 f"arrive. Do NOT start the scheduled activity on the way — even if "

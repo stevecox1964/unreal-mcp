@@ -16,12 +16,43 @@ Newest grooming: **2026-07-17**.
 
 1. **#36 JSON agenda + daily ledger:** implementation and offline coverage are complete at 51/51;
    user-run live verification still needs interruption/resume plus the post-arrival `current_goal` sync fix.
-2. **#43 APC profile agenda UI:** build a friendly expandable cockpit drill-down for authored agenda,
-   execution, ledger, and other APC JSON state; retain raw JSON only as an advanced view.
-3. **#37 direct APC chat live verification:** verify the moved UI still stops Dufus, supports multiple
+2. **#37 direct APC chat live verification:** verify the moved UI still stops Dufus, supports multiple
    turns and temporary guidance, resumes prior work, and leaves Maren unaffected.
-4. **#35 survey expeditions:** choose the expedition cadence, target-selection surface, chaining/return
+3. **#35 survey expeditions:** choose the expedition cadence, target-selection surface, chaining/return
    policy, and retry bounds before extending the now-durable survey interruption.
+
+**Offline work built + tested 2026-07-24:** **#43** drill-down + agenda editor, **#40** survey narration
+grounding, **#42** bounded action-error diagnostics. Three new test files landed at the user's explicit
+request (`test_apc_agenda_ui.py`, `test_survey_grounding.py`, `test_action_errors.py`); the full offline
+suite passes at **54/54**, with no regression in the previously green 51. All three still await their live
+verification, which folds into the #36/#37 live session.
+
+### Cleanup advisories (observed, not scheduled)
+
+Raised while working, parked here on purpose — none is urgent, none should be done as a drive-by.
+Add to this list rather than refactoring adjacent code mid-task.
+
+- **`test_apc_agenda_ui.py` is not hermetic.** Its last two checks assert that
+  `/api/sim/agents/<id>` returns 503 "no sim runner running". They hit the real runner URL, so the
+  test **fails whenever the sim is actually running** (observed 2026-07-24 with `sim_runner` live on
+  8777). The offline suite is meant to need no Unreal and no keys; it should not care whether a
+  local port is bound. Fix by pointing the runner URL at a definitely-dead port for that assertion.
+
+- **`plan/backlog.md` is ~2,800 lines and expensive to read.** A full read blows past a 25k-token cap,
+  so every session pays to find the active view at the top. Suggest moving everything below the
+  "Historical status log" banner into `plan/backlog_history.md` and leaving a pointer. *(Raised
+  2026-07-24; directly affects per-session token cost.)*
+- **`agent_runtime/agent_manager.py` is ~3,800 lines.** Tick phases, survey/interruption mechanics,
+  agenda wiring, place resolution, and bridge execution all live in one class. A split along those
+  seams would make each testable alone; the survey helpers are the most self-contained starting point.
+- **`web_ui/main.py` is ~1,100 lines** covering world/agent CRUD, map, replay, sim proxying, settings,
+  providers, and logs. FastAPI routers per concern would match how the pages already divide.
+- **`templates/agent.html` nests a `<form>` inside a `<form>`** (Delete NPC inside the main edit form).
+  Invalid HTML that browsers resolve inconsistently; predates this work and was left alone deliberately.
+- **Template `<script>` blocks duplicate fetch/poll helpers** across `index`, `sim`, `map`, and `agent`.
+  `web_ui/static/apc_drilldown.js` (#43) establishes the precedent for extracting shared JS.
+- **`save_agent` silently defaults malformed form values** (`int(form.get(...) or 10)`), so a bad tier or
+  interval becomes a default instead of an error — the "fail loud" rule would prefer a rejection.
 
 ### Waiting
 
@@ -1038,6 +1069,24 @@ nothing says "socially, stay on the pavement." Options, not mutually exclusive:
 Likely shape: (c) for the mid-scale + (b) for the local scale; (a) only if the user wants the
 instant version. Offline tests: planner weighting (c) and the fact formatting (b) are both
 loop-safe.
+
+**(b) landed 2026-07-29, VLM variant.** User's explicit call this session: enforcement stays in the
+LLM (no code-side blocking of `walk_to`) — the fix is making the disagreement between "navmesh says
+walkable" and "you should not be here" an unmissable fact each tick, not a rule buried in prose the
+LLM has to notice on its own. Rather than an engine ground probe (which would need per-level
+authoring nothing in the repo currently has — see #53), `perception.py`'s existing per-tick VLM call
+now also classifies `footing` (`pavement|road|dirt_path|grass|cultivated_field|water|other`) straight
+from the image; `llm_router._seen_text` renders it as an explicit `FOOTING: <value>` prompt line
+(`llm_router.py`); both `rules.md` files gained a non-negotiable line telling the LLM to turn back
+when footing isn't pavement/road/dirt_path. Same session also added a companion fact for the
+"moved farther from goal" half of the complaint: `agent_manager._attach_route_progress` now tracks
+distance-to-destination tick over tick and stamps `delta_cm` on the route fact; `llm_router._schedule_note`
+renders an explicit `PROGRESS WARNING` line when it's positive (noise-floored at `_PROGRESS_NOISE_CM`
+= 200 cm). Offline: `test_seen_text_footing`, `test_perceive_parses_footing`, and the extended
+`test_schedule_route_narration` in `test_route_planner.py`. **Not done, and deliberately not
+attempted:** no action is blocked or auto-corrected — this is facts-plus-rules only, per the user's
+choice. Live-run verification still owed: does the louder fact actually change behavior, or does the
+LLM still walk into the field.
 
 ---
 
@@ -2089,6 +2138,18 @@ after a completed survey, subsequent ordinary decisions neither claim missing he
 capture without a matching deterministic event. **Classification:** loop-safe cognition/action-policy
 work plus live/PIE model verification.
 
+**Implementation evidence 2026-07-24:** every decide tick now attaches `observation["cell_survey"]` — the
+deterministic fresh/due/active verdict for the cell underfoot, read from `current_place_image` + staleness
+rather than from any interruption — and both prompt templates render it as a **Survey State Of The Cell
+You Are Standing In** section that forbids both inventions explicitly. Prompt grounding alone was
+insufficient in SR28, so `cell_sweep.filter_survey_claims` additionally drops, in code, any narration
+sentence claiming a saved capture when no `survey_heading` ran that tick or claiming the cell still needs
+surveying when its survey is current; dropped claims are logged as warnings rather than silently smoothed.
+Unrelated uses of "saved" pass through untouched. Offline coverage: `test_survey_grounding.py` (the exact
+SR28 string, supported claims surviving, ordinary narration untouched, empty/non-string/all-dropped edge
+cases, and all four prompt verdicts). Full suite **54/54**. **Still owed:** the PIE visible-yaw check, and
+a live model run confirming post-survey decisions stop inventing headings.
+
 ---
 
 ## 41. Make map survey counts and stale wording truthful
@@ -2135,6 +2196,17 @@ evidence: an induced bridge/action failure can be traced from the decision feed 
 category, while successful events remain compact and existing recovery behavior is unchanged.
 **Classification:** loop-safe logging/tests, with live/PIE verification for a real bridge failure.
 
+**Implementation evidence 2026-07-24:** `memory_store.classify_action_error` maps a failed result to one
+of `not_connected` / `timeout` / `target_unresolved` / `transport` / `runtime`, with the message whitespace-
+collapsed, key-redacted, and capped at 240 characters, plus the elapsed act phase. `MemoryStore.record`
+attaches it as `error` only when the action failed — successful entries keep exactly their previous keys —
+and the console log line carries the category too. The Sim feed renders `⚠ <code>: <message> after <n>ms`.
+An accepted-with-note recovery is deliberately not treated as a failure, so existing recovery behavior is
+unchanged. SR28's case now reads as `timeout` at ~15021 ms instead of a bare error status. Offline
+coverage: `test_action_errors.py` (every category, non-failures including accepted-with-note, message cap,
+key redaction, and a feed entry that stays compact on success). Full suite **54/54**. **Still owed:**
+live/PIE verification against a real induced bridge failure.
+
 ---
 
 ## 43. Make APC profiles discoverable and edit the JSON agenda
@@ -2170,9 +2242,339 @@ agenda from execution state; and live verification shows task transitions withou
 The drill-down acceptance additionally requires nested objects/arrays to expand and collapse without
 losing labels, task statuses and completion evidence to be readable without inspecting JSON syntax,
 and malformed or unavailable runtime data to render a bounded error state rather than a file dump.
-**Classification:** loop-safe web/storage tests plus live web/PIE verification. **Open implementation
+**Classification:** loop-safe web/storage tests plus live web/PIE verification. ~~**Open implementation
 choice:** structured task-row editor and dedicated state components versus a reusable recursive JSON
-viewer; retain a raw/advanced view either way.
+viewer; retain a raw/advanced view either way.~~ **Resolved 2026-07-24 (Claude's call, user delegated —
+open to veto): both.** Dedicated components own the shapes we know; a generic recursive renderer handles
+nested/unknown data beneath them; raw JSON is a collapsed advanced view.
+
+**Implementation evidence 2026-07-24:** `web_ui/static/apc_drilldown.js` provides the recursive renderer
+(depth- and item-capped, `textContent` only so authored files cannot inject markup) plus dedicated Right
+now / Next / Agenda tasks / Today so far / Survey / Other-state components. The APC profile page gained a
+**live task state** panel polling `/api/sim/agents/{id}` every 3 s — task transitions appear without a page
+reload — and an **Agenda** editor posting to a new `POST /worlds/{level}/agents/{id}/agenda` route that is
+deliberately separate from `update_agent`, so saving an agenda cannot rewrite character/goals/rules.
+`validate_agenda_text` mirrors `Agent.load`'s wording, and rejection re-renders the submitted text with
+inline errors while leaving `agenda.json` untouched (verified: malformed JSON and a bad
+`completion.type` both left the file byte-identical; a valid document round-tripped). A down runner or a
+malformed payload renders a bounded message, never a file dump. Offline coverage:
+`test_apc_agenda_ui.py` (editor + live panel + renderer present, reachable from the index, malformed JSON
+and schema violations both rejected inline with the file byte-identical, valid round-trip, other authored
+files untouched, starter template valid, bounded runner-down envelope). Full suite **54/54**. **Still
+owed:** live verification in a browser against a running sim.
+
+---
+
+## 44. Resolve APC identity from engine facts, not from vision
+
+**Status:** **DIAGNOSED 2026-07-24, NOT STARTED** · **Source:** Claude code/data audit ·
+**Blocks:** #5 social memory, #12.1 don't-re-greet, #10.5 friend-interrupt, #12.2 interaction memory
+
+Evidence: `last_perception.json` shows every character sighting labeled `unknown person`, while the same
+tick's `observation["nearby_characters"]` carries the exact engine truth (`{"name": "Maren",
+"distance_cm": ...}`). `SocialMemory` deliberately drops anonymous labels, so **no `social.json` has ever
+been created for any APC**, `episodes.jsonl` records `saw: []` on every event, and `memory.json` fills
+with interchangeable "Met someone new" entries. The identity exists and is discarded one layer earlier.
+
+Desired behavior: identity resolution is deterministic and belongs to the lizard brain — when another APC
+is within a plausible sighting range and inside the forward view (positions + yaw are already known),
+that sighting is recorded under its `display_name`. Vision keeps describing appearance; it never decides
+who someone is. The LLM still receives only semantic labels, never engine actor names.
+
+Acceptance evidence: two APCs in view of each other produce `social.json` entries naming each other;
+`episodes.jsonl` records non-empty `saw`; "People You Know" is non-empty on the next encounter; an APC out
+of view or out of range is not recorded. **Classification:** loop-safe geometry/memory work plus live
+verification that Dufus and Maren recognize each other.
+
+**IMPLEMENTED 2026-07-24.** New pure module `agent_runtime/recognition.py`: `visible_characters` resolves
+who is inside the forward view from position + yaw (2500 cm range, 110 degree FOV, left/center/right and
+near/mid/far buckets), and `merge_identities` folds them into the vision character list — an identified APC
+replaces at most one anonymous blob in the same bearing bucket, so Maren is not double-counted, while
+genuine non-APC bystanders survive. `AgentManager._identify_visible_apcs` runs every tick *before*
+`_record_sightings`, deliberately outside the `image_path` guard: recognition is geometry and needs no
+frame. Someone behind the agent is skipped — proximity is not sighting. Offline coverage in
+`test_recognition.py`, including the payoff assertion that social memory now populates and `meet_count`
+accumulates across sightings. Suite **55/55**. **Still owed:** live confirmation that `social.json` appears
+for both APCs and that "People You Know" is non-empty on a second encounter.
+
+---
+
+## 45. Deliver speech to the APCs who can hear it
+
+**Status:** **DIAGNOSED 2026-07-24, NOT STARTED** · **Source:** Claude code/data audit ·
+**Blocks:** #10.5 reaction gate, #12.2 interaction memory, #46
+
+Evidence: `speak_to` sends the line to the engine and nothing else. There is no `heard`/`spoken_to`
+concept anywhere in `agent_runtime/`. The decision prompt names exactly two things that may interrupt a
+routine — seeing a known person, and *being spoken to* — and **neither is reachable**: the first is
+blocked by #44, the second because speech is never delivered to another agent's observation. Both social
+affordances in the reaction gate are currently dead code.
+
+Desired behavior: an utterance becomes a fact for every APC within hearing range, surfaced in the next
+decision as who said what, so responding is a grounded choice rather than an invention. Bounded: recent
+utterances only, capped count, no replay of an entire conversation history.
+
+**IMPLEMENTED 2026-07-24.** `speak_to` now publishes through `_record_utterance` into a bounded 20-entry
+buffer carrying speaker display name, text (capped at 400 chars), world time, and position;
+`_attach_heard_speech` delivers to any APC within `_HEARING_CM` (1200 cm — wider than the 300 cm standoff
+so a greeting reaches someone approaching, narrower than sighting range so nobody overhears across the
+district). A monotonic id plus a per-agent consumed marker means a line is heard exactly once and never
+re-surfaces a tick later from across the square; an APC never hears itself. The prompt gained a **What You
+Just Heard** section in both the vision and text-only (OpenAI) templates, which states plainly that nobody
+spoke when the list is empty — otherwise the model is free to imagine a conversation. Offline coverage in
+`test_recognition.py`, including manager-level delivery, the heard-once guarantee, self-exclusion, and the
+distance gate. Suite **55/55**. **Still owed:** live confirmation that Dufus answers something Maren
+actually said.
+
+Acceptance evidence: Maren speaking near Dufus puts an attributed utterance in Dufus's next observation
+and prompt; an APC out of range hears nothing; the reaction gate's "someone is speaking to you" clause can
+actually fire. **Classification:** loop-safe runtime/prompt work plus live verification.
+
+---
+
+## 46. Multi-turn APC-to-APC conversation with retained content
+
+**Status:** **PROPOSED 2026-07-24** · **Depends on:** #44, #45 · **Relates to:** #12.2
+
+Once APCs can recognize and hear each other, a greeting should be able to become an exchange: turn-taking
+between two APCs over several ticks, with what was actually said retained and recallable later ("last time
+I saw Maren she was heading to her truck"). Today `_record_interactions` logs that *an* interaction
+happened, with neutral sentiment and no content.
+
+Open design choices before implementation: whether a conversation is a first-class interruption (reusing
+#38's machinery) or a lighter per-tick state; how many turns before it must yield to the agenda; and
+whether content lands in the episodic log or the dedicated store #12.2 has been waiting on.
+**Classification:** design decision, then loop-safe implementation.
+
+---
+
+## 47. Reflection — synthesize observations into higher-level insights
+
+**Status:** **PROPOSED 2026-07-24** · **Source:** Claude code/data audit ·
+**Relates to:** the Stanford Generative Agents north star
+
+Evidence: `EpisodicLog.consolidate()` compacts old events into count/place *summary rows*; nothing ever
+produces an insight. `memory.json` is a flat list of same-shaped observations, so an APC never concludes
+anything from its own history. Reflection is the mechanism in the reference architecture that turns a
+memory stream into apparent understanding, and it is the one major component this sim has no analogue for.
+
+Desired behavior: periodically (importance-triggered, not every tick — cost matters), an APC asks what its
+recent memories imply, and stores a small number of durable higher-level statements that then feed recall
+alongside raw episodes. Reflections must be attributable to the observations that produced them.
+
+Open choices: trigger (accumulated importance vs. daily), how many insights to keep, and whether they
+influence the agenda or only cognition. **Classification:** design decision, then loop-safe implementation
+with one model call per reflection.
+
+---
+
+## 48. Separate character from engine chores in authored goals
+
+**Status:** **DONE 2026-07-24** · **Source:** Claude code/data audit
+
+Dufus's `goals.md` opened with "Be the village surveyor. In every cell that has not been visually surveyed,
+go to the exact center and complete the full north, south, east, and west survey…" — survey *mechanism*
+authored into *character*. It was presumably added to force surveying before the deterministic survey
+interruption existed; that machinery now exists (#38/#39/#40), so the instruction competed with it and
+crowded out the personality that makes Dufus legible as a person.
+
+**Resolved:** the mechanism clause is cut and the authored content is re-pointed at what the user actually
+wants Dufus to be — a forward explorer who ranges outward, captures what he sees, and gravitates back to
+the village square to report. `goals.md` is motivation-only (see somewhere new, bring it home, never walk
+back over covered ground, square is home base); `agenda.json` replaces the home/square/market loop with two
+long open-destination expedition blocks (`place: ""`, `time_block_ends`) bracketed by `arrive_at_place`
+returns to the square; `character.md` Role gains "accidental explorer".
+
+**Code change — capture in place, no backtracking.** The doubling-back the user objected to is the sweep's
+`goto_center` leg (`cell_sweep.py:119-124`): the APC walks back to the cell center before the N/S/E/W
+capture. `_sweep_step` now passes `arrive_tolerance=world_grid.cell_size` for a `survey_priority` APC, so
+"arrived" is already true anywhere inside the cell (max half-diagonal ≈0.71 cells) and the walk leg never
+emits. Ordinary APCs keep walk-to-center. Covered by
+`test_cell_sweep.test_explorer_surveys_in_place_without_backtracking` (verified failing without the fix).
+
+**Constraint found while doing this:** `PlaceDB.record_place_image` *requires* all four cardinal views and
+raises `ValueError` otherwise (`place_db.py:784-787`), and the community place image is the only shared
+visual store — so "other APCs can use his knowledge" structurally depends on the four-heading capture.
+Hence the fix drops the walk, not the survey. Removing the survey entirely (e.g. `survey_priority: false`)
+would make Dufus explore without contributing anything other APCs can read.
+
+Follow-on effects: the old absolute-priority clause no longer outranks the social reactions #44/#45 just
+unblocked, #40's `filter_survey_claims` is no longer fed narration it must drop as warnings, and the goal
+slots carry Dufus's actual hooks again. **Live check still owed:** confirm on a real run that he ranges
+outward instead of orbiting the square, and that off-center captures still yield usable composites.
+
+---
+
+## 49. Record capture pose on place images (VLM training metadata)
+
+**Status:** **OPEN 2026-07-24** · **Source:** raised by #48's capture-in-place change
+
+Context the user supplied 2026-07-24: the survey behavior exists substantially to build a **custom VLM**,
+and **Dufus is the training-data source** — he is the world-scanning APC, now expressed as an ordinary APC
+carrying the survey attribute rather than a dedicated role (see the #7/#11.1 retirement).
+
+`place_images` (`place_db.py:81-96`) records `col`, `row`, the four view paths, `description`,
+`captured_by`, `captured_at`. It does **not** record camera x/y/z or per-view yaw, despite the schema
+comment claiming "precise world coordinates remain metadata" — there is no such column. Camera pose is
+therefore only inferable as "somewhere in cell (col,row)".
+
+That was a tight bound while every capture happened at the cell center (±100 cm tolerance). #48's
+capture-in-place change loosens it to anywhere inside a 30 m cell — up to ~21 m from center — so the same
+`col,row` label now covers a much wider range of true camera poses. Fine for the in-sim lookup ("what does
+this cell look like"); lossy for a training corpus where pose is a natural label.
+
+Proposed: add `capture_x`, `capture_y`, `capture_z` to `place_images` (migration in `PlaceDB.__init__`,
+same pattern as the existing `swept_at`/`swept_by` migration) and persist the per-view yaw alongside each
+cardinal path. `_save_place_visual` already has the observation in hand at capture time.
+
+**Classification:** loop-safe (schema migration + offline test); needs the user's go-ahead because it is
+dataset design, not a bug. Alternative if pose is not wanted in the corpus: revert #48 to center capture
+and accept the backtracking — explicitly rejected by the user on 2026-07-24.
+
+---
+
+## 50. Experiment: APC cognition on Sonnet 5 instead of Haiku 4.5
+
+**Status:** **RUNNING 2026-07-24** · **Source:** user call — "see if switching from Haiku to Sonnet solves a lot of the problems"
+
+Every APC ran its decision role on Haiku 4.5 (both Dufus and Maren are `tier: 2`, and the tier-2 default was
+`claude-haiku-4-5-20251001`). Hypothesis: a chunk of what reads as puppet-like behaviour is model capability,
+not missing machinery.
+
+Changed in `llm_router._resolve_model`: both tiers now return `claude-sonnet-5`. Tiers are deliberately
+collapsed so the live run is a clean A/B — model is the only variable. `_anthropic_call` `max_tokens` went
+512 → 1024, because Sonnet 5 tokenizes ~30% heavier than Haiku and a truncated decision JSON costs a whole
+tick. **Vision is untouched** — `perception.py` resolves the VLM independently and stays on Haiku 4.5.
+
+Cost: roughly 3× per token vs Haiku ($3/$15 per MTok, intro $2/$10 through 2026-08-31, vs $1/$5).
+
+Not yet evaluated — needs the live run. **To revert:** restore the two-tier map in `_resolve_model`.
+Opus 5 is the next rung but needs `_anthropic_call` made thinking-safe first (thinking is on by default
+there; `content[0]` becomes a thinking block and `max_tokens` would cap thinking + answer together).
+
+---
+
+## 51. Durable runner log — stop losing the only record of what a run did
+
+**Status:** **OPEN 2026-07-24** · **Source:** Claude, blocked while diagnosing SR30 · **Blocks:** every
+live-run diagnosis, including #50's evaluation
+
+SR30 (2026-07-24, ~4½ min) could not be diagnosed after the fact. From disk it looked as if the agents had
+stopped thinking: Dufus wrote **23 observation captures but zero decisions**, Maren wrote 6 captures and a
+single decision, then both went quiet. Nothing on disk said why, because:
+
+- `agent_decisions.log` records **completed decisions only**. Every skip, exclusion, and exception is
+  invisible to it by design — an agent that never decides leaves no trace at all.
+- `sim_runner` logs everything else to **stdout only** (`logging.basicConfig` with the default stream
+  handler, `sim_runner.py:47`). No `FileHandler` is attached anywhere in the codebase. When the console
+  window closes, the entire run narrative is gone. `AgentManager.start` already contains truncate-on-start
+  logic that looks for a `logging.FileHandler` (`agent_manager.py:249-253`) — that branch has never had a
+  handler to find.
+
+The irony: the reasons *are* logged. `_observe_agent` explains every cognition skip at INFO ("settled at
+scheduled place, cognition sleeping", "scene unchanged (idle 3/N), skipping LLM"), and `_act_agent` logs
+`LLM phase exception` / `No decision - idling`. All of it went to a window that no longer exists.
+
+One genuine blind spot remains beyond durability: agents dropped from the `ready` filter in `_tick_impl`
+(`is_busy`, cooldown, open chat, inactive) are logged **nowhere**. An APC wedged `is_busy` silently
+vanishes from the sim and no log line marks its disappearance — the leading suspect for Maren going quiet
+after 22:27:00.
+
+Desired behavior:
+
+1. The runner writes its full log to a file next to `agent_decisions.log`, truncated per run, so a closed
+   console costs nothing.
+2. Every tick accounts for **every** active agent — decided, skipped (with reason), or excluded (with
+   reason). A silent disappearance becomes impossible.
+
+Acceptance evidence: after a run, `logs/sim_runner.log` explains each agent's every tick without the
+console; an agent stuck `is_busy` produces a visible per-tick line naming the cause.
+
+**Classification:** loop-safe logging work. This is the "fail loud" rule applied to the sim's own loop —
+"nothing in the log" must never again be the same observation as "nothing happened".
+
+**IMPLEMENTED 2026-07-24.** Three changes, all in `agent_manager.py` plus a RUNBOOK correction:
+
+- `_attach_run_log` adds a root `FileHandler` at `logs/sim_runner.log`, alongside `agent_decisions.log`,
+  carrying the runner's own format and `SimRunFilter` so entries stay SR-tagged. Called from `start()`
+  immediately after the SR tag is allocated — the log directory is only known once a level's agents load,
+  which is why this lives in the manager rather than in `sim_runner.py`. Opened `mode="w"` (truncate per
+  run, matching the decision log) and idempotent, so repeated runs in one process reuse one handler. It
+  also raises the `AgentRuntime` logger to INFO explicitly: hosts that never call `basicConfig` (web UI,
+  MCP) leave root at WARNING, which would drop every INFO record before any handler saw it. A failed open
+  logs an error and leaves the console path working rather than taking the run down.
+- `_tick_impl` now names every active agent excluded from the tick — `busy`, `cooling down (Ns)`,
+  `chat open` — via `_not_ready_reason`, which mirrors the ready filter's own order. This was the one
+  genuinely unlogged path: a wedged `is_busy` APC previously left the simulation in total silence.
+- `_loop`'s existing `Tick #N` line gained a per-agent outcome roll-up from `_tick_outcomes`
+  (`dufus=idle(scene_unchanged), maren=speak_to`), and a tick where **no** agent ran now logs that fact
+  instead of passing unremarked — the exact shape of the SR30 blackout.
+
+Verified by direct exercise of the three helpers (not the offline suite): the handler creates and writes
+the file, a second call adds no duplicate handler, the roll-up renders reasons and returns empty for an
+empty tick, and each not-ready branch returns its expected label. **Still owed:** the next live run — read
+`logs/sim_runner.log` afterwards and it should explain every one of Dufus's silent ticks.
+
+---
+
+## 52. Simplify Dufus's goal stack — explore-and-survey only, drop the agenda juggling
+
+**Status:** **OPEN 2026-07-29** · **Source:** user, live-run frustration: "we are asking too much of Dufus
+with regards to our software technology. First he tries to go home and eat breakfast then he says go to get
+his hat, then he gets interrupted."
+
+Dufus is [[Dufus = VLM Training Corpus]]-scoped already (the world-scanning survey APC), but his
+agenda/schedule still carries ordinary-life tasks (breakfast, fetch hat, etc.) that compete with survey
+work for the same cognition slot and get preempted mid-chain. Each preemption is itself a source of the
+"asks too much of the LLM" problem raised this session (agenda item, then override, then resume — more
+state for the LLM to track correctly, more surface for it to get wrong). The user's proposed fix: strip
+Dufus down to one job — wander the world and capture pictures (survey) — and remove the daily-life
+schedule entirely for this character, rather than fixing the interruption/resume plumbing under it.
+
+Needs a design pass before implementation:
+- Does Dufus keep `agenda.json`/`goals.md` at all, or does his loop bypass the scheduler entirely and run
+  survey/explore as the only behavior?
+- Does he keep recognition/greeting/speech (social behaviors), or is he purely a silent camera?
+- Does this apply only to Dufus, or does it imply a general "role" simplification for any future
+  survey-only APC?
+
+**Classification:** design-gated, not loop-safe — a character-scope decision, needs the user's call before
+touching `agenda.json`/`goals.md`/`rules.md` or the scheduler's handling of him.
+
+---
+
+## 53. Capture navmesh-vs-semantic traversability disagreement as VLM training signal
+
+**Status:** **OPEN 2026-07-29 — not building yet, explicit user call** · **Source:** user, this session:
+"I know I can go forward (Unreal Nav Mesh), but I know I am blocked via LLM thoughts. I think this is the
+big value of the system... Dufus or any 'surveyor' should be returning this information. This information
+will be used to build a VLM for the particular world."
+
+Distinct from what's already tracked:
+- **#19/#27** (folded together) already identified the underlying disagreement — "navmesh says walkable;
+  nothing says socially, stay off" (the corn-field/yard case, verbatim from 2026-07-06) — and proposed a
+  lizard-brain surface fact (ground probe: "surface underfoot: grass/road/pavement") as one fix option. That
+  is a same-tick *runtime* fact for the LLM to act on, not a stored training example.
+- **#49** already establishes Dufus as the training-data source for a future custom VLM and proposes storing
+  camera pose (`capture_x/y/z`, yaw) on place images — but only geometry, not any semantic/behavioral label.
+
+What's net-new here: whenever a survey-flagged APC's navmesh reports a location as walkable **and** the
+LLM's own reasoning rejects it (rules-driven refusal, "that's the corn field", "that moves away from my
+goal"), that disagreement is itself a labeled example — pairs the frame Dufus already captures with a
+ground-truth "physically possible, semantically rejected" tag and the LLM's stated reason. A future VLM
+trained on this corpus could eventually report "cultivated field ahead, avoid" as a sensed fact the same way
+the lizard brain already reports surface/obstacle facts ([[feedback_lizard_brain_contract]]), closing the
+loop without ever hand-authoring zone geometry (e.g. the corn field's bounds, which nothing in the repo
+currently records).
+
+Needs before implementation (none of this is decided):
+- Where the disagreement gets logged — a new capture record tied to `place_images`, or its own table —
+  and whether it's Dufus-only or any APC carrying the survey attribute.
+- What counts as "the LLM blocked it": a structured field the decision schema doesn't carry yet (today
+  `thought_summary` is free text), vs. a rules.md-driven rejection the validator can detect deterministically.
+
+**Classification:** design-gated, explicitly deferred — dataset design for a not-yet-started custom VLM,
+not a bug fix. Relates to: #49, #19/#27, [[project_dufus_vlm_training_corpus]].
 
 ---
 

@@ -18,11 +18,13 @@ from . import explorer
 from . import interruptions
 from .perception import VisionPerceiver
 from . import cell_sweep
+from .cell_sweep import filter_survey_claims
 from .landmarks import merge_entries, scan_landmarks
 from . import map_capture
 from . import places_manifest
 from . import planner
 from . import place_visuals
+from . import recognition
 from . import route_map
 from . import route_planner
 from . import sim_run
@@ -76,6 +78,7 @@ _STUCK_PROGRESS_CM = 100.0   # min cm advanced per tick to count as real progres
 _STUCK_TICKS = 3             # consecutive no-progress moving ticks → stuck
 _STUCK_TRACE_CM = 300.0      # forward raycast distance when stuck (cm)
 _MOVEMENT_START_CM = 10.0    # ignore tiny pose jitter when timing first displacement
+_PROGRESS_NOISE_CM = 200.0   # route distance-to-goal jitter below this reads as "no change"
 
 # Path sense (B7): while traveling, watch what is directly ahead so the agent
 # can step around people/vehicles instead of walking through them — pawn-vs-pawn
@@ -99,6 +102,11 @@ _STANDOFF_CM = 300.0
 # cooldown (or a new sim-day) greets again.
 _GREET_COOLDOWN_MINUTES = 60
 _NEARBY_CHARACTER_CM = 2500.0
+# Speech carries about this far (#45). Wider than the 300 cm standoff so a
+# greeting reaches someone approaching, narrower than sighting range so an APC
+# across the district does not overhear a conversation.
+_HEARING_CM = 1200.0
+_MAX_UTTERANCES = 20                # bounded scrollback; speech is ephemeral
 _PLACE_ROAM_MARGIN_CM = 100.0
 
 # Semantic classifier for forward-trace hits.
@@ -189,6 +197,9 @@ class AgentManager:
         self._last_grid_place: dict[str, tuple] = {}  # agent_id -> (grid, place), reported even when LLM skipped
         self._routes: dict[str, dict] = {}          # agent_id -> cached grid-first route (#17/WP8)
         self._live_pos: dict[str, dict] = {}        # agent_id -> {x,y,yaw} last observed (#18 live map)
+        self._utterances: list[dict] = []           # recent speech, deliverable to hearers (#45)
+        self._heard_seq: dict[str, int] = {}        # agent_id -> last utterance id consumed (#45)
+        self._utterance_seq = 0                     # monotonic id so nobody hears a line twice
         self._movement_timing: dict[str, dict] = {} # agent_id -> wake/first-walk/displacement clocks (#20)
 
         # Fixed per-level grid; reloaded with the level in _load_agents.
@@ -297,6 +308,7 @@ class AgentManager:
             self.bridge.sim_run_id = self.sim_run_id
             self.memory.sim_run_id = self.sim_run_id
             logger.info(f"Sim run {self.sim_run_id} — observations + decision log tagged")
+            self._attach_run_log()
 
         # New run = a fresh wake for every agent (wake-time place seeding rearms).
         self._wake_stepped.clear()
@@ -498,6 +510,68 @@ class AgentManager:
 
     # Simulation loop
 
+    def _attach_run_log(self) -> None:
+        """Mirror the runner's log to ``logs/sim_runner.log`` for this run (#51).
+
+        ``agent_decisions.log`` records completed decisions only, so a run whose
+        APCs never decide leaves no trace on disk at all. Everything that would
+        explain such a run — cognition skips, LLM exceptions, bind failures —
+        goes to stdout, which dies with the console window. Attached here rather
+        than in ``sim_runner`` because the log directory is only known once a
+        level's agents are loaded. Truncating per run matches the decision log.
+        """
+        if self.memory.decisions_log is None:
+            return
+        path = (self.memory.decisions_log.parent / "sim_runner.log").resolve()
+        for handler in logging.root.handlers:
+            if (isinstance(handler, logging.FileHandler)
+                    and Path(handler.baseFilename).resolve() == path):
+                return
+        try:
+            handler = logging.FileHandler(path, mode="w", encoding="utf-8")
+        except OSError as e:
+            logger.error(f"Run log unavailable at {path}: {e} — console only")
+            return
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s [%(sim_run)s] %(message)s")
+        )
+        handler.addFilter(sim_run.SimRunFilter())
+        logging.root.addHandler(handler)
+        # The host process may never have called basicConfig (web UI, MCP), in
+        # which case root sits at WARNING and drops every INFO record before any
+        # handler sees it. The run log is worthless without them.
+        logging.getLogger("AgentRuntime").setLevel(logging.INFO)
+        logger.info(f"Run log: {path}")
+
+    def _not_ready_reason(self, agent: Agent) -> str:
+        """Why an active agent was dropped from this tick (mirrors the ready filter)."""
+        if agent.is_busy:
+            return "busy"
+        if not agent.cooldown_expired():
+            return f"cooling down ({agent.tick_interval_seconds}s)"
+        if self._has_open_chat(agent):
+            return "chat open"
+        return "unbound or filtered"
+
+    @staticmethod
+    def _tick_outcomes(result: dict) -> str:
+        """One-line per-agent outcome roll-up for a tick (#51).
+
+        Makes "observed but never decided" legible at a glance: a run of
+        ``dufus=idle(scene_unchanged)`` lines says the cognition gate is holding
+        the agent shut, which no decision-log entry would ever reveal.
+        """
+        parts = []
+        for entry in result.get("agent_results") or []:
+            if not isinstance(entry, dict):
+                continue
+            label = entry.get("action") or entry.get("status") or "?"
+            reason = entry.get("reason")
+            parts.append(
+                f"{entry.get('agent_id', '?')}={label}" + (f"({reason})" if reason else "")
+            )
+        return ", ".join(parts)
+
     async def _loop(self) -> None:
         if self.mode == "live":
             # Spool-up: each agent wakes and orients itself before the first tick.
@@ -521,10 +595,16 @@ class AgentManager:
                 if not result or result.get("status") != "busy":
                     self._tick_count += 1
                 if result and result.get("ticked"):
+                    outcomes = self._tick_outcomes(result)
                     logger.info(
                         f"Tick #{self._tick_count}: {result['ticked']} agent(s) in {duration:.2f}s "
                         f"— next in {self.tick_seconds}s (effective interval ~{duration + self.tick_seconds:.2f}s)"
+                        + (f" — {outcomes}" if outcomes else "")
                     )
+                elif result is not None and result.get("status") != "busy":
+                    # A tick that moved no agent at all is the exact shape of the
+                    # SR30 blackout (#51); it must not pass unremarked.
+                    logger.info(f"Tick #{self._tick_count}: no agent ran in {duration:.2f}s")
                 self._print_sim_status()
                 self._flush_model_pie()
             # Base pacing sleeps AFTER the tick completes: with N avatars the gap
@@ -970,6 +1050,20 @@ class AgentManager:
         # keep them out of the perceive/decide phases until the sweep finishes.
         sweeping = [a for a in ready if self._has_active_survey(a)]
         ready = [a for a in ready if not self._has_active_survey(a)]
+
+        # Account for every active agent this tick (#51). An APC dropped by the
+        # ready filter — wedged is_busy, cooling down, holding an open chat —
+        # otherwise disappears from the simulation with nothing in any log to
+        # mark it: no decision entry, no skip line, no capture. Silence must not
+        # be the same observation as "nothing was wrong".
+        running = {id(a) for a in ready} | {id(a) for a in sweeping}
+        excluded = [
+            f"{a.agent_id} ({self._not_ready_reason(a)})"
+            for a in sorted(self.agents.values(), key=lambda a: a.agent_id)
+            if a.is_active and id(a) not in running
+        ]
+        if excluded:
+            logger.info(f"Tick skipped {len(excluded)}: {', '.join(excluded)}")
 
         results = []
         # Sweep phase (sequential — single bridge socket, like the others).
@@ -1431,8 +1525,15 @@ class AgentManager:
                             seen["landmarks"],
                         )
 
-            # Remember who was seen this tick (named characters → social memory).
-            self._record_sightings(agent_id, observation)
+        # Identity is engine geometry, not a vision guess (#44). Without this the
+        # VLM's "unknown person" is all social memory ever receives, so no APC
+        # ever recognizes another and every encounter reads as a first meeting.
+        self._identify_visible_apcs(agent, observation)
+        # What another APC just said is a fact this agent may respond to (#45).
+        self._attach_heard_speech(agent, observation)
+
+        # Remember who was seen this tick (named characters → social memory).
+        self._record_sightings(agent_id, observation)
 
         # Surface known people for recall so the decision layer can reason about
         # who this agent has met (e.g. greet someone, seek out a friend). Tag each
@@ -1472,6 +1573,12 @@ class AgentManager:
                     observation["route_map"] = route
             except Exception as e:
                 logger.warning(f"[{agent_id}] route map failed: {e}")
+
+        # Authoritative survey verdict for the cell underfoot (#40), so cognition
+        # cannot invent missing headings for an already-surveyed cell.
+        survey_fact = self._cell_survey_fact(agent, observation)
+        if survey_fact is not None:
+            observation["cell_survey"] = survey_fact
 
         memories = self.memory.get_relevant_memories(agent_id)
         return self.llm.decide(agent, observation, memories)
@@ -1638,10 +1745,16 @@ class AgentManager:
     def _attach_route_progress(self, agent_id: str, observation: dict) -> None:
         """Narrate the cached grid-first route on a travel tick (#17/WP8).
 
-        Attaches ``schedule["route"] = {leg, total, to_cell, heading}`` when
-        the previous tick's cached route is for this directive's place — pure
-        legibility for the prompt and the decision log; the LLM contract
-        (walk_to target_location) is unchanged.
+        Attaches ``schedule["route"] = {leg, total, to_cell, heading, delta_cm}``
+        when the previous tick's cached route is for this directive's place —
+        pure legibility for the prompt and the decision log; the LLM contract
+        (walk_to target_location) is unchanged. ``delta_cm`` is the change in
+        straight-line distance to the route's final destination since the last
+        travel tick — positive means the agent moved farther away — computed
+        from ``route["last_distance_cm"]``, which this call updates for the
+        next tick. ``None`` on the first travel tick of a route (no prior
+        distance to compare against) and jitter below ``_PROGRESS_NOISE_CM`` is
+        reported as ``0`` rather than false regression.
         """
         directive = observation.get("schedule") or {}
         route = self._routes.get(agent_id)
@@ -1657,9 +1770,19 @@ class AgentManager:
             dx, dy = center[0] - xyz[0], center[1] - xyz[1]
             if dx or dy:
                 heading = yaw_to_compass(math.degrees(math.atan2(dy, dx)))
+        delta_cm = None
+        if xyz is not None:
+            tx, ty = route["target_xy"]
+            distance_cm = math.hypot(tx - xyz[0], ty - xyz[1])
+            last_distance_cm = route.get("last_distance_cm")
+            if last_distance_cm is not None:
+                raw_delta = distance_cm - last_distance_cm
+                delta_cm = 0.0 if abs(raw_delta) < _PROGRESS_NOISE_CM else raw_delta
+            route["last_distance_cm"] = distance_cm
         directive["route"] = {"leg": min(leg, max(len(path) - 1, 1)),
                               "total": max(len(path) - 1, 1),
-                              "to_cell": list(cell), "heading": heading}
+                              "to_cell": list(cell), "heading": heading,
+                              "delta_cm": delta_cm}
         agenda_facts = observation.get("agenda") or {}
         right_now = agenda_facts.get("right_now") or {}
         right_now["route"] = copy.deepcopy(directive["route"])
@@ -1850,6 +1973,9 @@ class AgentManager:
         if action.get("type") == "speak_to":
             agent.mark_spoke(self._agents_dir)
             self._record_interactions(agent_id, observation)
+            self._record_utterance(agent, action, observation)
+
+        self._ground_survey_narration(agent, decision, action, result, observation)
 
         observation["_thought"] = decision.get("thought_summary")
         self.memory.record(
@@ -2181,6 +2307,86 @@ class AgentManager:
             self._social_mem[agent_id] = s
         return s
 
+    def _record_utterance(self, agent: Agent, action: dict, observation: dict) -> None:
+        """Publish one spoken line so APCs in earshot can actually hear it (#45).
+
+        Until this existed, ``speak_to`` only produced a bubble in the engine:
+        the reaction gate's "someone is speaking to you" clause could never fire
+        because no agent ever received another's speech.
+        """
+        message = str(action.get("message") or "").strip()
+        here = _loc_xyz(observation.get("location"))
+        if not message or here is None:
+            return
+        self._utterance_seq += 1
+        self._utterances.append({
+            "id": self._utterance_seq,
+            "speaker": getattr(agent, "display_name", agent.agent_id),
+            "speaker_id": agent.agent_id,
+            "text": message[:400],
+            "world_time": str(observation.get("world_time") or ""),
+            "x": here[0],
+            "y": here[1],
+        })
+        del self._utterances[:-_MAX_UTTERANCES]
+
+    def _attach_heard_speech(self, agent: Agent, observation: dict) -> None:
+        """Deliver unheard speech from APCs within earshot, then mark it consumed."""
+        here = _loc_xyz(observation.get("location"))
+        if here is None or not self._utterances:
+            return
+        since = self._heard_seq.get(agent.agent_id, 0)
+        heard = []
+        for utterance in self._utterances:
+            if utterance["id"] <= since or utterance["speaker_id"] == agent.agent_id:
+                continue
+            distance = math.hypot(utterance["x"] - here[0], utterance["y"] - here[1])
+            if distance > _HEARING_CM:
+                continue
+            heard.append({"speaker": utterance["speaker"], "text": utterance["text"],
+                          "world_time": utterance["world_time"],
+                          "distance_cm": round(distance, 1)})
+        # Out-of-earshot lines are consumed too: overhearing them one tick later
+        # from across the square would be worse than missing them.
+        self._heard_seq[agent.agent_id] = self._utterances[-1]["id"]
+        if heard:
+            observation["heard"] = heard
+            logger.info("[%s] heard: %s", agent.agent_id,
+                        "; ".join(f"{h['speaker']}: {h['text'][:60]}" for h in heard))
+
+    def _identify_visible_apcs(self, agent: Agent, observation: dict) -> None:
+        """Name the APCs actually in this agent's forward view (#44).
+
+        The engine already knows who is standing where; the VLM only ever
+        reports "unknown person". Resolving identity here — from position and
+        yaw, deterministically — is what lets social memory, don't-re-greet, and
+        the friend-interrupt stop gating on a store that is never populated.
+        Proximity alone is not sighting: someone behind the agent is skipped.
+        """
+        here = _loc_xyz(observation.get("location"))
+        yaw = _yaw_of(observation.get("rotation"))
+        if here is None or yaw is None:
+            return
+
+        others = []
+        for other_id, pos in self._live_pos.items():
+            if other_id == agent.agent_id:
+                continue
+            other = self.agents.get(other_id)
+            others.append({"name": getattr(other, "display_name", other_id),
+                           "x": pos["x"], "y": pos["y"]})
+        identified = recognition.visible_characters((here[0], here[1]), yaw, others)
+        if not identified:
+            return
+
+        seen = observation.setdefault("seen", {})
+        seen["characters"] = recognition.merge_identities(
+            seen.get("characters") or [], identified)
+        observation["recognized"] = identified
+        logger.info("[%s] recognized: %s", agent.agent_id,
+                    ", ".join(f"{p['name']} ({p['distance_cm']:.0f}cm {p['bearing']})"
+                              for p in identified))
+
     def _record_sightings(self, agent_id: str, observation: dict) -> None:
         """Persist perceived named characters into this agent's social memory.
 
@@ -2478,8 +2684,17 @@ class AgentManager:
                 yaw for yaw in cell_sweep.compass_headings()
                 if yaw_to_compass(yaw) not in attempted
             ]
+            # A survey-priority APC is an explorer: it surveys the cell it is
+            # crossing, from wherever it happens to be standing. Widening the
+            # arrival tolerance to a full cell means "at the center" is already
+            # true anywhere inside the cell (max half-diagonal ~0.71 cells), so
+            # the goto_center leg never emits and the APC never doubles back to
+            # map a cell it has already walked through. The N/S/E/W capture is
+            # unchanged, so the community place image other APCs read is too.
+            explorer = bool(getattr(self.agents.get(agent_id), "survey_priority", False))
             sweep = cell_sweep.default_sweep(
-                self.world_grid, col, row, z=xyz[2], headings=remaining
+                self.world_grid, col, row, z=xyz[2], headings=remaining,
+                arrive_tolerance=self.world_grid.cell_size if explorer else None,
             )
             if sweep is None:
                 return None
@@ -2506,6 +2721,73 @@ class AgentManager:
             return None
         action["_sweep_interrupt"] = True
         return action
+
+    def _cell_survey_fact(self, agent: Agent, observation: dict) -> dict | None:
+        """Authoritative survey verdict for the cell the APC is standing in (#40).
+
+        The survey *progress* fact only exists while an interruption is active,
+        so between surveys cognition had no deterministic answer to "does here
+        still need surveying?" — which is how SR28 produced narration about
+        missing headings for a cell that had just been resolved.
+        """
+        col, row = self._cell_col_row(observation.get("grid"))
+        if col is None or self.place_db is None:
+            return None
+        payload = (self._active_survey_interrupt(agent) or {}).get("payload") or {}
+        progress = self._survey_progress(agent) or {}
+        active_here = bool(progress and payload.get("col") == col
+                           and payload.get("row") == row)
+        fresh = self._survey_visual_is_current(agent.agent_id, col, row)
+        return {
+            "cell": f"{col},{row}",
+            "col": col,
+            "row": row,
+            "fresh": fresh,
+            "needs_survey": not fresh,
+            "active_here": active_here,
+            "completed_headings": ([str(x) for x in progress.get("completed_headings") or []]
+                                   if active_here else []),
+            "failed_headings": ([str(x) for x in progress.get("failed_headings") or []]
+                                if active_here else []),
+            "total_headings": len(cell_sweep.compass_headings()),
+        }
+
+    def _ground_survey_narration(self, agent: Agent, decision: dict, action: dict,
+                                 result: dict, observation: dict) -> list[str]:
+        """Drop model claims about surveying that no deterministic fact supports (#40).
+
+        Prompt grounding alone was not enough in SR28. A capture is only real
+        when this tick actually ran a survey heading, and a cell only needs
+        surveying when the database says so — both are known here, so the claim
+        is checked in code rather than trusted from the model.
+        """
+        captured = bool(action.get("_survey_interrupt_id")
+                        and action.get("type") == "observe_heading"
+                        and (result.get("status") == "success" or result.get("success")))
+        facts = observation.get("cell_survey")
+        needs_survey = bool(facts.get("needs_survey")) if isinstance(facts, dict) else True
+
+        dropped: list[str] = []
+        for field in ("thought_summary", "memory_update"):
+            text = decision.get(field)
+            if not isinstance(text, str) or not text.strip():
+                continue
+            kept, reasons = filter_survey_claims(
+                text, captured=captured, needs_survey=needs_survey)
+            if not reasons:
+                continue
+            dropped.extend(reasons)
+            decision[field] = kept or (
+                "Nothing about surveying this cell can be stated from what actually happened."
+                if field == "thought_summary" else None)
+
+        if dropped:
+            # Fail loud: an invented capture is exactly the class of bug that
+            # made SR28's logs untrustworthy, so it is reported, not smoothed over.
+            logger.warning("[%s] dropped unsupported survey narration: %s",
+                           agent.agent_id, "; ".join(sorted(set(dropped))))
+            observation["_survey_narration_dropped"] = sorted(set(dropped))
+        return dropped
 
     def _should_sweep_here(self, observation: dict, agent_id: str = "") -> bool:
         """True when the current grid cell still needs a community place image.

@@ -315,7 +315,10 @@ def test_schedule_route_narration():
         mgr._attach_route_progress("maren", obs)
         r = obs["schedule"].get("route")
         check("travel directive carries the route narration",
-              r == {"leg": 1, "total": 3, "to_cell": [6, 5], "heading": "E"})
+              r == {"leg": 1, "total": 3, "to_cell": [6, 5], "heading": "E",
+                    "delta_cm": None})
+        check("no progress warning on the first travel tick (nothing to compare)",
+              "PROGRESS WARNING" not in llm_router._schedule_note(obs["schedule"]))
 
         note = llm_router._schedule_note(obs["schedule"])
         check("prompt narrates the leg",
@@ -332,6 +335,26 @@ def test_schedule_route_narration():
               "route" not in obs2["schedule"])
         check("note renders without a route",
               "en route" not in llm_router._schedule_note(obs2["schedule"]))
+
+        # Moving farther from the target on the next travel tick warns.
+        target_x, target_y = mgr._routes["maren"]["target_xy"]
+        obs3 = _obs(target_x - 5000.0, target_y)
+        obs3["schedule"] = {"status": "travel", "place": "the vegetable truck"}
+        mgr._attach_route_progress("maren", obs3)
+        check("delta_cm is positive when distance-to-target grew",
+              obs3["schedule"]["route"]["delta_cm"] > 0)
+        warn_note = llm_router._schedule_note(obs3["schedule"])
+        check("prompt surfaces a progress warning when regressing",
+              "PROGRESS WARNING" in warn_note and "FARTHER" in warn_note)
+
+        # Then closing the distance again clears the warning.
+        obs4 = _obs(target_x - 1000.0, target_y)
+        obs4["schedule"] = {"status": "travel", "place": "the vegetable truck"}
+        mgr._attach_route_progress("maren", obs4)
+        check("delta_cm is negative when distance-to-target shrank",
+              obs4["schedule"]["route"]["delta_cm"] < 0)
+        check("no progress warning while closing the distance",
+              "PROGRESS WARNING" not in llm_router._schedule_note(obs4["schedule"]))
 
 
 def test_route_map_path_overlay():

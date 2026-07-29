@@ -25,6 +25,7 @@ from agent_runtime.llm_router import (             # noqa: E402
     _nearby_character_lines,
     _schedule_note,
     _active_interrupt_note,
+    _seen_text,
 )
 
 
@@ -232,6 +233,20 @@ def test_active_interrupt_prompt_fact():
           "No deterministic survey is active" in _active_interrupt_note(None))
 
 
+def test_seen_text_footing():
+    on_pavement = _seen_text({"caption": "A quiet street.", "footing": "pavement",
+                              "landmarks": [], "characters": []})
+    check("footing renders as an explicit fact line", "FOOTING: pavement" in on_pavement)
+
+    in_field = _seen_text({"caption": "Rows of tall corn stalks.",
+                           "footing": "cultivated_field", "landmarks": [], "characters": []})
+    check("off-path footing renders too (LLM does the judging, not this renderer)",
+          "FOOTING: cultivated_field" in in_field)
+
+    no_footing = _seen_text({"caption": "A quiet street.", "landmarks": [], "characters": []})
+    check("missing footing key renders nothing, no crash", "FOOTING" not in no_footing)
+
+
 def main():
     test_acquaintance_lines()
     test_known_place_lines()
@@ -242,6 +257,7 @@ def main():
     test_reaction_gate_template()
     test_schedule_note_weighting()
     test_active_interrupt_prompt_fact()
+    test_seen_text_footing()
     print("\nAll prompt-context checks passed.")
 
 
