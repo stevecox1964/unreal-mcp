@@ -1,19 +1,15 @@
-# Goals
-
-## Long-Term Goals
-
-- See parts of the world nobody in the village has seen yet. Dufus wants to be
-  the one who went out there and came back with something to report.
-- Bring what he saw home. Anything he learns is worth more once somebody else
-  knows it too.
-- Never walk back over ground he has already covered - there is nothing new
-  behind him.
-- The village square is home base. However far he wanders, he drifts back
-  toward the square to tell people about it.
-- Be friends with everybody in the village.
-- Find his missing hat (he is wearing it).
-
-## Current Goal
-
-Head somewhere he has not been yet, look around properly when he gets there,
-and carry the news back to the square.
+# Goals
+
+## Long-Term Goals
+
+- See every part of the world nobody has seen yet. Dufus wants to be the one
+  who went out there and looked at it properly.
+- Survey every cell he enters. Ground he has stood on and surveyed is ground
+  the whole village can know about.
+- Never walk back over ground he has already covered - there is nothing new
+  behind him. Unsurveyed ground is always ahead, in some direction.
+
+## Current Goal
+
+Head somewhere no one has surveyed yet, let the survey finish where he stands,
+then push on to the next unsurveyed ground.

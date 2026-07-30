@@ -211,6 +211,10 @@ class AgentManager:
         # SQLite place cell store — initialised in start_simulation once world dir is known.
         self.place_db: PlaceDB | None = None
 
+        # Run-log file handler (#51) — attached in start_simulation, detached on
+        # stop so the file is closed (Windows can't delete an open log file).
+        self._run_log_handler: logging.FileHandler | None = None
+
         # Sim run tag (SR<n>) — allocated per-world in start_simulation, pushed to
         # the bridge (observation filenames) + memory (decision log) for attribution.
         self.sim_run_id: str = "SR0"
@@ -388,6 +392,10 @@ class AgentManager:
         else:
             logger.info("=== SIMULATION STOP === (was not running)")
         self._started_at = None
+        if self._run_log_handler is not None:
+            logging.root.removeHandler(self._run_log_handler)
+            self._run_log_handler.close()
+            self._run_log_handler = None
         return {"status": "stopped", "ticks": self._tick_count, "elapsed_seconds": round(elapsed, 1)}
 
     async def pause_simulation(self) -> dict:
@@ -526,6 +534,7 @@ class AgentManager:
         for handler in logging.root.handlers:
             if (isinstance(handler, logging.FileHandler)
                     and Path(handler.baseFilename).resolve() == path):
+                self._run_log_handler = handler
                 return
         try:
             handler = logging.FileHandler(path, mode="w", encoding="utf-8")
@@ -537,6 +546,7 @@ class AgentManager:
         )
         handler.addFilter(sim_run.SimRunFilter())
         logging.root.addHandler(handler)
+        self._run_log_handler = handler
         # The host process may never have called basicConfig (web UI, MCP), in
         # which case root sits at WARNING and drops every INFO record before any
         # handler sees it. The run log is worthless without them.

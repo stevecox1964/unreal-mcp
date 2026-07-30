@@ -2,9 +2,7 @@
 
 The autonomous loop (backlog #4) needs a single green/red signal. The
 loop-safe tests are the ones under ``scripts/agent_runtime/`` that stub Unreal
-entirely (no socket, no editor, no network). The ``scripts/actors``,
-``scripts/node`` and ``scripts/blueprints`` scripts are deliberately excluded —
-they open a socket to a running Unreal MCP server and only pass in PIE.
+entirely (no socket, no editor, no network).
 
 Each test file is a standalone script that ``sys.exit(1)`` on failure, so we
 run each as a subprocess and treat a non-zero exit (or timeout) as FAIL.

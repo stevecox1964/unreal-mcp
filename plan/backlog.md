@@ -2519,9 +2519,23 @@ empty tick, and each not-ready branch returns its expected label. **Still owed:*
 
 ## 52. Simplify Dufus's goal stack — explore-and-survey only, drop the agenda juggling
 
-**Status:** **OPEN 2026-07-29** · **Source:** user, live-run frustration: "we are asking too much of Dufus
+**Status:** **RESOLVED 2026-07-30 (built; live verify owed)** · **Source:** user, live-run frustration: "we are asking too much of Dufus
 with regards to our software technology. First he tries to go home and eat breakfast then he says go to get
 his hat, then he gets interrupted."
+
+> **⚑ Resolution (user decisions, 2026-07-30):** all three design questions answered and built.
+> **(1)** Dufus **keeps** `agenda.json`/the scheduler — but the agenda is now a single all-day
+> `survey_expedition` task (07:00–22:00, empty place, `time_block_ends`); no bypass code needed.
+> **(2)** **Silent surveyor** — `speak_to`/`inspect_object`/`follow_character`/`attack`/`flee` dropped
+> from `tools.json`; greet-everyone rule, "be friends with everybody", and the hat goal removed from
+> the authored files. `goals.md`/`character.md`/`rules.md` re-pointed at one job: survey unsurveyed
+> ground, never re-walk covered ground. **(3)** Dufus-only for now — no generic role abstraction
+> (simplicity first; generalize when a second surveyor exists). **Also: Maren parked**
+> (`is_active: false` — she still spawns/binds but never ticks) until Dufus does his one job.
+> User framing to preserve: this is not just exploring — the survey task is how the system builds a
+> **custom VLM** ([[project_dufus_vlm_training_corpus]], #49, #53); the surveyor APC is the
+> load-bearing character. Shared prompt code deliberately untouched. Live verify: coverage grows past
+> 6/204 cells with zero home/square/social detours.
 
 Dufus is [[Dufus = VLM Training Corpus]]-scoped already (the world-scanning survey APC), but his
 agenda/schedule still carries ordinary-life tasks (breakfast, fetch hat, etc.) that compete with survey

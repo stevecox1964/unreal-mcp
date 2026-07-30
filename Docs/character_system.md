@@ -3,7 +3,7 @@
 Added 2026-04-22.
 
 > **Note (2026-06-28):** the **Python MCP wrapper tools** for these commands (`Python/tools/character_tools.py`)
-> were **retired** along with the other editor-authoring tools (see `Docs/Tools/README.md`). The
+> were **retired** along with the other editor-authoring tools (docs removed 2026-07-30). The
 > **C++ side is unchanged and live** — the `UAPCCharacterComponent`, its Blueprint events, and the
 > `command_character_*` / `get_character_*` commands still exist and are reachable over the raw socket
 > on `:55557`; the standalone sim drives them through `UnrealBridge`. Treat the Python tool names below

@@ -367,7 +367,7 @@ See [Docs/character_system.md](Docs/character_system.md) for the full command re
 
 ## ðŸ¤– AI RPG Agent Simulation
 
-> **Status: Prototype** â€” See [`MASTER_PLAN.md`](MASTER_PLAN.md) for the full design. The live task list is [`plan/backlog.md`](plan/backlog.md); `still_todo.md` is a superseded historical snapshot.
+> **Status: Prototype** â€” See [`MASTER_PLAN.md`](MASTER_PLAN.md) for the full design. The live task list is [`plan/backlog.md`](plan/backlog.md).
 
 The simulation layer lets an LLM (Claude, OpenAI, or a local model) autonomously drive NPCs inside a live Unreal session.
 

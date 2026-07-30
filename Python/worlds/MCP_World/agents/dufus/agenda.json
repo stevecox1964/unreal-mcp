@@ -2,100 +2,12 @@
   "schema_version": 1,
   "tasks": [
     {
-      "id": "morning_home",
+      "id": "survey_expedition",
       "start": "07:00",
-      "end": "08:00",
-      "place": "home",
-      "objective": "Eat breakfast, search for the missing hat, and decide which direction to head today",
-      "completion": {"type": "time_or_llm_confirmed"}
-    },
-    {
-      "id": "travel_to_square",
-      "start": "08:00",
-      "end": "08:30",
-      "place": "village square",
-      "objective": "Travel to the village square",
-      "completion": {"type": "arrive_at_place"}
-    },
-    {
-      "id": "square_briefing",
-      "start": "08:30",
-      "end": "09:00",
-      "place": "village square",
-      "objective": "Tell anyone in the square where he is headed and ask what is out that way",
-      "completion": {"type": "time_block_ends"}
-    },
-    {
-      "id": "morning_expedition",
-      "start": "09:00",
-      "end": "12:00",
-      "place": "",
-      "objective": "Strike out into ground he has never seen, keep pushing outward rather than circling back, and look around properly wherever he ends up",
-      "completion": {"type": "time_block_ends"}
-    },
-    {
-      "id": "return_to_square_midday",
-      "start": "12:00",
-      "end": "13:00",
-      "place": "village square",
-      "objective": "Head back to the village square",
-      "completion": {"type": "arrive_at_place"}
-    },
-    {
-      "id": "square_report_midday",
-      "start": "13:00",
-      "end": "13:45",
-      "place": "village square",
-      "objective": "Eat, and tell people what he found out there this morning",
-      "completion": {"type": "time_block_ends"}
-    },
-    {
-      "id": "afternoon_expedition",
-      "start": "13:45",
-      "end": "17:00",
-      "place": "",
-      "objective": "Explore a different direction from this morning, going somewhere new rather than back over familiar ground",
-      "completion": {"type": "time_block_ends"}
-    },
-    {
-      "id": "return_to_square_evening",
-      "start": "17:00",
-      "end": "18:00",
-      "place": "village square",
-      "objective": "Head back to the village square before dark",
-      "completion": {"type": "arrive_at_place"}
-    },
-    {
-      "id": "square_report_evening",
-      "start": "18:00",
-      "end": "19:30",
-      "place": "village square",
-      "objective": "Share the day's discoveries with anyone still in the square and ask about his hat",
-      "completion": {"type": "time_block_ends"}
-    },
-    {
-      "id": "dinner_home",
-      "start": "19:30",
-      "end": "20:30",
-      "place": "home",
-      "objective": "Return home and eat dinner",
-      "completion": {"type": "time_or_llm_confirmed"}
-    },
-    {
-      "id": "square_at_dusk",
-      "start": "20:30",
-      "end": "21:30",
-      "place": "village square",
-      "objective": "Spend dusk in the square and chat with anyone lingering",
-      "completion": {"type": "time_block_ends"}
-    },
-    {
-      "id": "bedtime_home",
-      "start": "21:30",
       "end": "22:00",
-      "place": "home",
-      "objective": "Return home and prepare for bed",
-      "completion": {"type": "time_or_llm_confirmed"}
+      "place": "",
+      "objective": "Strike out into ground that has never been surveyed and keep pushing outward. Never circle back over covered ground. Wherever he stands, let the survey of that cell complete before moving on",
+      "completion": {"type": "time_block_ends"}
     }
   ]
 }

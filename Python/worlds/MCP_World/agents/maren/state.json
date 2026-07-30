@@ -4,7 +4,7 @@
   "display_name": "Maren",
   "blueprint_class": "/Game/Blueprints/APC_Maren_BP.APC_Maren_BP_C",
   "tier": 2,
-  "is_active": true,
+  "is_active": false,
   "tick_interval_seconds": 2,
   "speech_cooldown_seconds": 30,
   "start_location": {
