@@ -686,7 +686,14 @@ performed an action. Do not output JSON or markdown."""
             system=[{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": content}],
         )
-        return _strip_markdown_fences(response.content[0].text.strip())
+        # Models with thinking enabled (e.g. Sonnet 5) put a ThinkingBlock before
+        # the TextBlock, so content[0] is not guaranteed to have .text.
+        text = "".join(b.text for b in response.content if b.type == "text")
+        if not text:
+            raise ValueError(
+                f"No text block in response (blocks: {[b.type for b in response.content]})"
+            )
+        return _strip_markdown_fences(text.strip())
 
     def _decide_openai(self, model: str, system_text: str, user_text: str) -> str:
         import requests

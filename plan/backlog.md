@@ -9,6 +9,14 @@ Newest grooming: **2026-07-17**.
 
 ### Now
 
+- **SR32 (2026-07-30) — first working Sonnet 5 run; survey-only Dufus verified live.** 49 ticks,
+  zero LLM errors (after fixing `content[0].text` → ThinkingBlock crash in `llm_router.py` /
+  `perception.py`). Six new survey composites (cells 5,5 / 5,6 / 4,6 / 4,5 / 3,5 / 3,6;
+  `place_images` 10 → 16), contiguous westward push, zero daily-life detours. **FOOTING observed
+  working**: the LLM itself turned back from corn field, lawn, building interior, pitch-black view —
+  answers the open question carried since 07-29. Watch item: last ~4 decisions were a possible
+  footing ping-pong near the farmhouse (retreat → land in grass → retreat); if it recurs, fix with
+  louder facts ("you have retreated from this spot N times"), not a code blocker.
 - **Live/PIE verification bundle:** #39 stale refresh and #41 truthful counts passed in SR28; finish
   #40 visible-yaw/narration grounding and verify #37 chat on its dedicated page with Dufus and Maren.
 
@@ -53,6 +61,10 @@ Add to this list rather than refactoring adjacent code mid-task.
   `web_ui/static/apc_drilldown.js` (#43) establishes the precedent for extracting shared JS.
 - **`save_agent` silently defaults malformed form values** (`int(form.get(...) or 10)`), so a bad tier or
   interval becomes a default instead of an error — the "fail loud" rule would prefer a rejection.
+- **Bridge client reconnect noise:** SR32's log is ~400 lines of
+  `Existing connection failed: 'NoneType' object has no attribute 'sendall'` — the socket client
+  drops/rebuilds the connection around every command. Harmless (every command succeeded) but it is
+  most of the log volume and buries real warnings. *(Observed 2026-07-30, SR32.)*
 
 ### Waiting
 

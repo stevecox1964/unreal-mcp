@@ -193,7 +193,14 @@ class VisionPerceiver:
                 ],
             }],
         )
-        return response.content[0].text
+        # Skip any thinking blocks — content[0] is a ThinkingBlock on models with
+        # thinking enabled (e.g. Sonnet 5).
+        text = "".join(b.text for b in response.content if b.type == "text")
+        if not text:
+            raise ValueError(
+                f"No text block in response (blocks: {[b.type for b in response.content]})"
+            )
+        return text
 
 
 def _media_type(raw: bytes) -> str:

@@ -33,6 +33,7 @@ def check(label, cond):
 
 class _FakeContent:
     def __init__(self, text):
+        self.type = "text"
         self.text = text
 
 

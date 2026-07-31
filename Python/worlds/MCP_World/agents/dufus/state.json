@@ -17,9 +17,5 @@
     "x": 0,
     "y": 0,
     "z": 0
-  },
-  "is_busy": false,
-  "current_goal": "",
-  "last_tick_time": null,
-  "last_spoke_time": null
+  }
 }
