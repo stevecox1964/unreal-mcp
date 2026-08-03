@@ -89,7 +89,13 @@ check("fresh cell names the cell", "(7,5)" in fresh)
 due = _cell_survey_note({"cell_survey": {
     "cell": "8,5", "fresh": False, "needs_survey": True,
     "active_here": False, "total_headings": 4}})
-check("due cell is eligible, not in progress", "eligible" in due and "not surveying it" in due)
+# #57: a due cell tells the model it can survey and names the verb — code no
+# longer offers surveys, so a note that only said "wait to be interrupted" left
+# the model with no way to act on the fact.
+check("due cell offers the model the action", "survey_here" in due)
+check("due cell says nothing surveys it unless the model does",
+      "unless you choose to" in due)
+check("due cell still forbids claiming a capture", "not surveying it right now" in due)
 check("due cell still forbids a capture claim", "captured or saved" in due)
 
 active = _cell_survey_note({"cell_survey": {

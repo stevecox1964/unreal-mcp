@@ -422,7 +422,7 @@ class _StubAgent:
         self.has_unreal_binding = True
         self.is_active = True
         self.is_busy = False
-        self.allowed_actions = ["idle", "walk_to", "observe_heading"]
+        self.allowed_actions = ["idle", "walk_to", "observe_heading", "survey_here"]
         self.ticked = 0
         self.last_activity = None
         self.current_goal = "keep traveling"
@@ -490,9 +490,15 @@ def _named_walk_decision(agent_id, place):
             "importance": 0.5}
 
 
-def test_act_agent_starts_sweep_interrupt():
-    """An APC idling in an unexplored cell has its LLM action replaced by
-    a durable, pre-dispatch survey offer; the next tick takes its first step."""
+def _survey_decision(agent_id):
+    return {"agent_id": agent_id, "thought_summary": "this ground is unmapped",
+            "action": {"type": "survey_here"}, "importance": 0.5}
+
+
+def test_idle_in_an_unsurveyed_cell_no_longer_seizes_the_tick():
+    """#57: code used to survey the moment it noticed an unsurveyed cell, throwing
+    away whatever the model had decided. The cell being eligible is now a fact the
+    model reads, not a trigger — an idle decision stays idle."""
     with tempfile.TemporaryDirectory() as tmp:
         bridge = _StubBridge({"x": 1500.0, "y": 1500.0, "z": 90.0})
         mgr = _manager(tmp)
@@ -501,7 +507,25 @@ def test_act_agent_starts_sweep_interrupt():
         mgr.agents = {"dufus": agent}
 
         obs = _obs(1500.0, 1500.0, schedule={"status": "idle"})
-        result = mgr._act_agent(agent, _idle_decision("dufus"), obs)
+        mgr._act_agent(agent, _idle_decision("dufus"), obs)
+        check("the model's own action survives an eligible cell",
+              bridge.actions and bridge.actions[-1]["type"] == "idle")
+        check("no survey started behind the model's back",
+              not agent.active_interrupt and "dufus" not in mgr._cell_sweeps)
+
+
+def test_act_agent_starts_sweep_interrupt():
+    """#57: the model asks for the survey with `survey_here`; the request becomes a
+    durable, pre-dispatch offer and the next tick takes its first step."""
+    with tempfile.TemporaryDirectory() as tmp:
+        bridge = _StubBridge({"x": 1500.0, "y": 1500.0, "z": 90.0})
+        mgr = _manager(tmp)
+        mgr.bridge = bridge
+        agent = _StubAgent("dufus")
+        mgr.agents = {"dufus": agent}
+
+        obs = _obs(1500.0, 1500.0, schedule={"status": "idle"})
+        result = mgr._act_agent(agent, _survey_decision("dufus"), obs)
         check("offer tick performs no bridge action", bridge.actions == [])
         check("result exposes the durable pre-dispatch state",
               result["action"] == "survey_pending" and result["sweep"] is True)
@@ -558,9 +582,10 @@ def test_act_agent_travel_defers_sweep_on_entry():
 
 
 def test_surveyor_travel_starts_center_sweep_before_route():
-    """A survey-priority APC deliberately interrupts scheduled travel in an
-    unexplored cell, offers a preemptible survey, and leaves the schedule intact
-    so travel can resume after the deterministic N/S/E/W survey finishes."""
+    """#57: a surveyor mid-travel may choose to stop and survey the cell it is
+    crossing. Code no longer decides that for it — the model asks — but once asked,
+    the survey is preemptible and leaves the schedule intact so travel resumes
+    after the deterministic N/S/E/W capture finishes."""
     with tempfile.TemporaryDirectory() as tmp:
         bridge = _StubBridge({"x": 1500.0, "y": 1500.0, "z": 90.0})
         mgr = _manager(tmp)
@@ -572,10 +597,15 @@ def test_surveyor_travel_starts_center_sweep_before_route():
 
         schedule = {"status": "travel", "place": "village square"}
         obs = _obs(1500.0, 1500.0, schedule=schedule)
-        result = mgr._act_agent(agent, _named_walk_decision("dufus", "village square"), obs)
 
+        # Travelling without asking to survey keeps travelling.
+        mgr._act_agent(agent, _named_walk_decision("dufus", "village square"), obs)
+        check("a travel decision is not hijacked by the eligible cell underfoot",
+              bridge.actions and not agent.active_interrupt)
+
+        result = mgr._act_agent(agent, _survey_decision("dufus"), obs)
         check("surveyor travel is replaced by a pending sweep interruption",
-              result["action"] == "survey_pending" and bridge.actions == [])
+              result["action"] == "survey_pending")
         check("surveyor sweep is persistently active but locally undispatched",
               agent.active_interrupt and agent.active_interrupt["kind"] == "survey"
               and "dufus" not in mgr._cell_sweeps)
@@ -598,8 +628,9 @@ def test_pulse_routes_active_sweep_without_llm():
         agent = _StubAgent("dufus")
         mgr.agents = {"dufus": agent}
 
-        # Start through the manager lifecycle (already at center -> observe).
-        mgr._act_agent(agent, _idle_decision("dufus"), _obs(200.0, 200.0, schedule={"status": "idle"}))
+        # Start through the manager lifecycle: the model asks (#57), then the
+        # remaining headings run without it — which is what this test covers.
+        mgr._act_agent(agent, _survey_decision("dufus"), _obs(200.0, 200.0, schedule={"status": "idle"}))
         check("sweep starts observing at center", agent.active_interrupt is not None)
 
         results = []
@@ -661,7 +692,7 @@ def test_stale_visual_is_refreshed_once():
               mgr._should_sweep_here(_obs(200.0, 200.0), "dufus"))
 
         offered = mgr._act_agent(
-            agent, _idle_decision("dufus"),
+            agent, _survey_decision("dufus"),
             _obs(200.0, 200.0, schedule={"status": "idle"}),
         )
         check("stale cell receives one durable survey offer",
@@ -728,8 +759,9 @@ def test_tick_routes_sweeping_agent():
         mgr.llm = None  # would explode if a sweeping agent were sent to the LLM path
         agent = _StubAgent("dufus")
         mgr.agents = {"dufus": agent}
-        # Activate through the act-phase gate so lifecycle ownership exists.
-        mgr._act_agent(agent, _idle_decision("dufus"), _obs(1500.0, 1500.0, schedule={"status": "idle"}))
+        # Activate through the act-phase gate so lifecycle ownership exists. The
+        # model asks for the survey (#57); the dispatch that follows is code's.
+        mgr._act_agent(agent, _survey_decision("dufus"), _obs(1500.0, 1500.0, schedule={"status": "idle"}))
         check("sweep is active before its next deterministic dispatch",
               agent.active_interrupt is not None and "dufus" not in mgr._cell_sweeps)
 
@@ -752,7 +784,7 @@ def test_persisted_survey_recovers_after_manager_state_loss():
         agent = _StubAgent("dufus")
         mgr.agents = {"dufus": agent}
 
-        mgr._act_agent(agent, _idle_decision("dufus"), _obs(200.0, 200.0, schedule={"status": "idle"}))
+        mgr._act_agent(agent, _survey_decision("dufus"), _obs(200.0, 200.0, schedule={"status": "idle"}))
         mgr._cell_sweeps.clear()  # process restart loses execution-only state
         result = asyncio.run(mgr.pulse_agent("dufus"))
         check("persisted survey stays active after restart recovery",
@@ -774,7 +806,7 @@ def test_persisted_survey_progress_resumes_remaining_headings():
         mgr.llm = None
         agent = _StubAgent("dufus")
         mgr.agents = {"dufus": agent}
-        mgr._act_agent(agent, _idle_decision("dufus"),
+        mgr._act_agent(agent, _survey_decision("dufus"),
                        _obs(200.0, 200.0, schedule={"status": "idle"}))
         asyncio.run(mgr.pulse_agent("dufus"))
         before = mgr.inspect_agent("dufus")["survey_progress"]
@@ -801,7 +833,7 @@ def test_failed_heading_is_authoritative_and_audited():
         mgr.llm = None
         agent = _StubAgent("dufus")
         mgr.agents = {"dufus": agent}
-        mgr._act_agent(agent, _idle_decision("dufus"),
+        mgr._act_agent(agent, _survey_decision("dufus"),
                        _obs(200.0, 200.0, schedule={"status": "idle"}))
         asyncio.run(mgr.pulse_agent("dufus"))
         progress = mgr.inspect_agent("dufus")["survey_progress"]
@@ -830,6 +862,7 @@ def main():
     test_place_visual_refuses_frames_shot_outside_the_cell()
     test_should_sweep_here_gate()
     test_explored_cells_set()
+    test_idle_in_an_unsurveyed_cell_no_longer_seizes_the_tick()
     test_act_agent_starts_sweep_interrupt()
     test_act_agent_act_tick_is_sweep_exempt()
     test_act_agent_travel_defers_sweep_on_entry()

@@ -31,7 +31,7 @@ def _manager(tmp):
     mgr = AgentManager(Path(tmp), llm_router=None, unreal_bridge=None, memory_store=memory)
     mgr._agents_dir = agents_dir
     mgr.agents = {"dufus": Agent("dufus", {"unreal_actor_name": "dufus"}, "", "", "",
-                                  ["idle", "walk_to", "observe_heading"])}
+                                  ["idle", "walk_to", "observe_heading", "survey_here"])}
     return mgr, mgr.agents["dufus"], memory
 
 
@@ -69,6 +69,12 @@ def _survey_manager(tmp):
 def _idle_decision():
     return {"agent_id": "dufus", "thought_summary": "wait",
             "action": {"type": "idle"}, "importance": 0.5}
+
+
+def _survey_decision():
+    # #57: surveying is requested by the model, never imposed on it.
+    return {"agent_id": "dufus", "thought_summary": "unmapped ground",
+            "action": {"type": "survey_here"}, "importance": 0.5}
 
 
 def _survey_observation():
@@ -128,7 +134,7 @@ def test_survey_lifecycle_uses_the_same_audit_feed():
 def test_survey_offer_can_be_preempted_before_dispatch_then_locks():
     with tempfile.TemporaryDirectory() as tmp:
         mgr, agent, _ = _survey_manager(tmp)
-        offer = mgr._act_agent(agent, _idle_decision(), _survey_observation())
+        offer = mgr._act_agent(agent, _survey_decision(), _survey_observation())
         check("survey offer returns a durable no-op before deterministic work",
               offer["action"] == "survey_pending" and mgr.bridge.actions == [])
         check("offered survey is active and preemptible",

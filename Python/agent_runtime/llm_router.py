@@ -28,6 +28,7 @@ _ACTION_SCHEMAS: dict[str, str] = {
     "idle":             '{"type": "idle"}',
     "wander":           '{"type": "wander"}  -- keep moving: take one step (~15m) in the direction you are facing',
     "walk_to":          '{"type": "walk_to", "target_location": "<place name>"} to travel to a named place you know (e.g. "village square", "home"), OR {"type": "walk_to", "target_actor": "<actor_label>"} to walk to a known character, OR {"type": "walk_to", "direction": "north|south|east|west|northeast|northwest|southeast|southwest"} to walk ~15m along that compass heading, OR {"type": "walk_to", "direction": "forward|forward-left|forward-right|left|right|back"} to walk ~15m relative to the way your body is currently facing',
+    "survey_here":      '{"type": "survey_here"} to survey the cell you are standing in — captures all four compass headings over the next few ticks and adds the cell to the shared map. Only works on a cell that has no current survey, and only for the cell underfoot',
     "speak_to":         '{"type": "speak_to", "target": "<actor_label>", "message": "<text>"}',
     "inspect_object":   '{"type": "inspect_object", "target": "<actor_name>"}',
     "follow_character": '{"type": "follow_character", "target": "<actor_name>"}',
@@ -921,10 +922,11 @@ def _cell_survey_note(observation: dict) -> str:
             "no capture is happening this tick."
         )
     return (
-        f"Cell ({cell}) has no current community survey, so it is eligible for one. "
-        "You are not surveying it right now: a survey only happens when it is offered "
-        "to you as a deterministic interruption. Do not claim any view here has been "
-        "captured or saved."
+        f"Cell ({cell}) has no current community survey. You are standing in it, so "
+        f"you can survey it now with {{\"type\": \"survey_here\"}} — that captures all "
+        f"{total} headings over the next few ticks and adds this cell to the shared map. "
+        "Nothing surveys it unless you choose to. You are not surveying it right now, "
+        "so do not claim any view here has been captured or saved."
     )
 
 

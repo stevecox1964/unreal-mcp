@@ -3,6 +3,7 @@
     "idle",
     "wander",
     "walk_to",
+    "survey_here",
     "observe",
     "remember"
   ]

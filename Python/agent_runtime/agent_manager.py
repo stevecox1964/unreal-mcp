@@ -1983,31 +1983,30 @@ class AgentManager:
 
         action = self._bound_at_place_movement(agent, action, observation)
 
-        # Sweep interrupt (#11.1/#34): an APC staying in an unexplored cell maps it
-        # before acting — the sweep's first step replaces this tick's LLM action;
-        # the following steps run LLM-free via _pulse_sweep until the breadcrumb
-        # drops, then the sequencer resumes the routine. Scheduled "act" and
-        # "travel" ticks are normally exempt. Acting APCs must not abandon their
-        # post, and ordinary travelers must not treat transient cell crossings
-        # as detours. An APC configured with survey_priority deliberately flips
-        # that policy: it owns the current unexplored cell first, walks to its
-        # exact center, completes N/S/E/W, and then resumes its unchanged schedule.
-        sched_status = (observation.get("schedule") or {}).get("status")
-        survey_priority = bool(getattr(agent, "survey_priority", False))
-        if ((survey_priority or sched_status not in {"act", "travel"})
-                and self._should_sweep_here(observation, agent_id)):
-            sweep_action = self._offer_survey_interrupt(agent, observation)
-            if sweep_action and sweep_action.get("_survey_pending"):
-                # A newly activated survey has a deliberately durable handoff
-                # tick. Its persisted active/preemptible record is visible to
-                # operator/API requests before any bridge command locks it.
-                # The next pulse dispatches it deterministically, LLM-free.
-                agent.mark_ticked(self._agents_dir)
-                self._pie_activity(agent_id, "OBS fire -> survey pending dispatch")
-                return {"agent_id": agent_id, "action": "survey_pending",
-                        "sweep": True, "interrupt_id": sweep_action["interrupt_id"]}
-            if sweep_action is not None:
-                action = sweep_action
+        # Surveying is the LLM's call (#57). This used to fire the moment code
+        # noticed an unsurveyed cell, discarding whatever the model had decided —
+        # a third of SR35's ticks ran with the model's own action thrown away,
+        # and code, not the model, picked which ground got mapped. Now the model
+        # sees the cell's survey verdict as a fact and reaches for `survey_here`
+        # when it wants one. What it cannot do is claim a survey happened without
+        # one: the four headings, their order, and the capture stay deterministic,
+        # because which compass point to shoot next is execution, not a decision.
+        if action.get("type") == "survey_here":
+            if not self._should_sweep_here(observation, agent_id):
+                logger.info(f"[{agent_id}] survey_here declined — this cell's survey is current")
+                action = {"type": "idle", "_note": "this cell already has a current survey"}
+            else:
+                sweep_action = self._offer_survey_interrupt(agent, observation)
+                if sweep_action and sweep_action.get("_survey_pending"):
+                    # A newly activated survey has a deliberately durable handoff
+                    # tick. Its persisted active/preemptible record is visible to
+                    # operator/API requests before any bridge command locks it.
+                    # The next pulse runs the headings without asking again.
+                    agent.mark_ticked(self._agents_dir)
+                    self._pie_activity(agent_id, "survey_here accepted -> dispatching")
+                    return {"agent_id": agent_id, "action": "survey_pending",
+                            "sweep": True, "interrupt_id": sweep_action["interrupt_id"]}
+                action = sweep_action if sweep_action is not None else {"type": "idle"}
 
         survey_action = bool(action.get("_survey_interrupt_id"))
         if survey_action:
