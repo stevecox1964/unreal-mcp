@@ -42,6 +42,13 @@ logger = logging.getLogger("AgentRuntime")
 # attempts — unless the avatar is already adjacent, which is proof enough.
 _MAX_FRONTIER_FAILURES = 3
 
+# A survey may not capture a cell from outside it, so it walks to that cell —
+# and a cell walled off by scenery would otherwise retry that walk forever. It
+# gets this many travel ticks; a leg that moves less than a tenth of a step is
+# not progress. Exhausting them abandons the survey and blocks the cell.
+_MAX_SURVEY_TRAVEL_TICKS = 4
+_SURVEY_TRAVEL_PROGRESS_CM = 150.0
+
 # Wake/new-place survey: absolute UE yaws for the four cardinal views. These
 # labels and yaws are geographic, not relative to the avatar's initial facing.
 _SWEEP_VIEWS = [
@@ -932,6 +939,7 @@ class AgentManager:
             views.append({
                 "direction": direction, "yaw": yaw, "image_path": image_path,
                 "caption": seen.get("caption", ""),
+                "at": [xyz[0], xyz[1]],
                 "landmarks": seen.get("landmarks", []),
                 "characters": seen.get("characters", []),
                 "places": smap.place_labels(self.world_grid.locate(tx, ty)["key"]),
@@ -969,6 +977,21 @@ class AgentManager:
             )
             return None
 
+        # Where the frames were shot. A composite whose capture point is not in
+        # the cell it is filed under is corpus poison — SR33 filed two cells
+        # from one spot — so refuse to write it rather than log a warning.
+        captured_xy = next((tuple(v["at"]) for v in views
+                            if isinstance(v.get("at"), (list, tuple)) and len(v["at"]) >= 2), None)
+        if captured_xy is not None:
+            shot_in = self.world_grid.locate(captured_xy[0], captured_xy[1])
+            if (shot_in.get("col"), shot_in.get("row")) != (col, row):
+                logger.error(
+                    f"[{agent_id}] place visual ({col},{row}) REFUSED — frames were shot "
+                    f"at ({captured_xy[0]:.0f},{captured_xy[1]:.0f}) in cell "
+                    f"({shot_in.get('col')},{shot_in.get('row')})"
+                )
+                return None
+
         shared_dir = self._agents_dir.parent / "places" / "images"
         composite_path = shared_dir / f"{uuid.uuid4().hex}.png"
         sources = {d: by_direction[d]["image_path"] for d in place_visuals.CARDINAL_DIRECTIONS}
@@ -986,6 +1009,7 @@ class AgentManager:
                  for d in place_visuals.CARDINAL_DIRECTIONS},
                 description=description,
                 place_name=place_name,
+                captured_xy=captured_xy,
             )
             self._expose_place_visual_history(agent_id, image)
             logger.info(
@@ -2685,6 +2709,12 @@ class AgentManager:
             # image makes this community cell survey-ready.
             if self.place_db is None or self._survey_visual_is_current(agent_id, col, row):
                 return None
+            # "Don't go in there" is durable: a cell already found unreachable is
+            # never re-surveyed, or the abandoned walk restarts on the next tick.
+            center = self.world_grid.cell_center(col, row)
+            if center is not None and self._spatial_map(agent_id).is_blocked(
+                    self.world_grid.locate(center[0], center[1])["key"]):
+                return None
             progress = self._survey_progress(
                 self.agents.get(agent_id)
             ) if self.agents.get(agent_id) is not None else None
@@ -2695,12 +2725,11 @@ class AgentManager:
                 if yaw_to_compass(yaw) not in attempted
             ]
             # A survey-priority APC is an explorer: it surveys the cell it is
-            # crossing, from wherever it happens to be standing. Widening the
-            # arrival tolerance to a full cell means "at the center" is already
-            # true anywhere inside the cell (max half-diagonal ~0.71 cells), so
-            # the goto_center leg never emits and the APC never doubles back to
-            # map a cell it has already walked through. The N/S/E/W capture is
-            # unchanged, so the community place image other APCs read is too.
+            # crossing, from wherever inside that cell it happens to be standing,
+            # so the goto_center leg never emits and the APC never doubles back
+            # to map a cell it has already walked through. Containment is
+            # enforced separately below — this tolerance only decides whether an
+            # APC *already inside* the target cell still walks to its center.
             explorer = bool(getattr(self.agents.get(agent_id), "survey_priority", False))
             sweep = cell_sweep.default_sweep(
                 self.world_grid, col, row, z=xyz[2], headings=remaining,
@@ -2711,6 +2740,28 @@ class AgentManager:
             active = {"sweep": sweep, "col": col, "row": row, "views": []}
             self._cell_sweeps[agent_id] = active
             logger.info(f"[{agent_id}] sweep: unexplored cell ({col},{row}) — sweeping")
+
+        # A survey may only photograph the cell the APC is standing in. SR33
+        # captured (5,5) and (5,6) from one spot — 15.7 m *outside* (5,5) — and
+        # wrote two community place images from the same four frames, because
+        # arrival was a distance test and a persisted survey interrupt keeps its
+        # target across ticks and runs. Containment is the authority: outside the
+        # target cell, the only legal sweep step is walking to its center.
+        here_col, here_row = self._cell_col_row(observation.get("grid"))
+        if (here_col, here_row) != (active["col"], active["row"]):
+            center = self.world_grid.cell_center(active["col"], active["row"])
+            if center is None:
+                return None
+            if self._survey_travel_is_wedged(agent_id, active, (xyz[0], xyz[1])):
+                return None
+            logger.info(
+                f"[{agent_id}] sweep: standing in ({here_col},{here_row}) but surveying "
+                f"({active['col']},{active['row']}) — walking to that cell's center "
+                f"(travel tick {active['travel_ticks']}/{_MAX_SURVEY_TRAVEL_TICKS})"
+            )
+            return {"type": "walk_to", "location": [center[0], center[1], xyz[2]],
+                    "_sweep": "goto_center", "_sweep_interrupt": True}
+        active["travel_ticks"] = 0
 
         action = active["sweep"].next_action((xyz[0], xyz[1]))
         if action.get("type") == "sweep_done":
@@ -2731,6 +2782,44 @@ class AgentManager:
             return None
         action["_sweep_interrupt"] = True
         return action
+
+    def _survey_travel_is_wedged(self, agent_id: str, active: dict,
+                                 xy: tuple[float, float]) -> bool:
+        """Give up on a survey whose target cell cannot actually be walked into.
+
+        Containment means an unreachable cell is now a walk the APC would repeat
+        forever — the bridge accepts a move order that the navigation never
+        completes, so "success" proves nothing. Progress is measured in metres
+        moved, not in orders accepted. On the last allowed tick the cell is
+        marked blocked in the APC's own map so exploration stops choosing it,
+        and the caller resolves the interruption as an incomplete survey.
+        """
+        previous = active.get("travel_from")
+        moved = (math.hypot(xy[0] - previous[0], xy[1] - previous[1])
+                 if previous is not None else None)
+        active["travel_from"] = xy
+        if moved is not None and moved >= _SURVEY_TRAVEL_PROGRESS_CM:
+            active["travel_ticks"] = 0        # real progress — keep walking
+            return False
+
+        active["travel_ticks"] = active.get("travel_ticks", 0) + 1
+        if active["travel_ticks"] <= _MAX_SURVEY_TRAVEL_TICKS:
+            return False
+
+        # Spatial-map keys are raw grid indices; survey targets are bounds-
+        # relative col/row. Round-trip through the cell center to get the key.
+        center = self.world_grid.cell_center(active["col"], active["row"])
+        if center is not None:
+            self._spatial_map(agent_id).mark_blocked(
+                self.world_grid.locate(center[0], center[1])["key"]
+            )
+        logger.warning(
+            f"[{agent_id}] sweep: cell ({active['col']},{active['row']}) abandoned — "
+            f"{_MAX_SURVEY_TRAVEL_TICKS} travel ticks moved less than "
+            f"{_SURVEY_TRAVEL_PROGRESS_CM:.0f}cm; marking it unreachable"
+        )
+        self._cell_sweeps.pop(agent_id, None)
+        return True
 
     def _cell_survey_fact(self, agent: Agent, observation: dict) -> dict | None:
         """Authoritative survey verdict for the cell the APC is standing in (#40).
@@ -3112,11 +3201,15 @@ class AgentManager:
             self.place_db.ingest_compass(agent_id, col, row, direction, landmarks)
         active = self._cell_sweeps.get(agent_id)
         if active is not None:
+            here = _loc_xyz(observation.get("location"))
             active.setdefault("views", []).append({
                 "direction": direction,
                 "yaw": yaw,
                 "image_path": image_path,
                 "caption": seen.get("caption", ""),
+                # Where the frame was actually taken — the only evidence that a
+                # composite belongs to the cell it is filed under (#55).
+                "at": [here[0], here[1]] if here else None,
                 "landmarks": landmarks,
                 "characters": seen.get("characters", []),
             })

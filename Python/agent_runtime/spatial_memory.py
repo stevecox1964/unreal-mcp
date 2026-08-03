@@ -150,6 +150,11 @@ class SpatialMap:
         ts = datetime.now(timezone.utc).isoformat()
         self._ensure_cell(key, ts)["blocked"] = True
 
+    def is_blocked(self, key: str) -> bool:
+        """Whether this cell has been found unreachable. Unknown cells are not."""
+        cell = self.cells.get(key)
+        return bool(cell and cell.get("blocked"))
+
     # ── Queries ───────────────────────────────────────────────────────────────
 
     def _visited_keys(self) -> list[str]:

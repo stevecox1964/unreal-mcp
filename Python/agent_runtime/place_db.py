@@ -95,6 +95,11 @@ CREATE TABLE IF NOT EXISTS place_images (
     description    TEXT    NOT NULL DEFAULT '',
     captured_by    TEXT    NOT NULL,
     captured_at    TEXT    NOT NULL,
+    -- World position the four frames were taken from. Without it a composite
+    -- filed under the wrong cell is undetectable (SR33 wrote (5,5) and (5,6)
+    -- from one spot); with it, every revision can be checked against its cell.
+    captured_x     REAL,
+    captured_y     REAL,
     UNIQUE (place_key, revision)
 );
 
@@ -203,6 +208,12 @@ class PlaceDB:
                          "ADD COLUMN source TEXT NOT NULL DEFAULT 'runtime'")
         if "place_image_id" not in have:
             conn.execute("ALTER TABLE owned_place_cells ADD COLUMN place_image_id TEXT")
+        # captured_x/y: where the four frames were shot. NULL on pre-#55 rows —
+        # never guess a position for a revision that did not record one.
+        have = {r[1] for r in conn.execute("PRAGMA table_info(place_images)")}
+        for col in ("captured_x", "captured_y"):
+            if col not in have:
+                conn.execute(f"ALTER TABLE place_images ADD COLUMN {col} REAL")
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
@@ -771,11 +782,14 @@ class PlaceDB:
 
     def record_place_image(self, agent_id: str, col: int, row: int,
                            image_path: str, views: dict[str, str],
-                           description: str = "", place_name: str = None) -> dict:
+                           description: str = "", place_name: str = None,
+                           captured_xy: tuple[float, float] = None) -> dict:
         """Create an immutable place-image revision and make it current.
 
         Paths are stored relative to the world directory. ``views`` must contain
         N/S/E/W source paths. The capturing APC is linked to the exact revision.
+        ``captured_xy`` is the world position the frames were shot from, so a
+        revision filed under the wrong cell can be found later (#55).
         Example valid input::
 
             record_place_image("maren", 5, 5, "places/images/id.png",
@@ -797,10 +811,13 @@ class PlaceDB:
                 "INSERT INTO place_images "
                 "(place_image_id, place_key, place_kind, col, row, owner, name, revision, "
                 " image_path, north_path, south_path, east_path, west_path, description, "
-                " captured_by, captured_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " captured_by, captured_at, captured_x, captured_y) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (image_id, ref["key"], ref["kind"], col, row, ref["owner"], ref["name"],
                  revision, str(image_path), normalized["N"], normalized["S"],
-                 normalized["E"], normalized["W"], str(description or ""), agent_id, now),
+                 normalized["E"], normalized["W"], str(description or ""), agent_id, now,
+                 float(captured_xy[0]) if captured_xy else None,
+                 float(captured_xy[1]) if captured_xy else None),
             )
             if ref["kind"] == "owned":
                 conn.execute(

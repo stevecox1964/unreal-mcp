@@ -9,6 +9,40 @@ Newest grooming: **2026-07-17**.
 
 ### Now
 
+- **#55 SR33 (2026-08-02) — the survey was photographing cells it was not standing in. FIXED, needs
+  live verification.** SR33 ran 2 walks and 8 survey headings and never moved from
+  `(-10491.7, 718.6)` — grid cell **(5,6)**. From that one spot it wrote `community:5:5` rev 4 *and*
+  `community:5:6` rev 2: two cells, one set of four frames, both described as "standing in a corn
+  field". Two causes, both closed:
+  - Arrival was a **distance** test with the explorer tolerance widened to a full cell (#48), so
+    "at the center" was true 15.7 m outside the cell; and a persisted survey interrupt keeps its
+    target across ticks *and runs*, so Dufus woke owing a survey for a cell he had left.
+    Containment is now the authority — outside the target cell the only legal sweep step is walking
+    into it — and `_save_place_visual` refuses to file frames whose capture point is in another cell.
+  - `place_images` now stores `captured_x`/`captured_y` (#49 partially landed): a mis-filed
+    revision is detectable instead of invisible. Pre-existing rows are NULL — never guessed.
+  - Containment could have become an infinite walk into a walled-off cell, so a survey gets
+    4 travel ticks; legs that move < 150 cm don't count, and exhausting them abandons the survey and
+    marks the cell blocked on the APC's own map, which the sweep start gate now honours.
+  - **The corpus still holds the bad rows.** `community:5:5` rev 4 was shot from cell (5,6) and
+    `community:5:5` is named "Utility Pole Forest" while every SR32/SR33 revision describes a corn
+    field. Needs a user decision: purge the mis-filed revisions or leave them and re-survey.
+- **#55 decision log is now auditable.** SR33's two walks both logged
+  `walk_to success` + "turning back the way I came" and nothing else — one walked 15 m *into* the
+  corn, the other walked back out, and only the raw socket dump in `sim_runner.log` could tell them
+  apart. Rows now carry `at`, `cell`, `footing`, `facing_yaw`, `moved_cm` (real displacement since
+  the previous decision) and `move: {intent, target, heading, distance_cm}`, where `intent`
+  distinguishes a facing-relative `direction:back` from an absolute place/actor/cell/location.
+- **Next (#55 follow-on, not started): the LLM's "don't go there" has no way to reach the engine.**
+  `walk_to direction` is a yaw offset from *current facing*, and after a survey the facing is the
+  last cardinal sweep yaw — so "turn back the way I came" is unrepresentable and in SR33 executed as
+  a step **deeper into** the field. Nothing records the inbound heading, and footing is only sampled
+  where the APC already stands, so bad ground can only ever be discovered by walking onto it.
+  Direction: give the LLM absolute compass directions (the survey already thinks in cardinals), a
+  "you came from <compass>" fact, per-candidate-direction footing probes as facts, and let it name a
+  grid cell as one to stay out of — mapping onto the existing `SpatialMap.mark_blocked`.
+  Facts, not blockers.
+
 - **SR32 (2026-07-30) — first working Sonnet 5 run; survey-only Dufus verified live.** 49 ticks,
   zero LLM errors (after fixing `content[0].text` → ThinkingBlock crash in `llm_router.py` /
   `perception.py`). Six new survey composites (cells 5,5 / 5,6 / 4,6 / 4,5 / 3,5 / 3,6;

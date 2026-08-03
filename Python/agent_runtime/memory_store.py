@@ -9,11 +9,20 @@ compact. Edge cases: a result carrying both ``success: False`` and no message,
 a non-string error value, and a missing ``timing`` dict. Suggested level:
 offline unit coverage in ``scripts/agent_runtime``; a real bridge failure still
 needs live/PIE verification.
+
+TEST-FLAG (#55): ``movement_trace`` must report where the APC stood, the cell
+and footing it stood on, and — for a move — the target, its compass heading and
+the intent that produced it; ``MemoryStore.record`` must add ``moved_cm`` from
+the previous entry's position for the same agent and omit movement fields for
+non-movement actions. Edge cases: a missing/zero-displacement location, an
+observation with no grid or vision, and the first entry of a run (no previous
+position). Offline unit coverage in ``scripts/agent_runtime``.
 """
 from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -86,6 +95,115 @@ def classify_action_error(result: dict, elapsed_ms: float = None) -> dict | None
     return diagnostic
 
 
+# Compass sectors for a world-space vector. UE yaw: E=0, S=90, W=180, N=270,
+# so +x is east and +y is south — the same convention the survey headings use.
+_COMPASS = ["E", "SE", "S", "SW", "W", "NW", "N", "NE"]
+
+# Below this the avatar has not meaningfully moved; a heading would be noise.
+_MIN_HEADING_CM = 1.0
+
+# Action types whose whole point is displacement — only these log a target.
+_MOVEMENT_ACTIONS = {"walk_to", "wander", "follow_character"}
+
+
+def _xy(loc) -> tuple[float, float] | None:
+    """Coerce a location payload ({x,y,...} dict or [x,y,...] list) to (x, y)."""
+    if isinstance(loc, dict) and loc.get("x") is not None:
+        return float(loc["x"]), float(loc["y"])
+    if isinstance(loc, (list, tuple)) and len(loc) >= 2:
+        return float(loc[0]), float(loc[1])
+    return None
+
+
+def _compass_of(dx: float, dy: float) -> str | None:
+    """Compass label of a world-space vector; None when there is no vector."""
+    if math.hypot(dx, dy) < _MIN_HEADING_CM:
+        return None
+    sector = int(((math.degrees(math.atan2(dy, dx)) % 360.0) + 22.5) // 45) % 8
+    return _COMPASS[sector]
+
+
+def _move_intent(action: dict) -> str | None:
+    """Name the form of the movement request the LLM (or a routine) produced.
+
+    The forms are not interchangeable: a ``direction`` is relative to the
+    avatar's current facing, while a place/actor/cell/location is absolute.
+    SR33's log could not tell them apart, which is why a walk deeper into a
+    corn field and a walk back out both read as ``walk_to success``.
+    """
+    if action.get("direction"):
+        return f"direction:{action['direction']}"
+    target = action.get("target_location")
+    if isinstance(target, str) and target.strip():
+        return f"place:{target.strip()}"
+    if action.get("target_actor"):
+        return f"actor:{action['target_actor']}"
+    if action.get("target_cell") is not None:
+        return f"cell:{action['target_cell']}"
+    if action.get("_sweep"):
+        return f"survey:{action['_sweep']}"
+    if _xy(action.get("location")) is not None or _xy(target) is not None:
+        return "location"
+    return None
+
+
+def movement_trace(observation: dict, action: dict,
+                   previous_xy: tuple[float, float] | None = None) -> dict:
+    """Describe where an action happened and where it aimed (#55).
+
+    SR33 logged "turning back the way I came" twice with no position, target or
+    heading, so a 15 m walk *into* a corn field and the walk back out were
+    indistinguishable — both read ``walk_to success``. Returns the fields that
+    make a movement auditable::
+
+        {"at": [x, y], "cell": "5,6", "footing": "cultivated_field",
+         "facing_yaw": 180.0, "moved_cm": 1465.8,
+         "move": {"intent": "direction:back", "target": [x, y], "heading": "N"}}
+
+    Every field is omitted when the underlying fact is absent — an observation
+    with no vision has no ``footing``, an idle action has no ``move``.
+    """
+    trace: dict = {}
+    here = _xy(observation.get("location"))
+    if here is not None:
+        trace["at"] = [round(here[0], 1), round(here[1], 1)]
+    if previous_xy is not None and here is not None:
+        trace["moved_cm"] = round(math.hypot(here[0] - previous_xy[0],
+                                             here[1] - previous_xy[1]), 1)
+
+    grid = observation.get("grid") or {}
+    if grid.get("col") is not None and grid.get("row") is not None:
+        trace["cell"] = f"{grid['col']},{grid['row']}"
+    footing = (observation.get("seen") or {}).get("footing")
+    if footing:
+        trace["footing"] = str(footing)
+    rotation = observation.get("rotation")
+    if isinstance(rotation, dict) and rotation.get("y") is not None:
+        trace["facing_yaw"] = round(float(rotation["y"]), 1)
+    elif isinstance(rotation, (list, tuple)) and len(rotation) >= 2:
+        trace["facing_yaw"] = round(float(rotation[1]), 1)
+
+    if action.get("type") not in _MOVEMENT_ACTIONS and not action.get("_sweep"):
+        return trace
+
+    move: dict = {}
+    intent = _move_intent(action)
+    if intent:
+        move["intent"] = intent
+    target = _xy(action.get("location")) or _xy(action.get("target_location"))
+    if target is not None:
+        move["target"] = [round(target[0], 1), round(target[1], 1)]
+        if here is not None:
+            heading = _compass_of(target[0] - here[0], target[1] - here[1])
+            if heading:
+                move["heading"] = heading
+            move["distance_cm"] = round(math.hypot(target[0] - here[0],
+                                                   target[1] - here[1]), 1)
+    if move:
+        trace["move"] = move
+    return trace
+
+
 class MemoryStore:
     def __init__(self, worlds_dir: Path):
         self.worlds_dir = worlds_dir
@@ -95,6 +213,9 @@ class MemoryStore:
         # Current sim run tag (SR<n>), set by AgentManager at run start so each
         # decision-log entry is attributable to a single run.
         self.sim_run_id: str = "SR0"
+        # Last logged position per agent — the only way a decision row can say
+        # how far the *previous* decision actually moved the avatar (#55).
+        self._last_xy: dict[str, tuple[float, float]] = {}
 
     def update_agents_dir(self, agents_dir: Path) -> None:
         self.agents_dir = agents_dir
@@ -198,6 +319,11 @@ class MemoryStore:
             "thought": observation.get("_thought"),
             "result_status": result.get("status") or result.get("success"),
         }
+        entry.update(movement_trace(observation, action, self._last_xy.get(agent_id)))
+        here = _xy(observation.get("location"))
+        if here is not None:
+            self._last_xy[agent_id] = here
+
         if timing:
             entry["timing"] = timing
         # A failed action keeps enough detail to tell timeout from transport from

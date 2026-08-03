@@ -237,6 +237,102 @@ def test_explorer_surveys_in_place_without_backtracking():
               == [0.0, 90.0, 180.0, 270.0])
 
 
+def test_survey_only_captures_the_cell_it_stands_in():
+    """#55: SR33 filed community images for (5,5) *and* (5,6) from one spot.
+
+    A persisted survey interrupt keeps its target across ticks and runs, and the
+    explorer's full-cell arrival tolerance made "at the center" true from 15.7 m
+    outside the cell. Containment is now the authority: standing in (5,6) with a
+    survey targeting (5,5), the only legal step is walking into (5,5).
+    """
+    standing_in_5_6 = _obs(350.0, 550.0, col=5, row=6)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _manager(tmp)
+        explorer = _StubAgent("dufus")
+        explorer.survey_priority = True
+        mgr.agents = {"dufus": explorer}
+
+        first = mgr._sweep_step("dufus", standing_in_5_6, target=(5, 5))
+        check("explorer outside the target cell must travel, not capture",
+              first["type"] == "walk_to")
+        check("travels to the target cell's center, not its own",
+              first["location"] == [200.0, 200.0, 90.0])
+        check("still tagged as sweep work", first.get("_sweep_interrupt") is True)
+
+        # It stays a travel leg for as long as the APC is in the wrong cell.
+        again = mgr._sweep_step("dufus", standing_in_5_6, target=(5, 5))
+        check("no heading is ever captured from outside the cell",
+              again["type"] == "walk_to")
+
+        # Once inside the target cell it surveys from where it stands (#48).
+        inside = mgr._sweep_step("dufus", _obs(350.0, 350.0, col=5, row=5), target=(5, 5))
+        check("inside the target cell the explorer observes immediately",
+              inside["type"] == "observe_heading")
+
+
+def test_survey_abandons_a_cell_it_cannot_walk_into():
+    """#55: containment must not become an infinite walk.
+
+    A cell walled off by scenery accepts the move order and never arrives, so
+    progress is measured in metres moved. After the allowed travel ticks the
+    survey is abandoned and the cell is marked unreachable on the APC's map.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _manager(tmp)
+        explorer = _StubAgent("dufus")
+        explorer.survey_priority = True
+        mgr.agents = {"dufus": explorer}
+
+        wedged = _obs(350.0, 550.0, col=5, row=6)   # never moves
+        actions = [mgr._sweep_step("dufus", wedged, target=(5, 5)) for _ in range(8)]
+        check("it tries to travel first", actions[0]["type"] == "walk_to")
+        check("it gives up instead of walking forever", None in actions)
+        check("it spent exactly the allowed travel ticks first",
+              actions.index(None) == 4
+              and all(a["type"] == "walk_to" for a in actions[:4]))
+        check("the abandoned survey is cleared", "dufus" not in mgr._cell_sweeps)
+        smap = mgr._spatial_map("dufus")
+        blocked = [k for k, c in smap.cells.items() if c.get("blocked")]
+        check("the unreachable cell is marked blocked on the APC's map",
+              blocked == [mgr.world_grid.locate(200.0, 200.0)["key"]])
+        check("and it is never re-surveyed after that",
+              all(a is None for a in actions[4:]))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _manager(tmp)
+        explorer = _StubAgent("dufus")
+        explorer.survey_priority = True
+        mgr.agents = {"dufus": explorer}
+
+        # An APC that is actually closing the distance never trips the guard.
+        for step in range(6):
+            action = mgr._sweep_step(
+                "dufus", _obs(350.0, 2000.0 - step * 300.0, col=5, row=6), target=(5, 5))
+        check("real progress keeps the survey alive", action is not None)
+        check("and it is still a travel leg", action["type"] == "walk_to")
+
+
+def test_place_visual_refuses_frames_shot_outside_the_cell():
+    """#55: the capture position is evidence, and it is checked before writing.
+
+    Four complete views whose ``at`` lies in a different cell must not become a
+    place image — that is exactly how SR33 wrote a corn field into two cells.
+    """
+    def views_at(x, y):
+        return [{"direction": d, "yaw": 0.0, "image_path": f"{d}.png",
+                 "caption": "corn", "at": [x, y]} for d in ("N", "S", "E", "W")]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _manager(tmp)
+        mgr._agents_dir = Path(tmp) / "agents"
+        (mgr._agents_dir / "dufus").mkdir(parents=True, exist_ok=True)
+        check("frames shot in cell (5,6) are refused for cell (5,5)",
+              mgr._save_place_visual("dufus", 5, 5, views_at(200.0, 550.0)) is None)
+        check("nothing was filed",
+              mgr.place_db.current_place_image("dufus", 5, 5) is None)
+
+
 def test_should_sweep_here_gate():
     # This low-level gate answers only whether the cell needs a survey. Schedule
     # priority is applied by _act_agent (#34), so these raw results intentionally
@@ -729,6 +825,9 @@ def main():
     test_sweep_step_start_false_never_starts()
     test_sweep_step_runs_then_drops_breadcrumb()
     test_explorer_surveys_in_place_without_backtracking()
+    test_survey_only_captures_the_cell_it_stands_in()
+    test_survey_abandons_a_cell_it_cannot_walk_into()
+    test_place_visual_refuses_frames_shot_outside_the_cell()
     test_should_sweep_here_gate()
     test_explored_cells_set()
     test_act_agent_starts_sweep_interrupt()
