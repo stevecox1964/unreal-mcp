@@ -47,6 +47,10 @@ _MAX_FRONTIER_FAILURES = 3
 # and a cell walled off by scenery would otherwise retry that walk forever. It
 # gets this many travel ticks; a leg that moves less than a tenth of a step is
 # not progress. Exhausting them abandons the survey and blocks the cell.
+# How many ticks of footing history the APC carries. Long enough to show a
+# two-cell ping-pong, short enough that old ground stops mattering.
+_FOOTING_TRAIL_LEN = 5
+
 _MAX_SURVEY_TRAVEL_TICKS = 4
 _SURVEY_TRAVEL_PROGRESS_CM = 150.0
 
@@ -219,6 +223,7 @@ class AgentManager:
         self._last_pos: dict[str, tuple] = {}       # agent_id -> last (x, y), for stuck detection
         self._travel_from: dict[str, tuple] = {}    # agent_id -> (x, y) at the previous observation
         self._travel: dict[str, dict] = {}          # agent_id -> last real heading travelled (#56)
+        self._footing_trail: dict[str, list[str]] = {}   # agent_id -> recent footings (#57)
         self._no_progress: dict[str, int] = {}      # agent_id -> consecutive "moving but didn't advance" ticks
         self._last_grid_place: dict[str, tuple] = {}  # agent_id -> (grid, place), reported even when LLM skipped
         self._routes: dict[str, dict] = {}          # agent_id -> cached grid-first route (#17/WP8)
@@ -292,6 +297,7 @@ class AgentManager:
         self._last_pos.clear()
         self._travel_from.clear()
         self._travel.clear()
+        self._footing_trail.clear()
         self._no_progress.clear()
         self._routes.clear()
         self._live_pos.clear()
@@ -1560,6 +1566,7 @@ class AgentManager:
             if seen.get("error"):
                 logger.warning(f"[{agent_id}] perception failed: {seen['error']}")
             observation["seen"] = seen
+            observation["footing_trail"] = self._footing_trail_fact(agent_id, seen)
             self._save_perception_evidence(agent_id, observation, seen)
 
             xyz = _loc_xyz(observation.get("location"))
@@ -3069,6 +3076,27 @@ class AgentManager:
         smap.ingest(xyz[0], xyz[1], [{"label": name, "confidence": 0.8, "distance": "near"}])
         smap.save(self._agents_dir / agent_id / "spatial_map.json")
 
+    def _footing_trail_fact(self, agent_id: str, seen: dict | None) -> list[str]:
+        """What the APC has been standing on for the last few ticks (#57).
+
+        SR37 ended with Dufus alternating cultivated_field → grass → cultivated
+        _field → grass for five straight decisions: the footing rule told him to
+        turn back, and turning back was the other bad cell. Each decision was
+        correct in isolation and he could not see the loop, because every tick
+        showed him only the ground under his feet right now.
+
+        This is history, not advice — the lizard brain reports, the model
+        concludes (see the lizard-brain contract). Whether four rough footings in
+        a row means "I am circling" is the model's call, not ours.
+        """
+        footing = str((seen or {}).get("footing") or "").strip()
+        if not footing:
+            return list(self._footing_trail.get(agent_id, []))
+        trail = self._footing_trail.setdefault(agent_id, [])
+        trail.append(footing)
+        del trail[:-_FOOTING_TRAIL_LEN]
+        return list(trail)
+
     def _travel_fact(self, agent_id: str, location) -> dict | None:
         """Which way the APC actually travelled to reach this spot (#56).
 
@@ -3556,6 +3584,7 @@ class AgentManager:
         self._last_pos.clear()
         self._travel_from.clear()
         self._travel.clear()
+        self._footing_trail.clear()
         self._no_progress.clear()
         self._routes.clear()
         self._cell_sweeps.clear()

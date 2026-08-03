@@ -40,6 +40,20 @@ _CLAIMED_NEED = re.compile(
     re.IGNORECASE,
 )
 
+# A sentence *about* survey state is not a claim to have captured anything.
+# Once surveying became the model's own decision (#57), reading that state aloud
+# is how it reasons — "this cell is already surveyed, move on" is repeating the
+# fact we hand it. SR37 deleted three such thoughts as fabrications and replaced
+# them with "Nothing about surveying this cell can be stated", silencing exactly
+# the reasoning the new action depends on.
+_DESCRIBES_STATE = re.compile(
+    r"\balready\b|\bpreviously\b"
+    r"|\b(?:is|was|are|were|been|isn't|wasn't)\s+(?:\w+\s+){0,2}surveyed\b"
+    r"|\bsurvey\s+(?:is|was|here is|here was)\b"
+    r"|\bneeds?\s+(?:no|another)\b",
+    re.IGNORECASE,
+)
+
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
 
@@ -74,7 +88,8 @@ def filter_survey_claims(text: str, *, captured: bool,
     for sentence in _SENTENCE_SPLIT.split(text.strip()):
         if not sentence.strip():
             continue
-        if not captured and _CLAIMED_CAPTURE.search(sentence):
+        if (not captured and _CLAIMED_CAPTURE.search(sentence)
+                and not _DESCRIBES_STATE.search(sentence)):
             reasons.append("claimed a saved capture with no survey heading this tick")
             continue
         if not needs_survey and _CLAIMED_NEED.search(sentence):

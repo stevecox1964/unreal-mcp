@@ -540,7 +540,7 @@ class LLMRouter:
                 facing=_facing_text(observation.get("rotation")),
                 travel_note=_travel_note(observation.get("travel")),
                 direction_lines=_direction_lines(observation.get("directions")),
-                seen=_seen_text(observation.get("seen")),
+                seen=_seen_text(observation.get("seen"), observation.get("footing_trail")),
                 world_time=observation.get("world_time", "unknown"),
                 current_action=action_state,
                 current_goal=agent.current_goal,
@@ -1063,7 +1063,7 @@ def _nearby_character_lines(characters: list | None) -> str:
     return "\n".join(lines) or "No other APC is nearby."
 
 
-def _seen_text(seen: dict | None) -> str:
+def _seen_text(seen: dict | None, footing_trail: list | None = None) -> str:
     """Render a perception result ({landmarks, characters, caption}) as prompt lines."""
     if not seen:
         return "(no view this tick)"
@@ -1074,11 +1074,27 @@ def _seen_text(seen: dict | None) -> str:
         lines.append(seen["caption"])
     if seen.get("footing"):
         lines.append(f"FOOTING: {seen['footing']}")
+    trail = _footing_trail_text(footing_trail)
+    if trail:
+        lines.append(trail)
     for lm in seen.get("landmarks") or []:
         lines.append(f"- {lm['label']} ({lm.get('bearing', '?')}, {lm.get('distance', '?')})")
     for ch in seen.get("characters") or []:
         lines.append(f"- CHARACTER: {ch['label']} ({ch.get('bearing', '?')}, {ch.get('distance', '?')})")
     return "\n".join(lines) or "(nothing notable)"
+
+
+def _footing_trail_text(trail: list | None) -> str:
+    """Recent ground underfoot, oldest first (#57).
+
+    One tick only ever shows the ground you are on now, so a two-cell ping-pong
+    between rough patches is invisible from inside it — SR37 spent its last five
+    decisions alternating between a cornfield and a lawn, each retreat correct on
+    its own. This is history, stated flatly; what it means is the model's call.
+    """
+    if not trail:
+        return ""
+    return "RECENT FOOTING (oldest first): " + " -> ".join(str(f) for f in trail)
 
 
 def _direction_lines(directions: dict | None) -> str:
