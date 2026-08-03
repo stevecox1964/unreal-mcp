@@ -190,7 +190,11 @@ def movement_trace(observation: dict, action: dict,
     intent = _move_intent(action)
     if intent:
         move["intent"] = intent
-    target = _xy(action.get("location")) or _xy(action.get("target_location"))
+    # A direction walk carries no coordinates until execution resolves it, so
+    # the executor stashes what it actually aimed at — without it the heading a
+    # direction word produced is exactly the thing the log cannot show.
+    target = (_xy(action.get("_resolved_target")) or _xy(action.get("location"))
+              or _xy(action.get("target_location")))
     if target is not None:
         move["target"] = [round(target[0], 1), round(target[1], 1)]
         if here is not None:
@@ -202,6 +206,41 @@ def movement_trace(observation: dict, action: dict,
     if move:
         trace["move"] = move
     return trace
+
+
+def movement_summary(trace: dict, action_type: str, status: str = "") -> str:
+    """One line of movement for a human watching it happen — the PIE overlay.
+
+    The decision log records where the APC stood, what it aimed at and what it
+    was standing on, but none of that reached the viewport, so watching a run
+    still meant reading the log afterwards. ASCII only: this is drawn by the
+    engine's debug text, not a browser. Example::
+
+        walk_to north 15m ->N [success] | cell 4,6 | cultivated_field
+    """
+    move = trace.get("move") or {}
+    parts = [str(action_type or "?")]
+    intent = str(move.get("intent") or "")
+    if intent:
+        # "direction:north" reads as "north"; "place:village square" keeps its
+        # kind, because "walk_to village square" and "walk_to north" are
+        # different sorts of request and the difference is the point.
+        parts.append(intent.split(":", 1)[1] if intent.startswith("direction:") else intent)
+    if move.get("distance_cm") is not None:
+        parts.append(f"{round(move['distance_cm'] / 100)}m")
+    if move.get("heading"):
+        parts.append(f"->{move['heading']}")
+    if status:
+        parts.append(f"[{status}]")
+
+    tail = []
+    if trace.get("cell"):
+        tail.append(f"cell {trace['cell']}")
+    if trace.get("footing"):
+        tail.append(str(trace["footing"]))
+    if trace.get("moved_cm") is not None:
+        tail.append(f"moved {round(trace['moved_cm'] / 100)}m")
+    return " ".join(parts) + (" | " + " | ".join(tail) if tail else "")
 
 
 class MemoryStore:

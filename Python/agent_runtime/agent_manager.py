@@ -29,6 +29,7 @@ from . import route_map
 from . import route_planner
 from . import sim_run
 from .episodic_memory import EpisodicLog
+from .memory_store import movement_summary, movement_trace
 from .place_db import (COMMUNITY_SURVEY_MAX_AGE_SECONDS, PLACE_EXTENT_CM,
                        PlaceDB, yaw_to_compass)
 from .social_memory import SocialMemory, is_anonymous
@@ -2020,7 +2021,13 @@ class AgentManager:
         timing["act_ms"] = round((time.monotonic() - act_started) * 1000.0, 3)
         timing.update(self._movement_timing_snapshot(agent_id))
         status = result.get("status") or result.get("success")
-        self._pie_activity(agent_id, f"OBS fire -> {action.get('type')} [{status}]")
+        # Show the movement itself in PIE, not just the action name — the whole
+        # SR34 direction bug was invisible while watching the sim run.
+        # No previous position here: it is already advanced to this tick's, and
+        # the achieved displacement belongs to the log, not the live line.
+        self._pie_activity(agent_id, movement_summary(
+            movement_trace(observation, action), action.get("type"), str(status),
+        ))
 
         # Name the place if the LLM provided one.
         self._record_place(agent_id, observation.get("location"), decision.get("place"))
@@ -3212,6 +3219,9 @@ class AgentManager:
             if target is None:
                 return {"status": "accepted", "action": "idle",
                         "note": f"cannot resolve direction '{direction}' — no location/facing"}
+            # Record where the direction word actually pointed, so the decision
+            # log can show the heading it produced (#55).
+            action["_resolved_target"] = target
             result = self.bridge.execute_action(
                 agent.bound_unreal_actor_name, {"type": "walk_to", "location": target}
             )
