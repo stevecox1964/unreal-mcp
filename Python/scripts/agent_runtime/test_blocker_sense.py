@@ -262,8 +262,15 @@ def test_prompt_carries_sense_slot_and_doctrine():
     flat = tpl.replace("\n", " ")
     check("doctrine: stuck/structure escape — don't re-issue the same walk_to",
           "Do NOT re-issue the same walk_to" in flat)
+    # #56: the escape is stated in compass headings. Body-relative words are
+    # measured from a facing that changes as the APC walks and that a survey
+    # resets to north, so "back" could not be trusted to mean "the way I came".
     check("doctrine: stuck/structure escape — turn aside to a new direction",
-          "Turn aside" in flat and "left, right, or back" in flat)
+          "Turn aside" in flat and "compass heading you came from" in flat)
+    check("doctrine: compass and body-relative directions are distinguished",
+          "COMPASS directions" in flat and "BODY-RELATIVE directions" in flat)
+    check("doctrine: never say 'back' for the way you came",
+          'Never use "back" to mean "the way I came"' in flat)
     check("doctrine: navigate by sight, not by physical walkability",
           "navigate by what you SEE" in flat)
     check("doctrine: route around impassable-looking terrain (fields/crops)",

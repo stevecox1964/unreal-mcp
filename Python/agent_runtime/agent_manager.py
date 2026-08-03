@@ -68,6 +68,22 @@ _DIRECTION_YAW_OFFSET = {
     "back": 180.0,
 }
 
+# walk_to direction → absolute UE yaw, independent of which way the avatar
+# happens to be pointing (#56). Everything else the APC reasons with — the
+# survey headings, the compass observations in PlaceDB, the grid — is already
+# cardinal; facing-relative words were the only part that silently changed
+# meaning underneath the model, so they are no longer the only option.
+_ABSOLUTE_DIRECTION_YAW = {
+    "east": 0.0, "southeast": 45.0, "south": 90.0, "southwest": 135.0,
+    "west": 180.0, "northwest": 225.0, "north": 270.0, "northeast": 315.0,
+}
+
+# Compass reversal — "the way I came" is the opposite of the way I travelled.
+_OPPOSITE_COMPASS = {
+    "N": "S", "NE": "SW", "E": "W", "SE": "NW",
+    "S": "N", "SW": "NE", "W": "E", "NW": "SE",
+}
+
 # One movement "step" for direction-relative walks (cm).
 _STEP_DISTANCE = 1500.0
 
@@ -200,6 +216,8 @@ class AgentManager:
         self._scene_skips: dict[str, int] = {}      # agent_id -> consecutive scene-unchanged skips (gate liveness)
         self._nearby_ids: dict[str, frozenset[str]] = {}  # agent_id -> nearby APC ids on prior cheap sample
         self._last_pos: dict[str, tuple] = {}       # agent_id -> last (x, y), for stuck detection
+        self._travel_from: dict[str, tuple] = {}    # agent_id -> (x, y) at the previous observation
+        self._travel: dict[str, dict] = {}          # agent_id -> last real heading travelled (#56)
         self._no_progress: dict[str, int] = {}      # agent_id -> consecutive "moving but didn't advance" ticks
         self._last_grid_place: dict[str, tuple] = {}  # agent_id -> (grid, place), reported even when LLM skipped
         self._routes: dict[str, dict] = {}          # agent_id -> cached grid-first route (#17/WP8)
@@ -271,6 +289,8 @@ class AgentManager:
         self._scene_skips.clear()
         self._nearby_ids.clear()
         self._last_pos.clear()
+        self._travel_from.clear()
+        self._travel.clear()
         self._no_progress.clear()
         self._routes.clear()
         self._live_pos.clear()
@@ -1275,6 +1295,7 @@ class AgentManager:
         observation["directions"] = self._direction_places(
             agent_id, observation.get("location"), observation.get("rotation")
         )
+        observation["travel"] = self._travel_fact(agent_id, observation.get("location"))
 
         # Structured place context from SQLite (None if not yet named).
         if self.place_db and grid:
@@ -2737,7 +2758,10 @@ class AgentManager:
             )
             if sweep is None:
                 return None
-            active = {"sweep": sweep, "col": col, "row": row, "views": []}
+            # The survey turns the avatar through all four cardinals, so the
+            # facing it arrived with must be remembered now or it is gone (#56).
+            active = {"sweep": sweep, "col": col, "row": row, "views": [],
+                      "entry_yaw": _yaw_of(observation.get("rotation"))}
             self._cell_sweeps[agent_id] = active
             logger.info(f"[{agent_id}] sweep: unexplored cell ({col},{row}) — sweeping")
 
@@ -2765,6 +2789,7 @@ class AgentManager:
 
         action = active["sweep"].next_action((xyz[0], xyz[1]))
         if action.get("type") == "sweep_done":
+            self._restore_facing_after_survey(agent_id, active, observation)
             image = self._save_place_visual(
                 agent_id, active["col"], active["row"], active.get("views", [])
             )
@@ -2782,6 +2807,32 @@ class AgentManager:
             return None
         action["_sweep_interrupt"] = True
         return action
+
+    def _restore_facing_after_survey(self, agent_id: str, active: dict,
+                                     observation: dict) -> None:
+        """Turn the avatar back to the facing it arrived with (#56).
+
+        A survey turns through E/S/W/N and the last heading is N, so without
+        this the avatar is left permanently facing north — and every
+        facing-relative word the LLM then uses is measured from north.
+        SR34 proved it: the survey of (6,6) ended at yaw -90, the LLM said
+        "turn back the way I came", and ``back`` resolved to south — straight
+        back into the corn field it was trying to leave. The wake sweep has
+        always restored its facing (see ``_wake_sweep``); the cell survey never
+        did. A failed turn is logged, never fatal — the survey itself is done.
+        """
+        agent = self.agents.get(agent_id)
+        entry_yaw = active.get("entry_yaw")
+        if agent is None or entry_yaw is None or not agent.has_unreal_binding:
+            return
+        result = self.bridge.set_facing(
+            agent.bound_unreal_actor_name, observation.get("location"), entry_yaw)
+        if result.get("error"):
+            logger.warning(f"[{agent_id}] sweep: could not restore facing "
+                           f"{entry_yaw:.0f} after survey: {result['error']}")
+        else:
+            logger.info(f"[{agent_id}] sweep: facing restored to "
+                        f"{yaw_to_compass(entry_yaw)} ({entry_yaw:.0f})")
 
     def _survey_travel_is_wedged(self, agent_id: str, active: dict,
                                  xy: tuple[float, float]) -> bool:
@@ -3012,12 +3063,53 @@ class AgentManager:
         smap.ingest(xyz[0], xyz[1], [{"label": name, "confidence": 0.8, "distance": "near"}])
         smap.save(self._agents_dir / agent_id / "spatial_map.json")
 
+    def _travel_fact(self, agent_id: str, location) -> dict | None:
+        """Which way the APC actually travelled to reach this spot (#56).
+
+        "Turn back the way I came" was unrepresentable: nothing recorded the
+        inbound heading, so the model had to guess with the body-relative word
+        ``back``, which is measured from a facing it cannot see. This is the
+        missing fact, stated in compass terms — the same terms the survey, the
+        grid and the place database already use. ``None`` until the APC has
+        actually moved; a stationary tick keeps the last real heading rather
+        than inventing one from pose jitter.
+        """
+        xyz = _loc_xyz(location)
+        if xyz is None:
+            return self._travel.get(agent_id)
+        previous = self._travel_from.get(agent_id)
+        self._travel_from[agent_id] = (xyz[0], xyz[1])
+        if previous is None:
+            return self._travel.get(agent_id)
+        dx, dy = xyz[0] - previous[0], xyz[1] - previous[1]
+        if math.hypot(dx, dy) < _MOVEMENT_START_CM:
+            return self._travel.get(agent_id)
+        heading = yaw_to_compass(math.degrees(math.atan2(dy, dx)))
+        self._travel[agent_id] = {
+            "heading": heading,
+            "came_from": _OPPOSITE_COMPASS[heading],
+            "distance_cm": round(math.hypot(dx, dy), 1),
+        }
+        return self._travel[agent_id]
+
     def _direction_target(self, observation: dict, direction: str) -> list[float] | None:
-        """Resolve a facing-relative direction to a world location one step away."""
+        """Resolve a direction word to a world location one step away.
+
+        A compass word ("north") is absolute and means the same thing on every
+        tick. A body-relative word ("back") is measured from the avatar's
+        current facing, which changes as it walks and turns — so the same word
+        can mean opposite headings two decisions apart (#56).
+        """
         xyz = _loc_xyz(observation.get("location"))
+        if xyz is None:
+            return None
+        name = str(direction or "").strip().lower()
+        absolute = _ABSOLUTE_DIRECTION_YAW.get(name)
+        if absolute is not None:
+            return _offset_location(*xyz, absolute, _STEP_DISTANCE)
         yaw = _yaw_of(observation.get("rotation"))
-        offset = _DIRECTION_YAW_OFFSET.get(str(direction or "").strip().lower())
-        if xyz is None or yaw is None or offset is None:
+        offset = _DIRECTION_YAW_OFFSET.get(name)
+        if yaw is None or offset is None:
             return None
         return _offset_location(*xyz, yaw + offset, _STEP_DISTANCE)
 
@@ -3453,6 +3545,8 @@ class AgentManager:
         self._scene_skips.clear()
         self._nearby_ids.clear()
         self._last_pos.clear()
+        self._travel_from.clear()
+        self._travel.clear()
         self._no_progress.clear()
         self._routes.clear()
         self._cell_sweeps.clear()

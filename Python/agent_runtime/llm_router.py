@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Optional
 from dotenv import load_dotenv
 
 from . import agenda
+from .place_db import yaw_to_compass
 
 if TYPE_CHECKING:
     from .agent import Agent
@@ -16,11 +17,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger("AgentRuntime")
 _ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
 
+# Compass abbreviation → the word the walk_to direction field accepts.
+_COMPASS_WORD = {
+    "N": "north", "NE": "northeast", "E": "east", "SE": "southeast",
+    "S": "south", "SW": "southwest", "W": "west", "NW": "northwest",
+}
+
 # Field specs for actions that take parameters beyond "type".
 _ACTION_SCHEMAS: dict[str, str] = {
     "idle":             '{"type": "idle"}',
     "wander":           '{"type": "wander"}  -- keep moving: take one step (~15m) in the direction you are facing',
-    "walk_to":          '{"type": "walk_to", "target_location": "<place name>"} to travel to a named place you know (e.g. "village square", "home"), OR {"type": "walk_to", "target_actor": "<actor_label>"} to walk to a known character, OR {"type": "walk_to", "direction": "forward|forward-left|forward-right|left|right|back"} to walk ~15m toward what you see in that direction',
+    "walk_to":          '{"type": "walk_to", "target_location": "<place name>"} to travel to a named place you know (e.g. "village square", "home"), OR {"type": "walk_to", "target_actor": "<actor_label>"} to walk to a known character, OR {"type": "walk_to", "direction": "north|south|east|west|northeast|northwest|southeast|southwest"} to walk ~15m along that compass heading, OR {"type": "walk_to", "direction": "forward|forward-left|forward-right|left|right|back"} to walk ~15m relative to the way your body is currently facing',
     "speak_to":         '{"type": "speak_to", "target": "<actor_label>", "message": "<text>"}',
     "inspect_object":   '{"type": "inspect_object", "target": "<actor_name>"}',
     "follow_character": '{"type": "follow_character", "target": "<actor_name>"}',
@@ -72,6 +79,7 @@ _USER_TEMPLATE_VISION = """\
 ## Your Location
 x={x:.0f}, y={y:.0f}, z={z:.0f}
 Facing: {facing}
+Travel: {travel_note}
 Grid cell: {grid_cell}
 Place: {place}
 Time: {world_time}
@@ -124,9 +132,23 @@ After such a pause, your next action goes back to the scheduled destination.
 Staying in character is good, but character quirks (curiosity, distraction)
 color HOW you travel — they do not cancel WHERE you are going.
 
-To move toward anything you see, use walk_to with a direction relative to your
-facing — "forward" is the view described above. Prefer a specific direction
-over wandering.
+There are two kinds of direction, and the difference matters.
+
+COMPASS directions — north, south, east, west and the diagonals — always mean
+the same thing. Your position, the grid, the places you know and the four views
+of every surveyed cell are all recorded in compass terms. Use these whenever you
+are deciding WHERE TO GO: leaving somewhere, retracing your steps, heading for
+unexplored ground.
+
+BODY-RELATIVE directions — forward, forward-left, forward-right, left, right,
+back — are measured from the way your body happens to be pointing right now,
+which is on the "Facing" line above and changes every time you walk or turn
+around. "forward" is the view described above. Use these only for reacting to
+what is in the picture this instant ("step forward-left around that car").
+Never use "back" to mean "the way I came" — say the compass heading instead;
+the "Travel" line above tells you exactly which one that is.
+
+Prefer a specific direction over wandering.
 
 You navigate by what you SEE, not by what the ground will physically let you
 cross. If the way toward your destination is a field of crops, tall grass, mud,
@@ -144,9 +166,10 @@ closer. If you were only passing by, step around them instead.
 If a sense says you have NOT advanced (you are stuck) or reports a structure,
 foliage, or obstacle directly ahead, the straight path to your destination is
 blocked by scenery — a wall, a fence, a field. Do NOT re-issue the same walk_to;
-it will only wedge you against the same thing again. Turn aside: walk_to left,
-right, or back to get clear of the obstacle, then head for your destination
-again from the new angle. Getting around it is your priority this tick.
+it will only wedge you against the same thing again. Turn aside: walk_to the
+compass heading you came from, or one at right angles to it, to get clear of the
+obstacle, then head for your destination again from the new angle. Getting
+around it is your priority this tick.
 
 If nothing is scheduled right now and nothing in view needs your attention,
 keep exploring: pick a direction whose
@@ -514,6 +537,7 @@ class LLMRouter:
                 y=loc.get("y", 0),
                 z=loc.get("z", 0),
                 facing=_facing_text(observation.get("rotation")),
+                travel_note=_travel_note(observation.get("travel")),
                 direction_lines=_direction_lines(observation.get("directions")),
                 seen=_seen_text(observation.get("seen")),
                 world_time=observation.get("world_time", "unknown"),
@@ -921,11 +945,34 @@ def _route_map_note(observation: dict) -> str:
 
 
 def _facing_text(rotation) -> str:
+    """Which way the body is pointing, in compass terms (#56).
+
+    A raw yaw is not something the model can reason with, and body-relative
+    words ("forward", "back") are measured from exactly this value — so it has
+    to be legible, or those words are a guess.
+    """
+    yaw = None
     if isinstance(rotation, dict) and rotation.get("y") is not None:
-        return f"yaw {float(rotation['y']):.0f} degrees"
-    if isinstance(rotation, (list, tuple)) and len(rotation) >= 2:
-        return f"yaw {float(rotation[1]):.0f} degrees"
-    return "unknown"
+        yaw = float(rotation["y"])
+    elif isinstance(rotation, (list, tuple)) and len(rotation) >= 2:
+        yaw = float(rotation[1])
+    if yaw is None:
+        return "unknown"
+    return f"{yaw_to_compass(yaw)} (yaw {yaw:.0f} degrees)"
+
+
+def _travel_note(travel: dict | None) -> str:
+    """State the heading the APC actually arrived on, so retreat is expressible.
+
+    SR34's model kept deciding "turn back the way I came" with nothing in the
+    prompt saying which way that was.
+    """
+    if not travel or not travel.get("heading"):
+        return "You have not travelled yet this run."
+    return (f"You arrived here heading {travel['heading']} "
+            f"({round(travel.get('distance_cm', 0) / 100)} m). "
+            f"The way you came is {travel['came_from']} — "
+            f"walk_to {_COMPASS_WORD[travel['came_from']]} to retrace it.")
 
 
 def _acquaintance_lines(acquaintances: list | None) -> str:
