@@ -703,10 +703,18 @@ performed an action. Do not output JSON or markdown."""
         client = self._anthropic_client()
         response = client.messages.create(
             model=model,
-            # Sonnet 5 tokenizes ~30% heavier than Haiku 4.5, so the 512 that fit a
-            # decision JSON before now holds noticeably less. Headroom here is cheap
-            # (we only pay for what is generated); a truncated JSON is a lost tick.
-            max_tokens=1024,
+            # max_tokens caps thinking AND response text together, and Sonnet 5
+            # thinks by default. At 1024 a tick could spend the whole budget
+            # reasoning and return a thinking block with no decision at all
+            # (SR35, 19:53:07) — the model wasn't broken, it ran out of room
+            # mid-thought. Sonnet 5 also tokenizes ~30% heavier than Haiku 4.5.
+            max_tokens=4096,
+            # Declared rather than defaulted: the sim's whole premise is that the
+            # LLM reasons about where to go, so thinking stays on. `medium` keeps
+            # that reasoning bounded — a tick is one short JSON decision, not an
+            # essay, and every tick pays for the thinking it does.
+            thinking={"type": "adaptive"},
+            output_config={"effort": "medium"},
             system=[{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": content}],
         )
@@ -714,9 +722,15 @@ performed an action. Do not output JSON or markdown."""
         # the TextBlock, so content[0] is not guaranteed to have .text.
         text = "".join(b.text for b in response.content if b.type == "text")
         if not text:
-            raise ValueError(
-                f"No text block in response (blocks: {[b.type for b in response.content]})"
-            )
+            blocks = [b.type for b in response.content]
+            if response.stop_reason == "max_tokens":
+                raise ValueError(
+                    f"ran out of tokens before deciding — spent all {response.usage.output_tokens} "
+                    f"output tokens on {blocks} and never wrote a decision; raise max_tokens "
+                    f"or lower effort"
+                )
+            raise ValueError(f"No text block in response (blocks: {blocks}, "
+                             f"stop_reason: {response.stop_reason})")
         return _strip_markdown_fences(text.strip())
 
     def _decide_openai(self, model: str, system_text: str, user_text: str) -> str:

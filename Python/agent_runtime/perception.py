@@ -197,9 +197,18 @@ class VisionPerceiver:
         # thinking enabled (e.g. Sonnet 5).
         text = "".join(b.text for b in response.content if b.type == "text")
         if not text:
-            raise ValueError(
-                f"No text block in response (blocks: {[b.type for b in response.content]})"
-            )
+            blocks = [b.type for b in response.content]
+            if response.stop_reason == "max_tokens":
+                # A thinking model configured here would spend this budget
+                # reasoning and never describe the frame. The default (Haiku 4.5)
+                # does not think, so this points at the configured model.
+                raise ValueError(
+                    f"ran out of tokens before describing the view — spent all "
+                    f"{response.usage.output_tokens} output tokens on {blocks}; "
+                    f"raise max_tokens or use a non-thinking model for perception"
+                )
+            raise ValueError(f"No text block in response (blocks: {blocks}, "
+                             f"stop_reason: {response.stop_reason})")
         return text
 
 
