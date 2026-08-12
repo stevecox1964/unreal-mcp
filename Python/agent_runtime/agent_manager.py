@@ -126,6 +126,17 @@ _STUCK_TRACE_CM = 300.0      # forward raycast distance when stuck (cm)
 _MOVEMENT_START_CM = 10.0    # ignore tiny pose jitter when timing first displacement
 _PROGRESS_NOISE_CM = 200.0   # route distance-to-goal jitter below this reads as "no change"
 
+# Wedge budget (#65). A stall is ordinary; a *run* of stalls is the failure mode
+# that eats whole runs — SR39 four ticks on one spot, SR40 eight. At this many
+# consecutive stalled orders the sense stops being one line among many and names
+# the proven way out explicitly. Deliberately a louder FACT, not a code-side
+# override: what to do about it stays the model's call.
+_WEDGE_BUDGET_TICKS = 3
+# Surfaces an APC should be walking on — the same set its rules name. A cell
+# recorded with one of these has been *walked*, not merely seen, so it is a
+# proven escape rather than a guess from the picture.
+_GOOD_FOOTING = ("pavement", "road", "dirt_path")
+
 # Path sense (B7): while traveling, watch what is directly ahead so the agent
 # can step around people/vehicles instead of walking through them — pawn-vs-pawn
 # collision is invisible to the navmesh, so this is the cognitive loop's problem,
@@ -252,6 +263,7 @@ class AgentManager:
         self._breadcrumbs: dict[str, list[dict]] = {}  # agent_id -> recent legs walked (#58)
         self._last_order: dict[str, dict] = {}      # agent_id -> last movement ordered, for the achieved-vs-ordered check (#59)
         self._tried_here: dict[str, dict] = {}      # agent_id -> {at, tried: {heading: moved_cm}} while wedged on one spot (#60)
+        self._stall_run: dict[str, int] = {}        # agent_id -> consecutive stalled orders (#65)
         self._no_progress: dict[str, int] = {}      # agent_id -> consecutive "moving but didn't advance" ticks
         self._last_grid_place: dict[str, tuple] = {}  # agent_id -> (grid, place), reported even when LLM skipped
         self._routes: dict[str, dict] = {}          # agent_id -> cached grid-first route (#17/WP8)
@@ -328,6 +340,7 @@ class AgentManager:
         self._breadcrumbs.clear()
         self._last_order.clear()
         self._tried_here.clear()
+        self._stall_run.clear()
         self._no_progress.clear()
         self._routes.clear()
         self._live_pos.clear()
@@ -424,6 +437,11 @@ class AgentManager:
 
         self.bridge.clear_scene_cache()
 
+        # Check every authored destination before the first tick (#63). This does
+        # not block the run — an APC with one bad task still has a day worth
+        # watching — but it must never again be discovered halfway through a log.
+        unresolved = self.preflight_places(active)
+
         self.running = True
         self.paused = False
         self.tick_seconds = tick_seconds
@@ -435,12 +453,14 @@ class AgentManager:
         logger.info(
             f"=== SIMULATION START === mode={self.mode} base_tick={tick_seconds}s "
             f"time={self.world_clock.now_text()} agents={[a.agent_id for a in active]}"
+            + (f" UNRESOLVED PLACES: {len(unresolved)}" if unresolved else "")
         )
         return {
             "status": "started",
             "mode": self.mode,
             "tick_seconds": tick_seconds,
             "active_agents": [a.agent_id for a in active],
+            "unresolved_places": unresolved,
         }
 
     async def stop_simulation(self) -> dict:
@@ -1348,6 +1368,8 @@ class AgentManager:
             agent_id, observation.get("location"), observation.get("rotation")
         )
         observation["last_move"] = self._last_move_fact(agent_id, observation.get("location"))
+        observation["wedge"] = self._wedge_fact(
+            agent_id, observation.get("last_move"), observation.get("directions"))
         observation["travel"] = self._travel_fact(agent_id, observation.get("location"), grid)
 
         # Structured place context from SQLite (None if not yet named).
@@ -1904,6 +1926,20 @@ class AgentManager:
         nested_right_now = nested.get("right_now") or {}
         nested_right_now["route"] = copy.deepcopy(directive["route"])
 
+    def _place_resolves(self, agent_id: str, name: str) -> bool:
+        """True when ``name`` reaches a real endpoint for ``agent_id``.
+
+        The same chain ``_resolve_place_endpoint``/``_at_scheduled_place`` walk —
+        community-named cell, else an owned place preferring this agent's own
+        entries. Kept in one place so the start-time preflight and the plan-time
+        check can never disagree about what "resolves" means.
+        """
+        if self.place_db is None or not name:
+            return False
+        return (self.place_db.find_named_cell(name) is not None
+                or self.place_db.find_owned_place(
+                    name, preferred_owner=agent_id) is not None)
+
     def _validate_schedule(self, agent: Agent, schedule: list | None, day: str) -> list:
         """Fail loud at plan time: warn for schedule blocks whose place resolves
         to nothing in PlaceDB (WP6 D5) — the agent will hunt for it; the fix is
@@ -1911,6 +1947,10 @@ class AgentManager:
         ``_at_scheduled_place`` (community name, else owned place). Runs at
         most once per (agent_id, day); returns the bad blocks (for tests),
         ``[]`` when cached or nothing to check.
+
+        This is the *generated*-schedule net. An authored agenda is checked
+        before the run instead — see ``preflight_places`` (#63): a warning that
+        arrives on the tick that needs the place has already cost the run.
         """
         key = (agent.agent_id, day)
         if key in self._validated_plans or self.place_db is None:
@@ -1919,11 +1959,7 @@ class AgentManager:
         bad = []
         for block in schedule or []:
             name = str(block.get("place") or "").strip()
-            if not name:
-                continue
-            if self.place_db.find_named_cell(name) is not None:
-                continue
-            if self.place_db.find_owned_place(name, preferred_owner=agent.agent_id) is not None:
+            if not name or self._place_resolves(agent.agent_id, name):
                 continue
             bad.append(block)
             logger.warning(
@@ -1931,6 +1967,48 @@ class AgentManager:
                 f"'{block.get('activity')}' place '{name}' resolves to NOTHING — "
                 f"agent will hunt; author it in places.json")
         return bad
+
+    def preflight_places(self, agents: list | None = None) -> list[dict]:
+        """Every agenda destination that resolves to nothing, checked before the
+        run starts (#63).
+
+        ``_validate_schedule`` already knew how to spot these, but it runs inside
+        the tick — so the warning lands in the log on the tick that needed the
+        place, by which time the APC is already hunting and the run is already
+        spent. SR-era example: Maren's 18:00 task names "Sheriff's office" while
+        the surveyed cell is called "sheriff station square", so the task had no
+        destination at all and nothing said so until it mattered.
+
+        Reads the *authored* agenda only (``generate=False``) — no LLM call, so
+        this is safe on the start path. Returns one row per bad task::
+
+            {"agent_id", "task_id", "start", "end", "place", "objective"}
+
+        An empty list means every destination named by every active agenda
+        resolves today.
+        """
+        rows: list[dict] = []
+        if self.place_db is None:
+            return rows
+        for agent in (agents if agents is not None else self.agents.values()):
+            if not agent.is_active:
+                continue
+            document, _ = self._agenda_document(agent, "Day 1", generate=False)
+            if document is None:
+                continue
+            for task in document.get("tasks", []):
+                name = str(task.get("place") or "").strip()
+                if not name or self._place_resolves(agent.agent_id, name):
+                    continue
+                rows.append({"agent_id": agent.agent_id, "task_id": task.get("id", ""),
+                             "start": task.get("start", ""), "end": task.get("end", ""),
+                             "place": name, "objective": task.get("objective", "")})
+                logger.error(
+                    f"[{agent.agent_id}] PREFLIGHT: task '{task.get('id')}' "
+                    f"({task.get('start')}-{task.get('end')}) place '{name}' resolves to "
+                    f"NOTHING — this APC will hunt for it. Name the cell or author it "
+                    f"in places.json before relying on this run.")
+        return rows
 
     def _wake_directive(self, agent: Agent, loc, grid: dict | None,
                         world_time: str) -> dict | None:
@@ -3319,6 +3397,64 @@ class AgentManager:
             agent_id, xyz, order.get("intent"), moved)
         return fact
 
+    def _wedge_fact(self, agent_id: str, last_move: dict | None,
+                    directions: dict | None) -> dict | None:
+        """How long this APC has been stuck on one spot, and the proven ways out (#65).
+
+        One stalled order is ordinary — you lean on a fence, you pick another
+        heading. A *run* of them is the failure mode that costs whole runs: SR39
+        spent four ticks on (-6013.2, 2609.9), SR40 eight alternating east and
+        southeast between a person and a mailbox. In both, every individual fact
+        we showed was true and none of them said *this has been going on*.
+
+        So the run length is itself a fact, and at ``_WEDGE_BUDGET_TICKS`` it
+        comes with the escapes already worked out: neighbouring cells somebody
+        has actually stood on with good footing, minus the headings that have
+        already failed from this spot, minus anything refused. Everything here is
+        measured — ``cell_ground`` samples and `_record_attempt`'s tried list —
+        and per [[feedback_facts_not_blocking]] it stays a fact. The model still
+        chooses; it simply can no longer claim it did not know.
+
+        Returns ``None`` until a stall run is under way, else
+        ``{"run": n, "budget": n, "escapes": [{"direction", "footing",
+        "samples", "cell"}]}`` with ``escapes`` filled only once the budget is
+        spent.
+        """
+        if not isinstance(last_move, dict) or not last_move.get("intent"):
+            return None
+        if not last_move.get("stalled"):
+            self._stall_run.pop(agent_id, None)
+            return None
+
+        run = self._stall_run.get(agent_id, 0) + 1
+        self._stall_run[agent_id] = run
+        fact: dict = {"run": run, "budget": _WEDGE_BUDGET_TICKS}
+        if run < _WEDGE_BUDGET_TICKS:
+            return fact
+
+        tried = last_move.get("tried_here") or {}
+        escapes = []
+        for direction, info in (directions or {}).items():
+            if direction in tried or info.get("refusals"):
+                continue
+            for ground in info.get("ground") or []:
+                if ground.get("footing") in _GOOD_FOOTING:
+                    escapes.append({"direction": direction,
+                                    "footing": ground["footing"],
+                                    "samples": ground.get("sample_count") or 0,
+                                    "cell": info.get("cell")})
+                    break
+        # Most-walked first: a cell ten footings deep is a surer bet than one
+        # somebody clipped the corner of once.
+        escapes.sort(key=lambda e: (-e["samples"], e["direction"]))
+        fact["escapes"] = escapes
+        logger.warning(
+            "[%s] WEDGED: %d consecutive stalled orders on one spot (tried: %s). "
+            "Known-good ways out: %s", agent_id, run,
+            ", ".join(tried) or "nothing yet",
+            ", ".join(f"{e['direction']} ({e['footing']})" for e in escapes) or "NONE KNOWN")
+        return fact
+
     def _record_attempt(self, agent_id: str, xyz, intent, moved_cm: float) -> dict:
         """Which headings have already failed from the spot the APC is on (#60).
 
@@ -3838,6 +3974,7 @@ class AgentManager:
         self._breadcrumbs.clear()
         self._last_order.clear()
         self._tried_here.clear()
+        self._stall_run.clear()
         self._no_progress.clear()
         self._routes.clear()
         self._cell_sweeps.clear()

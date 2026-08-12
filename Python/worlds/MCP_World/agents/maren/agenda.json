@@ -45,7 +45,7 @@
       "id": "sheriff_news",
       "start": "18:00",
       "end": "19:00",
-      "place": "Sheriff's office",
+      "place": "sheriff station square",
       "objective": "Close the truck, visit the Sheriff's office, and swap village news",
       "completion": {"type": "time_or_llm_confirmed"}
     },

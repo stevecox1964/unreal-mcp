@@ -19,16 +19,18 @@ authored day needs** (5 of her 7 agenda tasks resolve against `world_places.db` 
 Donuts included), and the entire social substrate — earshot speech, recognition, social memory,
 episodic recall — is **built and has never been switched on**.
 
-**Do these in order, then run the sim with both APCs and grade the run on Maren's day, not Dufus's
-footing:**
+**Phase A is BUILT and offline-green at 57/57 (2026-08-12) — and entirely unverified live.** The next
+concrete step is one run with both APCs, graded on Maren's day rather than Dufus's footing:
 
-1. **#62** wake Maren; replace the unfalsifiable gate with a measured bar (SR40 already clears one).
-2. **#63** an unresolvable agenda place fails loud *before* the run — two live misses found already
-   (`"Sheriff's office"` → nothing; `"home"` → the mobile-home community).
-3. **#64** move the suppressive social clauses (*"Do NOT stop for strangers"*) out of the shared prompt
-   into `dufus/rules.md`, where per-agent behavior belongs.
-4. **#65** bounded stuck-recovery, so a wedge costs one tick instead of a run — **then stop working on
-   wedges.**
+1. **#62** wake Maren — `is_active: true`, no other change. ✅ built
+2. **#63** an unresolvable agenda place fails loud *before* the run. ✅ built; both live misses closed
+   (`"Sheriff's office"` → nothing, now repointed; `"home"` → the mobile-home community, survives only
+   on authored precedence — the real fix is #71).
+3. **#64** suppressive social clauses moved out of the shared prompt into each agent's `rules.md`. ✅
+   built; two more copies of the doctrine were found hard-coded in `_schedule_note` and fixed too.
+4. **#65** the wedge budget — **built as an escalating fact, not a recovery override.** See the item for
+   why the scope changed; the short version is that a sixth code-over-LLM override contradicts
+   [[feedback_facts_not_blocking]] and would pre-empt #60's live verification.
 
 Then Phase B (**#66** reaction gate, **#67** APC↔APC conversation, **#68** work that leaves a mark),
 Phase C (**#69** memory stream, **#70** reflection), Phase D (**#71** usable place names, **#72** the
@@ -2957,8 +2959,9 @@ the answer or it isn't — visibly. That is "surveying for others" literally, an
 
 ## 62. Retire the unfalsifiable gate — wake Maren
 
-**Status:** **OPEN 2026-08-12, ready** · **Phase A** · **Loop-safe:** no (needs a live run to mean
-anything)
+**Status:** **BUILT 2026-08-12, unverified live** · **Phase A** · **Loop-safe:** no (needs a live run to
+mean anything). `maren/state.json` `is_active: true`. Nothing else changed — she has been a fully
+configured tier-2 APC the whole time. **The live run is the verification and it has not happened.**
 
 Replace *"until Dufus reliably does his one job"* with a **measured** bar, and record that SR40 already
 cleared a reasonable version of it: 15/15 compass-keyed walks, zero `cultivated_field` footings, a
@@ -2976,7 +2979,13 @@ are on the path to the goal in a way another wedge fix is not.
 
 ## 63. An unresolvable agenda place must fail loud, before the run
 
-**Status:** **OPEN 2026-08-12, ready** · **Phase A** · **Loop-safe:** yes
+**Status:** **BUILT 2026-08-12, offline-tested** · **Phase A** · **Loop-safe:** yes.
+`AgentManager.preflight_places()` walks every active agent's *authored* agenda (`generate=False`, so no
+LLM call on the start path), logs each miss at ERROR, returns the rows in the `start_simulation`
+response, and the cockpit alerts on them before the first tick. `_place_resolves()` is now the single
+definition of "resolves", shared with `_validate_schedule` so the two can never disagree. Maren's 18:00
+task was repointed at `sheriff station square` — the name Dufus actually put on the map — and all 7 of
+her tasks now resolve. Coverage in `test_place_resolver.py`.
 
 `_validate_schedule` (`agent_manager.py:1907`) already resolves every block through the same chain as
 `_at_scheduled_place` and logs `place '<name>' resolves to NOTHING — agent will hunt`. It fires **mid-run,
@@ -3001,7 +3010,14 @@ live misses above are fixed (name the cell, or author the alias).
 
 ## 64. Per-role standing instructions — get the suppression clauses out of the shared prompt
 
-**Status:** **OPEN 2026-08-12, ready** · **Phase A** · **Loop-safe:** yes
+**Status:** **BUILT 2026-08-12, offline-tested** · **Phase A** · **Loop-safe:** yes. The shared template
+keeps the *mechanic* (interruption outranks routine, routine outranks whim, resume afterwards) and
+delegates the *policy* to `rules.md`. Dufus keeps every clause; Maren gets the inverse ("stopping to
+talk is part of your work", "stay at the truck when unscheduled"). **Two further code-side copies of the
+same doctrine surfaced during the move and were fixed with it:** `_schedule_note`'s idle branch told
+*every* APC to "keep exploring unmapped cells", and its travel branch hard-coded which interruptions
+counted. `test_prompt_context.py` now pins both halves — mechanic in the template, policy in each
+agent's rules — so deleting a clause instead of moving it fails the suite.
 
 `_USER_TEMPLATE_VISION` in `llm_router.py` carries ~68 lines of standing instruction after the fact
 sections. **About 45 are navigation, obstacles and unwedging.** The social clauses are *suppressive*:
@@ -3024,8 +3040,31 @@ unchanged by the move.
 
 ## 65. Bounded stuck-recovery — then stop working on wedges
 
-**Status:** **OPEN 2026-08-12, ready** · **Phase A** · **Loop-safe:** yes (offline-replayable against
-SR40's wedge sequence)
+**Status:** **BUILT 2026-08-12 as a fact, not a recovery — scope changed on purpose** · **Phase A** ·
+**Loop-safe:** yes.
+
+**Deviation, stated rather than averaged.** This item was written as a deterministic recovery: N stalls
+→ code picks a known-good neighbour and walks there. Building it that way would have added a sixth
+code-over-LLM override to the five the SR40 handoff already lists as *problems to remove*, and it
+contradicts [[feedback_facts_not_blocking]] — the standing ruling that "the LLM keeps doing X wrong" is
+answered with louder facts and a `rules.md` line, never a code-side blocker. It would also have
+pre-empted the live verification of #60's `tried_here`, which has never been observed working.
+
+**What was built instead:** `_wedge_fact` counts consecutive stalled orders per APC and, at
+`_WEDGE_BUDGET_TICKS` (3), states the run length *and* the measured ways out — neighbouring cells with
+`cell_ground` footing somebody has actually walked, minus headings already tried from this spot, minus
+refused cells, most-walked first. `_wedge_text` renders it; both agents get a `rules.md` line saying
+three in a row means the thing you keep trying does not work. "No proven ground nearby" is stated
+explicitly rather than rendering as silence — an APC with no options is in a different situation from
+one ignoring an open road. A loud WARNING names the whole wedge as one event in the log.
+
+**What this does and does not buy.** A wedge is now *legible* — one log line, one escalating fact, the
+answer already computed from the shared map. It is not yet *bounded*: if the model ignores the fact, the
+stall still runs on. Whether the fact is enough is exactly what the next live run measures, alongside
+#60's `tried_here`. If SR41 shows an APC reading a listed escape and still alternating, the override
+argument gets made on evidence instead of in advance. Coverage in `test_stuck_detection.py`.
+
+**Original scope, for the record:** yes (offline-replayable against SR40's wedge sequence)
 
 `_detect_stuck` exists (`agent_manager.py:1575`). Give it a budget: **N consecutive zero-displacement
 ticks → deterministic recovery** (step toward a known-good neighbouring cell — `cell_ground` from #58

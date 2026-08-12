@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]      # Python/
+WORLDS = ROOT / "worlds"                        # authored agent files (#64)
 sys.path.insert(0, str(ROOT))
 
 from agent_runtime import agenda  # noqa: E402
@@ -159,28 +160,50 @@ def test_agenda_prompt_context():
 
 
 def test_reaction_gate_template():
-    """WP2 (#10.5 BALANCED gate): routine wins; only a known person or being
-    spoken to interrupts; exploration only when nothing is scheduled."""
+    """WP2 (#10.5 BALANCED gate) as revised by #64: the shared template keeps the
+    *mechanic* — an interruption outranks the routine, the routine outranks a
+    whim, you resume afterwards — and delegates the *policy* (is this person
+    worth stopping for?) to the agent's own rules.md. A surveyor who must not
+    stop and a shopkeeper whose whole job is stopping cannot share one line."""
     check("priorities block present", "## What Wins Right Now" in _USER_TEMPLATE_VISION)
-    check("strangers do not interrupt", "Do NOT stop for\nstrangers" in _USER_TEMPLATE_VISION
-          or "Do NOT stop for strangers" in _USER_TEMPLATE_VISION.replace("\n", " "))
-    check("unconditional greeting pull removed",
-          "consider greeting or\napproaching them" not in _USER_TEMPLATE_VISION
-          and "consider greeting or approaching them" not in _USER_TEMPLATE_VISION)
-    check("exploration gated on empty schedule",
-          "If nothing is scheduled right now and nothing in view" in _USER_TEMPLATE_VISION)
-    check("resume after interrupt stated",
-          "goes back to the scheduled destination" in _USER_TEMPLATE_VISION)
-    check("quirks are a nudge, not an override",
-          "they do not cancel WHERE you are going" in _USER_TEMPLATE_VISION)
-    # #12.1: the greet gate excludes someone already greeted this encounter.
     flat = _USER_TEMPLATE_VISION.replace("\n", " ")
-    check("greet gate skips a recently-greeted person",
-          'have NOT already greeted recently' in flat)
-    check("already-greeted -> keep going, don't stop again",
-          'do not stop again' in flat)
-    check("being spoken to still gets a response even if already greeted",
-          "respond (even if you already greeted them)" in flat)
+    check("interruption still outranks the routine",
+          "it outranks your routine" in flat)
+    check("routine is still the default", "is your default" in flat)
+    check("resume after a pause stated", "goes back to that destination" in flat)
+    check("quirks are a nudge, not an override",
+          "they do not cancel WHERE you are going" in flat)
+    check("pausing policy is delegated to rules",
+          "is a judgement your Rules" in flat and "written for you specifically" in flat)
+    check("free time is delegated to the persona",
+          "up to your Character, Goals and Rules" in flat)
+
+    # The clauses did not evaporate — they moved to the one agent they were
+    # written for. Deleting them instead would quietly hand Dufus a reason to
+    # stop surveying, which is the regression this half guards.
+    # Markdown wraps mid-sentence, so collapse all whitespace before matching.
+    def _rules(agent_id):
+        text = (WORLDS / "MCP_World" / "agents" / agent_id / "rules.md").read_text(
+            encoding="utf-8")
+        return " ".join(text.split())
+
+    dufus_rules = _rules("dufus")
+    check("dufus still must not stop for strangers",
+          "Do NOT stop for strangers" in dufus_rules)
+    check("dufus greet gate skips a recently-greeted person",
+          "have NOT already greeted recently" in dufus_rules)
+    check("dufus still answers someone speaking to him",
+          "even if you already greeted them" in dufus_rules)
+    check("dufus still explores when unscheduled",
+          "keep exploring" in dufus_rules and "unexplored" in dufus_rules)
+
+    # And Maren carries the opposite policy, which is the whole point of the move.
+    maren_rules = _rules("maren")
+    check("maren treats stopping to talk as the work",
+          "part of your work" in maren_rules)
+    check("maren stays at her post when unscheduled", "stay at the truck" in maren_rules)
+    check("maren does not inherit the surveyor's suppression",
+          "Do NOT stop for strangers" not in maren_rules)
 
 
 def test_schedule_note_weighting():
@@ -190,8 +213,8 @@ def test_schedule_note_weighting():
     })
     check("travel is stated as the priority", "This is your priority right now" in travel)
     check("travel names the walk_to target", 'target_location "village square"' in travel)
-    check("travel names the only valid interrupts",
-          "a person you know or someone speaking to you" in travel)
+    check("travel defers the pause policy to the agent's rules (#64)",
+          "worth a brief pause on the way is set by your rules" in travel)
     check("activity is deferred to the destination",
           "Do NOT start the scheduled activity on the way" in travel)
 

@@ -124,14 +124,11 @@ turn toward or approach a nearby APC instead of wandering away to search blindly
 If there is an active interruption, it outranks your routine. Address the
 grounded requester/reason under "Active Interruption" until it is resolved.
 Your routine (see "Your Routine Right Now") is your default. When it says to
-head somewhere, your action this tick should move you there. Do NOT stop for
-strangers, scenery, or cells you could explore — those can wait.
-Exactly two things justify pausing your routine:
-1. You see someone under "People You Know" you have NOT already greeted recently
-   — you may greet them briefly. If their line says "already greeted recently",
-   you have said hi this encounter; do not stop again — a nod is enough, keep going.
-2. Someone is speaking to you — respond (even if you already greeted them).
-After such a pause, your next action goes back to the scheduled destination.
+head somewhere, your action this tick should move you there, and after any pause
+your next action goes back to that destination.
+Whether something you see is worth pausing your routine for — a person you know,
+someone speaking to you, ground worth recording — is a judgement your Rules
+govern. Read them; they are written for you specifically.
 Staying in character is good, but character quirks (curiosity, distraction)
 color HOW you travel — they do not cancel WHERE you are going.
 
@@ -174,11 +171,9 @@ compass heading you came from, or one at right angles to it, to get clear of the
 obstacle, then head for your destination again from the new angle. Getting
 around it is your priority this tick.
 
-If nothing is scheduled right now and nothing in view needs your attention,
-keep exploring: pick a direction whose
-neighboring cell is still "unexplored" and walk_to it so the shared world map
-keeps growing. A cell that already has a name has been mapped — you do not need
-to go re-record it. Do not stand still with nowhere to be.
+If nothing is scheduled right now and nothing in view needs your attention, what
+you do with the free time is up to your Character, Goals and Rules — some people
+go looking, some stay at their post.
 
 The "Place" line above is what you have previously called the spot you are standing on (empty means you have never named it). If you can tell what this place is — from the image, your goals, or your memories — name it in the "place" field; it is saved to your map so next time you will know you have been here before.
 {sense_note}
@@ -844,6 +839,9 @@ def _sense_note(observation: dict) -> str:
     tried = _tried_here_text(last_move)
     if tried:
         lines.append(tried)
+    wedge = _wedge_text(observation.get("wedge"))
+    if wedge:
+        lines.append(wedge)
     if observation.get("stuck"):
         lines.append("Sense: you have not advanced for several ticks while moving.")
     blocker = observation.get("blocker")
@@ -875,6 +873,36 @@ def _tried_here_text(last_move: dict | None) -> str:
     line = f"Sense: from this exact spot you have already tried: {failed}."
     if untried:
         line += f" Not yet tried from here: {', '.join(untried)}."
+    return line
+
+
+def _wedge_text(wedge: dict | None) -> str:
+    """How long the stall has been going on, and the ways out somebody has walked (#65).
+
+    ``tried_here`` says which headings failed *here*; this says *this has been
+    going on for N ticks* and names the neighbouring cells with proven footing
+    that have not been tried yet. SR39 and SR40 both burned their endgame on one
+    spot while every individual line in the prompt was true — the missing fact
+    was the run, and the missing answer was the one the shared map already had.
+
+    Silent below the budget: a single stall is ordinary and does not need a
+    speech. "NONE KNOWN" is stated rather than hidden — an APC with no recorded
+    good ground nearby is in a different situation from one ignoring an open road.
+    """
+    if not isinstance(wedge, dict) or wedge.get("escapes") is None:
+        return ""
+    escapes = wedge["escapes"]
+    line = (f"Sense: you have now been stopped on this exact spot for "
+            f"{wedge.get('run')} orders in a row.")
+    if escapes:
+        ways = ", ".join(
+            f"{e['direction']} (cell {e['cell']} — {e['footing']}, walked "
+            f"{e['samples']}x)" for e in escapes[:4])
+        line += (f" Ground somebody has actually walked, that you have NOT tried "
+                 f"from here: {ways}.")
+    else:
+        line += (" No neighbouring cell has recorded footing anybody has walked —"
+                 " nothing proven is available; you are choosing from the view alone.")
     return line
 
 
@@ -1333,8 +1361,11 @@ def _schedule_note(directive: dict | None) -> str:
     travel to the scheduled place, do the activity here, or (idle) explore.
     """
     if not directive or directive.get("status") == "idle":
-        return ("Your schedule has nothing fixed right now — follow your goals or keep "
-                "exploring unmapped cells.")
+        # What free time is *for* is the persona's business, not the sequencer's
+        # (#64) — a shopkeeper minding her post and a surveyor pushing outward are
+        # both correct answers, and only their Rules know which is which.
+        return ("Your schedule has nothing fixed right now — follow your goals and "
+                "your rules.")
     intent = directive.get("intent", "")
     if directive.get("status") == "travel" and directive.get("place"):
         # Grid-first route narration (#17/WP8): legibility only — the walk_to
@@ -1354,8 +1385,8 @@ def _schedule_note(directive: dict | None) -> str:
         return (f"{en_route}{intent}\nThis is your priority right now: use walk_to with "
                 f"target_location \"{directive['place']}\" and keep going until you "
                 f"arrive. Do NOT start the scheduled activity on the way — even if "
-                f"it involves people, it happens at the destination. Only a person "
-                f"you know or someone speaking to you is worth a brief pause.")
+                f"it involves people, it happens at the destination. What is worth "
+                f"a brief pause on the way is set by your rules.")
     if directive.get("place"):
         return (f"{intent}\nYour position confirms you are already at "
                 f"{directive['place']} — even if you cannot see it in frame. Do "

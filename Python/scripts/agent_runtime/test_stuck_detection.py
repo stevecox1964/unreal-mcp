@@ -18,8 +18,9 @@ ROOT = Path(__file__).resolve().parents[2]      # Python/
 sys.path.insert(0, str(ROOT))
 
 from agent_runtime.agent_manager import (  # noqa: E402
-    AgentManager, _STUCK_TICKS, _STUCK_PROGRESS_CM,
+    AgentManager, _STUCK_TICKS, _STUCK_PROGRESS_CM, _WEDGE_BUDGET_TICKS,
 )
+from agent_runtime.llm_router import _wedge_text  # noqa: E402
 
 
 class _Stub:
@@ -95,7 +96,80 @@ def main():
     freed = mgr._detect_stuck(aid, (step * 5, 0.0), moving=True)
     check("an avatar that breaks free and advances is no longer stuck", not freed)
 
+    test_wedge_budget()
+    test_wedge_text()
     print("All stuck-detection checks passed.")
+
+
+def _stalled(intent="east", tried=None):
+    return {"intent": intent, "moved_cm": 0.0, "stalled": True,
+            "tried_here": tried if tried is not None else {intent: 0.0}}
+
+
+def _directions(**cells):
+    """``north=("road", 4)`` -> the shape ``_direction_places`` returns."""
+    out = {}
+    for direction, spec in cells.items():
+        footing, samples = (spec if spec else (None, 0))
+        out[direction] = {
+            "cell": f"{direction[0]}c",
+            "place": None,
+            "ground": ([{"footing": footing, "sample_count": samples}] if footing else []),
+            "refusals": [],
+        }
+    return out
+
+
+def test_wedge_budget():
+    """#65: the *run* of stalls is the fact, and the escapes are measured."""
+    tmp = tempfile.mkdtemp()
+    mgr = make_manager(tmp)
+    aid = "dufus"
+    dirs = _directions(north=("road", 4), east=("cultivated_field", 9),
+                       south=("pavement", 1), west=None)
+
+    # Below the budget the run is counted but no speech is made — one stall is
+    # ordinary and does not need an escape list.
+    first = mgr._wedge_fact(aid, _stalled(), dirs)
+    check("a single stall reports a run of 1", first["run"] == 1)
+    check("below budget there are no escapes yet", "escapes" not in first)
+
+    mgr._wedge_fact(aid, _stalled(), dirs)
+    third = mgr._wedge_fact(aid, _stalled(), dirs)
+    check("the run reaches the budget", third["run"] == _WEDGE_BUDGET_TICKS)
+    ways = {e["direction"] for e in third["escapes"]}
+    check("good ground is offered as an escape", "north" in ways and "south" in ways)
+    check("the heading already tried from here is excluded", "east" not in ways)
+    check("a cell nobody has walked is not offered", "west" not in ways)
+    check("most-walked ground is offered first", third["escapes"][0]["direction"] == "north")
+
+    # Refusals are the APC's own ruling and must not be recycled as an escape.
+    refused = _directions(north=("road", 4))
+    refused["north"]["refusals"] = [{"reason": "fenced"}]
+    mgr._stall_run[aid] = _WEDGE_BUDGET_TICKS - 1
+    check("a refused cell is never offered as a way out",
+          mgr._wedge_fact(aid, _stalled(), refused)["escapes"] == [])
+
+    # Real movement clears the run: these are facts about one spot.
+    moved = {"intent": "north", "moved_cm": 900.0, "stalled": False}
+    check("a move that lands clears the wedge", mgr._wedge_fact(aid, moved, dirs) is None)
+    check("the counter really reset", mgr._wedge_fact(aid, _stalled(), dirs)["run"] == 1)
+    check("no movement order at all is not a wedge",
+          mgr._wedge_fact(aid, None, dirs) is None)
+
+
+def test_wedge_text():
+    check("below budget renders nothing", _wedge_text({"run": 1, "budget": 3}) == "")
+    check("a non-wedge renders nothing", _wedge_text(None) == "")
+
+    loud = _wedge_text({"run": 3, "budget": 3, "escapes": [
+        {"direction": "north", "footing": "road", "samples": 4, "cell": "6,5"}]})
+    check("the run length is stated", "3 orders in a row" in loud)
+    check("the escape names cell, footing and how often it was walked",
+          "north" in loud and "6,5" in loud and "road" in loud and "4x" in loud)
+
+    empty = _wedge_text({"run": 3, "budget": 3, "escapes": []})
+    check("having nothing proven is stated, not hidden", "No neighbouring cell" in empty)
 
 
 if __name__ == "__main__":

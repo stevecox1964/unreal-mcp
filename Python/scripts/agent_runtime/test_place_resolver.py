@@ -8,6 +8,8 @@ Covers:
   - PlaceDB.find_named_cell: case/whitespace-normalized exact + substring lookup.
   - AgentManager._execute_world_action: a walk_to with a string target_location
     resolves to a numeric bridge move instead of short-circuiting to idle.
+  - AgentManager.preflight_places (#63): every authored agenda destination that
+    resolves to nothing is reported *before* the run, with no LLM call.
 """
 from __future__ import annotations
 
@@ -131,11 +133,97 @@ def test_unknown_named_place_falls_back_to_idle():
               or sent.get("target_location") == "atlantis")
 
 
+class StubScheduledAgent(StubAgent):
+    """An agent carrying an authored agenda, as ``preflight_places`` reads it."""
+    def __init__(self, agent_id, tasks, is_active=True):
+        super().__init__(agent_id)
+        self.is_active = is_active
+        self.authored_agenda = {"schema_version": 1, "tasks": tasks}
+
+
+def _task(task_id, place, start="08:00", end="09:00"):
+    return {"id": task_id, "start": start, "end": end, "place": place,
+            "objective": f"do {task_id}", "completion": {"type": "time_block_ends"}}
+
+
+class ExplodingLLM:
+    """Any call means the preflight tried to generate a plan — that must not happen."""
+    def ask(self, *args, **kwargs):
+        raise AssertionError("preflight_places must not call the LLM")
+
+
+def test_preflight_reports_unresolvable_agenda_places():
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _manager_with_place(tmp, StubBridge())
+        mgr.llm = ExplodingLLM()
+        mgr.place_db.set_name("dufus", 5, 5, "sheriff station square", "T0")
+
+        # The live SR miss: "Sheriff's office" is neither an exact nor a substring
+        # match for "sheriff station square", so the task has no destination.
+        agent = StubScheduledAgent("maren", [
+            _task("news", "Sheriff's office", "18:00", "19:00"),
+            _task("square", "sheriff station square", "06:00", "07:00"),
+            _task("anywhere", ""),
+        ])
+        mgr.agents = {"maren": agent}
+
+        rows = mgr.preflight_places()
+        check("exactly one unresolved place reported", len(rows) == 1)
+        row = rows[0]
+        check("the unresolved place is the sheriff's office", row["place"] == "Sheriff's office")
+        check("row names the agent", row["agent_id"] == "maren")
+        check("row names the task", row["task_id"] == "news")
+        check("row carries the time window", (row["start"], row["end"]) == ("18:00", "19:00"))
+
+        # The regression this guards: renaming the task's place to the surveyed
+        # name must clear it. A preflight that always fires is as useless as one
+        # that never does.
+        agent.authored_agenda["tasks"][0]["place"] = "sheriff station square"
+        check("resolvable agenda reports nothing", mgr.preflight_places() == [])
+
+
+def test_preflight_skips_inactive_agents_and_survives_no_agenda():
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _manager_with_place(tmp, StubBridge())
+        mgr.llm = ExplodingLLM()
+        parked = StubScheduledAgent("maren", [_task("news", "Atlantis")], is_active=False)
+        mgr.agents = {"maren": parked}
+        check("a parked agent is not preflighted", mgr.preflight_places() == [])
+
+        parked.is_active = True
+        check("an active agent with a bad place is reported",
+              len(mgr.preflight_places()) == 1)
+
+        # An agent with no authored agenda must not trigger plan generation.
+        bare = StubAgent("dufus")
+        bare.is_active = True
+        bare.daily_schedule_day = ""
+        bare.daily_schedule_blocks = []
+        mgr.agents = {"dufus": bare}
+        check("no authored agenda reports nothing (and asks no model)",
+              mgr.preflight_places() == [])
+
+
+def test_preflight_accepts_owned_places():
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _manager_with_place(tmp, StubBridge())
+        mgr.llm = ExplodingLLM()
+        # An APC-owned place resolves just as a community name does — the
+        # preflight must walk the same chain the navigator will.
+        mgr.place_db.add_owned_place("maren", 5, 5, "the vegetable truck",
+                                     dx=0.0, dy=0.0, source="authored")
+        mgr.agents = {"maren": StubScheduledAgent("maren", [_task("sales", "the vegetable truck")])}
+        check("an owned place counts as resolved", mgr.preflight_places() == [])
+
+
 def main():
     test_cell_center_inverse_of_locate()
     test_find_named_cell()
     test_walk_to_named_place_resolves_to_location()
     test_unknown_named_place_falls_back_to_idle()
+    test_preflight_reports_unresolvable_agenda_places()
+    test_preflight_skips_inactive_agents_and_survives_no_agenda()
+    test_preflight_accepts_owned_places()
     print("\nAll place-resolver checks passed.")
 
 

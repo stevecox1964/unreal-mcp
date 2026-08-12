@@ -101,7 +101,16 @@ async function refreshEvents(){
 async function refresh(){ try{ await refreshStatus(); await refreshEvents(); }catch(e){} }
 
 document.getElementById('btn-start').onclick = async () => {
-  await postJSON('/api/sim/start', {tick_seconds: +document.getElementById('tick_seconds').value, mode: document.getElementById('mode').value});
+  const result = await postJSON('/api/sim/start', {tick_seconds: +document.getElementById('tick_seconds').value, mode: document.getElementById('mode').value});
+  // A destination that resolves to nothing sends an APC hunting for a place that
+  // does not exist. It used to surface as one warning line mid-run; say it here,
+  // before the run is spent.
+  const bad = (result && result.unresolved_places) || [];
+  if(bad.length){
+    alert('Agenda places that resolve to NOTHING — these APCs will hunt:\n\n'
+      + bad.map(p => `[${p.agent_id}] ${p.start}-${p.end}  "${p.place}"  (${p.task_id})`).join('\n')
+      + '\n\nName the cell, or author it in places.json.');
+  }
   refresh();
 };
 document.getElementById('btn-stop').onclick = async () => { await postJSON('/api/sim/stop'); refresh(); };
