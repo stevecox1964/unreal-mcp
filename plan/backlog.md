@@ -2784,6 +2784,81 @@ line in the next run before trusting it.
 
 ---
 
+## 61. Intra-cell perception — see the world along the leg, not just at the cell
+
+**Status:** **OPEN 2026-08-12, design — not building yet** · **Source:** user, this session: *"we need to
+work on intra grid observations at a regular interval so that the APCs can see what happening as they are
+moving along... before Dufus or any APC gets ready to run into something, a plan is generated to avoid
+moving into that situation. This will give us a finer grained visual guide and not just a survey to go
+by."*
+
+Today an APC's picture of the world updates **once per decision tick**, from **one** forward screenshot,
+and it walks **15 m** between ticks. Everything in between is unobserved. The only dense visual record is
+the survey: four fixed headings per 30 m cell, taken while standing still. A 30 m district is described
+by four photographs from its centre.
+
+### The ask splits in two, and they belong in different layers
+
+The request bundles a *control* problem with a *data* problem. They want opposite things and must not be
+built as one feature.
+
+**(a) Not colliding is a reflex, not a plan.** SR40's timings: `observe_ms` ~950, **`llm_ms` ~8,000–10,000**,
+`act_ms` ~150. An LLM-generated avoidance plan cannot react to something 3 m ahead — the decision arrives
+nine seconds later, long after contact. Putting cognition in charge of collision avoidance means a
+9-second loop steering a 1-second problem, and it contradicts the lizard-brain contract
+([[feedback_lizard_brain_contract]]): sensing and reflexes are the lizard brain's job, reasoning is the
+model's. The machinery already exists and is nearly free — `line_trace_forward`, `_classify_blocker`, the
+`_STANDOFF_CM` reflex stop. What it lacks is **rate and coverage**: it fires once per tick, forward only.
+The fix is a faster probe at engine cadence with side rays, not a VLM.
+
+**(b) Finer-grained visual coverage is the valuable half — and it serves the actual purpose.** Per
+[[project_dufus_vlm_training_corpus]], Dufus exists to produce a VLM training corpus. Four static
+headings per 30 m cell is a **sparse and repetitive** dataset: no motion parallax, no approach sequences,
+no "what does this look like from 12 m out vs 4 m out". Sampling along the walked path is exactly the
+data a navigation VLM needs and we currently throw away — the avatar walks through it every leg and
+photographs none of it.
+
+### The enabler: capture is already separate from interpretation
+
+`bridge.capture_view` (`agent_manager.py:1000`, `:3568`) and `perceiver.perceive` are separate calls.
+**Screenshots are cheap; VLM calls are not** (~750–1,000 ms and a per-call charge). So:
+
+- **Capture densely** — every N metres of actual displacement, stamped with position, yaw, cell and
+  footing. Corpus-grade data, no model in the loop.
+- **Interpret selectively** — run the VLM only when a decision needs it, or when the reflex probe reports
+  something ahead ("something 4 m out — look at it"). That trigger is the join between the layers and is
+  precisely the user's "before he runs into something".
+
+This keeps the training corpus dense and the running cost roughly flat, and it is a small change rather
+than an architecture rewrite.
+
+### Open questions (none decided)
+
+- **Cadence: distance or time?** Distance (every ~5 m) gives even spatial coverage and no frames while
+  standing still; time gives even temporal coverage and captures moving traffic. Probably distance, with
+  a time floor while stationary and something in view.
+- **Storage.** A full world reset already cleared 318 frames. Sampling every 5 m over a long run is
+  thousands of images. Needs a retention policy *before* building, not after — and per the purpose memory,
+  a visible gap beats a skew, so whatever gets dropped must be recorded as dropped.
+- **Do sampled frames reach the decision, or only the corpus?** Feeding every frame to the LLM re-creates
+  the cost problem. Suggest: corpus by default, decision only on the reflex trigger.
+- **Does the survey survive?** If path sampling is dense enough, the 4-heading composite may be redundant
+  for training and still worth keeping as the canonical, comparable, per-cell record. Do not delete it as
+  a side effect of this work.
+- **Reflex probe rate** is an engine-side question (Blueprint tick vs Python bridge poll) and the bridge
+  is single-socket — a per-frame Python probe is not viable. Likely wants to live in the APC Blueprint and
+  report *events* to Python, which is a different shape from everything else here.
+
+**Do first, cheaply:** confirm the forward trace actually hits things. SR40 logged `blocker: 0` across
+eight wedged ticks, but the gate was shut (fixed in #60), so we have **no evidence the trace works at
+all** — and a low mailbox may sit under a chest-height ray. One live run showing a `blocker` line is the
+prerequisite for the whole reflex half of this item.
+
+**Relates to:** #53 (navmesh-vs-semantic disagreement as training signal — the approach frames are where
+that disagreement is visible), #49 (capture pose metadata), #19/#27, #60.
+
+---
+
 ## Outstanding — human / editor / live (not loop-safe)
 
 - **#35/#13.4:** design the LLM-directed expedition contract and pristine-run purge boundary before
