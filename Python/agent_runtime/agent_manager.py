@@ -1380,13 +1380,12 @@ class AgentManager:
         stuck = self._detect_stuck(agent_id, _loc_xyz(observation.get("location")), moving)
         observation["stuck"] = stuck
         # Forward path sense (B7): trace ahead on every moving tick, not just when
-        # already wedged. A mobile blocker (someone crossing the path) becomes a
-        # fact the LLM can sidestep *before* the collision; when stuck, whatever
-        # is ahead is reported. Facts only — the decision stays with the LLM.
-        # A stalled order is the strongest possible reason to look ahead, and it
-        # was the one case that never did: `moving` reads the engine's AI state,
-        # and a walk that never starts leaves that state idle, so SR40 spent
-        # eight wedged ticks with the forward trace switched off (#60).
+        # already wedged — a mobile blocker (someone crossing the path) becomes a
+        # fact the LLM can sidestep *before* the collision, and when stuck,
+        # whatever is ahead is reported. A stalled order counts too, and used not
+        # to: `moving` reads the engine's AI state, a walk that never starts
+        # leaves that state idle, and so SR40 spent eight wedged ticks with the
+        # trace switched off (#60). Facts only — the decision stays with the LLM.
         stalled = bool((observation.get("last_move") or {}).get("stalled"))
         if moving or stuck or stalled:
             trace = self.bridge.line_trace_forward(
