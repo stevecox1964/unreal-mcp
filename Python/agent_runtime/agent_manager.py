@@ -29,7 +29,7 @@ from . import route_map
 from . import route_planner
 from . import sim_run
 from .episodic_memory import EpisodicLog
-from .memory_store import movement_summary, movement_trace
+from .memory_store import _MOVEMENT_ACTIONS, movement_summary, movement_trace
 from .place_db import (COMMUNITY_SURVEY_MAX_AGE_SECONDS, PLACE_EXTENT_CM,
                        PlaceDB, yaw_to_compass)
 from .social_memory import SocialMemory, is_anonymous
@@ -82,6 +82,24 @@ _ABSOLUTE_DIRECTION_YAW = {
     "east": 0.0, "southeast": 45.0, "south": 90.0, "southwest": 135.0,
     "west": 180.0, "northwest": 225.0, "north": 270.0, "northeast": 315.0,
 }
+
+def _cell_label(grid: dict | None) -> str:
+    """The one name a cell has when we speak to the model: "col,row" (#59).
+
+    ``WorldGrid.locate`` returns two different names for the same cell — ``key``
+    is the raw signed index from the world origin ("-3,0"), ``col``/``row`` are
+    0-based from the grid's min corner ("6,6"). Both were being shown, so SR39
+    has Dufus reasoning about "cell -3,0" while the decision log, the survey
+    messages and PlaceDB all recorded "6,6" for the ground under his feet.
+    ``col,row`` wins because every durable store already keys on it; ``key``
+    stays internal to SpatialMap. Out-of-bounds cells keep the raw key — a real
+    position outside the authored grid is better said than swallowed.
+    """
+    grid = grid or {}
+    if grid.get("col") is not None and grid.get("row") is not None:
+        return f"{grid['col']},{grid['row']}"
+    return str(grid.get("key", "?"))
+
 
 # Compass reversal — "the way I came" is the opposite of the way I travelled.
 _OPPOSITE_COMPASS = {
@@ -175,9 +193,17 @@ def _yaw_of(rotation) -> float | None:
 
 
 def _offset_location(x: float, y: float, z: float, yaw_deg: float, distance: float) -> list[float]:
-    """World location `distance` cm from (x, y) along world yaw (UE: X forward, yaw toward +Y)."""
+    """World location `distance` cm from (x, y) along world yaw (UE: X forward, yaw toward +Y).
+
+    Components are snapped to the nanometre. ``cos(270 deg)`` is -1.8e-16, not
+    zero, so a due-north step from a position sitting exactly on a cell boundary
+    lands a hair west of it and resolves to the *neighbouring* cell — harmless
+    while this only previewed cells, and not harmless now that a refusal filed
+    against the wrong cell is durable and shared (#59).
+    """
     rad = math.radians(yaw_deg)
-    return [x + math.cos(rad) * distance, y + math.sin(rad) * distance, z]
+    return [x + round(math.cos(rad) * distance, 6),
+            y + round(math.sin(rad) * distance, 6), z]
 
 
 class AgentManager:
@@ -224,6 +250,7 @@ class AgentManager:
         self._travel_from: dict[str, tuple] = {}    # agent_id -> (x, y) at the previous observation
         self._travel: dict[str, dict] = {}          # agent_id -> last real heading travelled (#56)
         self._breadcrumbs: dict[str, list[dict]] = {}  # agent_id -> recent legs walked (#58)
+        self._last_order: dict[str, dict] = {}      # agent_id -> last movement ordered, for the achieved-vs-ordered check (#59)
         self._no_progress: dict[str, int] = {}      # agent_id -> consecutive "moving but didn't advance" ticks
         self._last_grid_place: dict[str, tuple] = {}  # agent_id -> (grid, place), reported even when LLM skipped
         self._routes: dict[str, dict] = {}          # agent_id -> cached grid-first route (#17/WP8)
@@ -298,6 +325,7 @@ class AgentManager:
         self._travel_from.clear()
         self._travel.clear()
         self._breadcrumbs.clear()
+        self._last_order.clear()
         self._no_progress.clear()
         self._routes.clear()
         self._live_pos.clear()
@@ -688,7 +716,13 @@ class AgentManager:
 
         Bridge is single-socket, so call only from the sequential tick phases
         (observe / act) — never from the parallel perceive+decide phase.
+
+        No bridge means there is no viewport to draw on, which is an ordinary
+        offline state; a status line must never be what takes a decision down.
+        Every other failure still raises.
         """
+        if self.bridge is None:
+            return
         self.bridge.print_to_screen(
             f"  {agent_id}: {message}",
             key=130 + self._agent_slot(agent_id),
@@ -869,9 +903,18 @@ class AgentManager:
                         "world_time": context.get("world_time"),
                         "schedule": context.get("schedule"),
                     }
-                    first_result = self._execute_world_action(agent, first_action, wake_obs)
-                    self._mark_first_walk_accepted(
-                        agent.agent_id, first_action, first_result)
+                    # Wake is a tick like any other: the APC may open the run by
+                    # asking to survey where it woke up, and that must reach the
+                    # same handler the normal path uses (SR39).
+                    first_action, pending = self._resolve_survey_here(
+                        agent, first_action, wake_obs)
+                    if pending:
+                        first_result = {"status": "survey_pending",
+                                        "interrupt_id": pending["interrupt_id"]}
+                    else:
+                        first_result = self._execute_world_action(agent, first_action, wake_obs)
+                        self._mark_first_walk_accepted(
+                            agent.agent_id, first_action, first_result)
 
                 self.memory.record(
                     agent_id=agent.agent_id,
@@ -1302,6 +1345,7 @@ class AgentManager:
         observation["directions"] = self._direction_places(
             agent_id, observation.get("location"), observation.get("rotation")
         )
+        observation["last_move"] = self._last_move_fact(agent_id, observation.get("location"))
         observation["travel"] = self._travel_fact(agent_id, observation.get("location"), grid)
 
         # Structured place context from SQLite (None if not yet named).
@@ -1991,36 +2035,41 @@ class AgentManager:
 
         action = self._bound_at_place_movement(agent, action, observation)
 
-        # Surveying is the LLM's call (#57). This used to fire the moment code
-        # noticed an unsurveyed cell, discarding whatever the model had decided —
-        # a third of SR35's ticks ran with the model's own action thrown away,
-        # and code, not the model, picked which ground got mapped. Now the model
-        # sees the cell's survey verdict as a fact and reaches for `survey_here`
-        # when it wants one. What it cannot do is claim a survey happened without
-        # one: the four headings, their order, and the capture stay deterministic,
-        # because which compass point to shoot next is execution, not a decision.
-        if action.get("type") == "survey_here":
-            if not self._should_sweep_here(observation, agent_id):
-                logger.info(f"[{agent_id}] survey_here declined — this cell's survey is current")
-                action = {"type": "idle", "_note": "this cell already has a current survey"}
-            else:
-                sweep_action = self._offer_survey_interrupt(agent, observation)
-                if sweep_action and sweep_action.get("_survey_pending"):
-                    # A newly activated survey has a deliberately durable handoff
-                    # tick. Its persisted active/preemptible record is visible to
-                    # operator/API requests before any bridge command locks it.
-                    # The next pulse runs the headings without asking again.
-                    agent.mark_ticked(self._agents_dir)
-                    self._pie_activity(agent_id, "survey_here accepted -> dispatching")
-                    return {"agent_id": agent_id, "action": "survey_pending",
-                            "sweep": True, "interrupt_id": sweep_action["interrupt_id"]}
-                action = sweep_action if sweep_action is not None else {"type": "idle"}
+        # Rulings about ground resolve here, against the grid — they change what
+        # the map offers, never where the body may go.
+        verdict = self._apply_cell_verdict(agent, action, observation)
+        if verdict is not None:
+            action = verdict
+
+        action, pending = self._resolve_survey_here(agent, action, observation)
+        if pending:
+            # A newly activated survey has a deliberately durable handoff tick.
+            # Its persisted active/preemptible record is visible to operator/API
+            # requests before any bridge command locks it. The next pulse runs
+            # the headings without asking again. The decision is logged first —
+            # SR39's three surveys were the model's own calls, but this early
+            # return skipped the log and left them looking like code seizing the
+            # tick, which is the exact confusion #57 set out to end.
+            observation["_thought"] = decision.get("thought_summary")
+            self.memory.record(
+                agent_id=agent_id, observation=observation, action=action,
+                result={"status": "survey_pending",
+                        "interrupt_id": pending["interrupt_id"]},
+                memory_update=decision.get("memory_update"),
+                importance=float(decision.get("importance", 0.5)),
+                timing=observation.get("_timing"),
+            )
+            agent.mark_ticked(self._agents_dir)
+            self._pie_activity(agent_id, "survey_here accepted -> dispatching")
+            return {"agent_id": agent_id, "action": "survey_pending",
+                    "sweep": True, "interrupt_id": pending["interrupt_id"]}
 
         survey_action = bool(action.get("_survey_interrupt_id"))
         if survey_action:
             agent.set_active_interrupt_preemptible(False, self._agents_dir)
 
         result = self._execute_world_action(agent, action, observation)
+        self._note_movement_order(agent_id, action, observation)
         self._mark_first_walk_accepted(agent_id, action, result)
         self._apply_task_completion_confirmation(
             agent, decision, action, result, observation)
@@ -2609,6 +2658,83 @@ class AgentManager:
             self._pause_for_open_chat(agent)
         return result
 
+    def _apply_cell_verdict(self, agent: Agent, action: dict,
+                            observation: dict) -> dict | None:
+        """Store the APC's own ruling on a cell: refuse it, or take it back (#59).
+
+        The map had two states, named and unexplored, so a cell an APC looked at
+        and rejected relaxed straight back to "unsurveyed ground" — a permanent
+        lure that pulled Dufus into the same corn field across four runs. This
+        is the third state, and the APC writes it, not us: nothing here stops
+        him walking into a refused cell if he changes his mind. What it changes
+        is what the map advertises.
+
+        Resolves against the grid, never the engine. Returns the action to run
+        instead (idle), or None when this was not a verdict.
+        """
+        kind = action.get("type")
+        if kind not in ("refuse_cell", "allow_cell") or not self.place_db:
+            return None
+        agent_id = agent.agent_id
+        direction = str(action.get("direction") or "").strip()
+        if direction:
+            target = self._direction_target(observation, direction)
+            grid = self.world_grid.locate(target[0], target[1]) if target else None
+            if grid is None:
+                logger.warning("[%s] %s: cannot resolve direction %r — ignoring",
+                               agent_id, kind, direction)
+                return {"type": "idle", "_note": f"could not resolve direction {direction!r}"}
+        else:
+            grid = observation.get("grid")
+        col, row = self._cell_col_row(grid)
+        if col is None:
+            return {"type": "idle", "_note": "no grid cell to rule on"}
+
+        if kind == "refuse_cell":
+            reason = str(action.get("reason") or "").strip()
+            self.place_db.refuse_cell(agent_id, col, row, reason,
+                                      str(observation.get("world_time") or ""))
+            logger.info("[%s] refused cell %d,%d — %s", agent_id, col, row, reason)
+            self._pie_activity(agent_id, f"refused cell {col},{row}: {reason}")
+            return {"type": "idle", "_note": f"refused cell {col},{row}: {reason}"}
+
+        withdrawn = self.place_db.clear_refusal(agent_id, col, row)
+        logger.info("[%s] %s refusal of cell %d,%d", agent_id,
+                    "withdrew" if withdrawn else "had no", col, row)
+        return {"type": "idle", "_note": f"cell {col},{row} is ordinary ground again"}
+
+    def _resolve_survey_here(self, agent: Agent, action: dict,
+                             observation: dict) -> tuple[dict, dict | None]:
+        """Turn the model's `survey_here` into a real survey, on any tick path.
+
+        Surveying is the LLM's call (#57). This used to fire the moment code
+        noticed an unsurveyed cell, discarding whatever the model had decided —
+        a third of SR35's ticks ran with the model's own action thrown away, and
+        code, not the model, picked which ground got mapped. Now the model sees
+        the cell's survey verdict as a fact and reaches for `survey_here` when
+        it wants one. What it cannot do is claim a survey happened without one:
+        the four headings, their order, and the capture stay deterministic,
+        because which compass point to shoot next is execution, not a decision.
+
+        Shared by the wake path and the normal tick because SR39 proved one
+        handler was not enough: Dufus opened the run by asking to survey Four
+        Ways Crossing, wake sent the verb straight to the bridge, and the bridge
+        answered "Unknown action: survey_here". The first decision of the run
+        was correct and we threw it away.
+
+        Returns ``(action, pending)`` — ``pending`` is set only when a survey was
+        newly activated and the caller must yield the tick to it.
+        """
+        if action.get("type") != "survey_here":
+            return action, None
+        if not self._should_sweep_here(observation, agent.agent_id):
+            logger.info(f"[{agent.agent_id}] survey_here declined — this cell's survey is current")
+            return {"type": "idle", "_note": "this cell already has a current survey"}, None
+        sweep_action = self._offer_survey_interrupt(agent, observation)
+        if sweep_action and sweep_action.get("_survey_pending"):
+            return action, sweep_action
+        return (sweep_action if sweep_action is not None else {"type": "idle"}), None
+
     def _offer_survey_interrupt(self, agent: Agent, observation: dict) -> dict | None:
         """Offer the current unknown cell as a persisted survey interruption."""
         col, row = self._cell_col_row(observation.get("grid"))
@@ -2627,8 +2753,13 @@ class AgentManager:
         record = interruptions.make_record(
             interrupt_id=f"survey:{col},{row}",
             kind="survey",
-            source="world",
-            reason=f"Grid cell ({col},{row}) needs a community survey",
+            # The APC asked for this. It used to say source="world" / "needs a
+            # community survey", which was true when code seized the tick and
+            # became a lie the moment surveying became the model's own action
+            # (#57) — SR39's log read as if the world had ordered three surveys
+            # Dufus in fact chose himself.
+            source="agent",
+            reason=f"{agent.agent_id} asked to survey grid cell ({col},{row})",
             requested_at=str(observation.get("world_time") or self.world_clock.now_text()),
             payload={
                 "col": col, "row": row,
@@ -2999,7 +3130,7 @@ class AgentManager:
                if c.get("label") and not is_anonymous(c.get("label", ""))]
         self._episodic(agent_id).record({
             "world_time": observation.get("world_time", ""),
-            "grid_cell": grid.get("key"),
+            "grid_cell": _cell_label(grid),
             "place": place_list[0] if place_list else None,
             "place_image_id": observation.get("place_image_id"),
             "saw": saw,
@@ -3020,38 +3151,47 @@ class AgentManager:
         place = self._spatial_map(agent_id).place_labels(grid["key"])
         return grid, place
 
-    def _direction_places(self, agent_id: str, location, rotation) -> dict[str, dict]:
+    def _direction_places(self, agent_id: str, location, rotation=None) -> dict[str, dict]:
         """Lizard-brain navigation sense: the grid cell one step (~15m) ahead in
         each walkable direction, plus what the SHARED world map knows about it.
 
         Reads PlaceDB (shared by every avatar), so one agent's discoveries steer
         another's — Maren's named cells show up in Dufus's options. Each value is
-        ``{"cell": "col,row", "place": <name or None>, "ground": [...]}``;
-        ``place is None`` means the cell is still unexplored, a good place to go
-        map next, and ``ground`` is what APCs have actually stood on there.
+        ``{"cell": "col,row", "place": <name or None>, "ground": [...],
+        "refusals": [...]}``; ``place is None`` means the cell is still
+        unexplored, a good place to go map next, and ``ground`` is what APCs
+        have actually stood on there.
 
         The ground is the point of this fact when an APC is stuck (#58). A name
         says a cell was *seen*; footing says it was *walked* — so a way out
         already proven by somebody's feet stops being something the model has to
         guess at from the picture. An empty list means nobody has stood there.
+
+        Keyed by compass, not by forward/left/right (#59). We tell the APC that
+        compass words are the vocabulary and body-relative words silently change
+        meaning — then handed it a next-cell map keyed by exactly those
+        body-relative words, which is the only map it had. SR39 answered in the
+        vocabulary we gave it: 13 of 15 walks were forward/right/back. Rotation
+        is no longer needed to build this at all, which is the point.
         """
         xyz = _loc_xyz(location)
-        yaw = _yaw_of(rotation)
-        if xyz is None or yaw is None:
+        if xyz is None:
             return {}
         out: dict[str, dict] = {}
-        for direction, offset in _DIRECTION_YAW_OFFSET.items():
-            tx, ty, _ = _offset_location(*xyz, yaw + offset, _STEP_DISTANCE)
+        for direction, yaw in _ABSOLUTE_DIRECTION_YAW.items():
+            tx, ty, _ = _offset_location(*xyz, yaw, _STEP_DISTANCE)
             grid = self.world_grid.locate(tx, ty)
             col, row = self._cell_col_row(grid)
             name = None
             ground: list[dict] = []
+            refusals: list[dict] = []
             if self.place_db and col is not None:
                 known = self.place_db.get_place(col, row)
                 name = known.get("name") if known else None
                 ground = self.place_db.get_ground(col, row)
-            out[direction] = {"cell": grid.get("key", "?"), "place": name,
-                              "ground": ground}
+                refusals = self.place_db.get_refusals(col, row)
+            out[direction] = {"cell": _cell_label(grid), "place": name,
+                              "ground": ground, "refusals": refusals}
         return out
 
     def _record_place(self, agent_id: str, location, place_name) -> None:
@@ -3144,6 +3284,46 @@ class AgentManager:
         self._drop_crumb(agent_id, grid, heading, math.hypot(dx, dy))
         return self._travel[agent_id]
 
+    def _last_move_fact(self, agent_id: str, location) -> dict | None:
+        """Did the move we ordered last tick actually happen? (#59)
+
+        The bridge answers "accepted" the instant it takes a walk command, and
+        that answer was the only one anybody saw. SR39 ended with four identical
+        ticks at (-6013.2, 2609.9): `moved_cm: 0.0`, `result_status: success`,
+        same order re-issued each time. Dufus worked out he was wedged before we
+        told him — "I'm stuck moving" — while every log line said he was fine.
+
+        Accepted is not moved. This states the achieved displacement against the
+        order that asked for it, and says so out loud in the log when a real
+        movement order produced nothing. Facts only: what to do about a stalled
+        order is the model's call, not ours.
+        """
+        order = self._last_order.get(agent_id)
+        xyz = _loc_xyz(location)
+        if not order or xyz is None or order.get("from") is None:
+            return None
+        moved = math.hypot(xyz[0] - order["from"][0], xyz[1] - order["from"][1])
+        fact = {"intent": order.get("intent"), "moved_cm": round(moved, 1),
+                "stalled": moved < _MOVEMENT_START_CM}
+        if fact["stalled"]:
+            logger.warning(
+                "[%s] STALLED: ordered %s, achieved %.1f cm — the bridge accepted "
+                "a move that did not happen", agent_id, order.get("intent"), moved)
+        return fact
+
+    def _note_movement_order(self, agent_id: str, action: dict, observation: dict) -> None:
+        """Remember the movement we just ordered, so next tick can check it."""
+        if action.get("type") not in _MOVEMENT_ACTIONS:
+            self._last_order.pop(agent_id, None)
+            return
+        xyz = _loc_xyz(observation.get("location"))
+        intent = str(action.get("direction") or action.get("target_location")
+                     or action.get("type") or "")
+        self._last_order[agent_id] = {
+            "intent": intent,
+            "from": (xyz[0], xyz[1]) if xyz else None,
+        }
+
     def _drop_crumb(self, agent_id: str, grid: dict | None,
                     heading: str | None, distance_cm: float) -> None:
         """Record one leg walked: where it ended, and the heading that got there.
@@ -3155,7 +3335,7 @@ class AgentManager:
         """
         trail = self._breadcrumbs.setdefault(agent_id, [])
         trail.append({
-            "cell": (grid or {}).get("key", "?"),
+            "cell": _cell_label(grid),
             "heading": heading,
             "distance_cm": round(distance_cm, 1),
             "footing": None,
@@ -3621,6 +3801,7 @@ class AgentManager:
         self._travel_from.clear()
         self._travel.clear()
         self._breadcrumbs.clear()
+        self._last_order.clear()
         self._no_progress.clear()
         self._routes.clear()
         self._cell_sweeps.clear()

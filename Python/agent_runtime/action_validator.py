@@ -64,4 +64,12 @@ def validate(agent: "Agent", decision: dict, observation: dict) -> dict | None:
             logger.warning(f"[{agent.agent_id}] follow_character missing target - dropping")
             return None
 
+    if action_type == "refuse_cell":
+        # A refusal without a stated reason is exactly the opaque "impassable"
+        # flag we did not want: it removes ground from the survey queue and
+        # leaves nothing to review or train on (#59).
+        if not str(action.get("reason") or "").strip():
+            logger.warning(f"[{agent.agent_id}] refuse_cell missing reason - dropping")
+            return None
+
     return action

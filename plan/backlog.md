@@ -2678,6 +2678,62 @@ live → pin with tests).
 
 ---
 
+## 59. SR39 — three broken instruments, and the corn field's real cause
+
+**Status:** **BUILT 2026-08-12, unverified live** · **Source:** SR39 log review.
+
+SR39 was the first run on #58. Two good signals: **`survey_here` fired three times** (5,5 / 6,5 / 6,6,
+twelve headings, zero failures) against once-in-twenty in SR37, so the low survey rate was the footing
+trap, not reluctance; and `cell_ground` recorded correctly, including the mixed cell 6,6
+(`pavement x10` + `cultivated_field x3`). Dufus's own words carried the new facts back — *"aim for the
+pavement patch I know first"*, *"need to retrace toward the pavement"*.
+
+Then five defects, three of which were corrupting **every** run before this one:
+
+1. **`survey_here` died at wake.** The wake path called `_execute_world_action` directly, so the verb
+   reached the bridge, which answered `Unknown action: survey_here`. The first decision of every run was
+   discarded. Both paths now share `_resolve_survey_here`.
+2. **Stalled orders reported `success`.** The last four ticks are identical — `(-6013.2, 2609.9)`,
+   `moved_cm: 0.0`, `result_status: success` — and Dufus worked out he was wedged (*"I'm stuck moving"*)
+   before we told him. Accepted is not moved: `_last_move_fact` states the achieved displacement against
+   the order that asked for it, `_sense_note` tells the model, and a stalled order now logs a WARNING and
+   a `stalled_order` field.
+3. **The model's survey decision never got a log row** (early return skipped it), and the interrupt still
+   said `source: "world"` / *"needs a community survey"* — text that was true when code seized the tick
+   and a lie once surveying became the model's own action. Now `source: "agent"` and the decision is
+   logged before the handoff tick.
+4. **Two coordinate systems, both shown to the model.** `WorldGrid.locate` returns `key` (raw signed
+   index, "-3,0") and `col`/`row` (bounds-relative, "6,6"); `_grid_text` printed both in one line. SR39
+   has Dufus reasoning about "cell -3,0" all run while PlaceDB, the decision log and the survey messages
+   recorded "6,6". **We were grading his map sense through a mistranslation.** `col,row` wins everywhere
+   the model can see (`_cell_label`); `key` stays internal to SpatialMap.
+5. **The corn.** Not a facts problem — he had the facts. SR39, verbatim: *"the lime cornfield edge to my
+   right is unwalked ground worth pushing toward — but it's crop field, so I should aim for the pavement
+   patch I know first"* — and then walked `direction:right`, into the field. Two causes, both ours:
+   - **"Never walked" is a reward.** His one job is unsurveyed ground and the direction list advertised
+     the corn cell as exactly that. No warning beats a goal. Fixed by giving the map a third state:
+     `refuse_cell` / `allow_cell` (new `cell_refusals` table, reason mandatory, shared across APCs,
+     withdrawable). A refused cell stops reading "unexplored" — **it stops being work**. Nothing in code
+     blocks the walk; the APC declares, code only stops forgetting.
+   - **The next-cell map was keyed by forward/left/right** while doctrine told him compass words are the
+     vocabulary — so the only map he had spoke the words we told him not to trust. 13 of SR39's 15 walks
+     were body-relative. `_direction_places` is now compass-keyed and no longer needs rotation at all.
+   - Also: this tick's sightings are folded onto the matching compass line (`you can see tall corn rows
+     (near)`), so the reason not to go and the invitation to go are finally on the same line.
+
+Also fixed: a decision lost to `Extra data: line 1 column 207` (valid JSON with prose after it — now
+parsed via `raw_decode`); 312 lines of `Existing connection failed: 'NoneType'...` (a cached connection
+whose socket is already None is the ordinary state, not a warning); `_offset_location` snapped to the
+nanometre, because `cos(270°) = -1.8e-16` put a due-north step a hair west and could file a **durable**
+refusal against the neighbouring cell; `_pie_activity` no longer crashes a decision when there is no
+bridge.
+
+**Open for the next run:** does he refuse the corn from outside instead of entering it; does he use
+compass words now that his map does; does `stalled_order` appear when he wedges. Suite 57/57; the new
+behaviour is smoke-tested but not pinned (build → verify live → pin with tests).
+
+---
+
 ## Outstanding — human / editor / live (not loop-safe)
 
 - **#35/#13.4:** design the LLM-directed expedition contract and pristine-run purge boundary before

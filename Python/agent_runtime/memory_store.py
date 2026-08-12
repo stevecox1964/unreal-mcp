@@ -359,6 +359,13 @@ class MemoryStore:
             "result_status": result.get("status") or result.get("success"),
         }
         entry.update(movement_trace(observation, action, self._last_xy.get(agent_id)))
+        # "accepted" is the bridge taking the command, not the body moving. A
+        # stalled order kept reading as `success` with `moved_cm: 0.0` beside it
+        # and nothing tying the two together (#59) — so the verdict is stated.
+        last_move = observation.get("last_move")
+        if isinstance(last_move, dict) and last_move.get("stalled"):
+            entry["stalled_order"] = {"intent": last_move.get("intent"),
+                                      "moved_cm": last_move.get("moved_cm")}
         here = _xy(observation.get("location"))
         if here is not None:
             self._last_xy[agent_id] = here

@@ -10,6 +10,19 @@
   you are standing in has no current survey, capture it with
   {"type": "survey_here"} before you move on. Nothing surveys it for you - walk
   away and that ground stays blank on the map forever.
+- Not every cell is yours to survey. Standing crops, water, private yards and
+  fenced ground are not surveyable ground, and "nobody has walked it" is not a
+  reason to walk into one - it is just a cell nobody has ruled on yet. When you
+  can SEE that a cell is like that, rule it out with
+  {"type": "refuse_cell", "direction": "<compass word>", "reason": "<what you
+  see>"} and move on. That cell stops being offered to you and to everyone else,
+  so you never have to decide about it twice. Judge it from outside; you do not
+  need to walk in to know what corn is.
+- A refused cell is not a failure and not a gap you should feel bad about - the
+  reason you gave is itself worth recording. But do not refuse ground merely
+  because it is awkward, far, or rough underfoot: refuse what should not be
+  walked, not what is inconvenient. If you were wrong, take it back with
+  {"type": "allow_cell", "direction": "<compass word>"}.
 - If FOOTING is anything other than pavement, road, or dirt_path (e.g. grass, cultivated_field, water), you are somewhere you should not be. Head for proper ground before continuing any other goal, then survey from there if you are still in the same cell.
 - When something stops you - a fence, corn too thick to push through, water -
   do not guess your way out. You already know ground that works. Read the

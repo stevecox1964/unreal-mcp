@@ -204,9 +204,27 @@ def get_unreal_connection() -> Optional[UnrealConnection]:
         else:
             # Verify connection is still valid with a ping-like test
             try:
+                # A cached object whose socket is already None is the ordinary
+                # between-commands state, not a failure. It was being pinged
+                # anyway, so every reconnect logged
+                # "'NoneType' object has no attribute 'sendall'" at WARNING —
+                # 312 lines of SR39, a tenth of the whole run log (#59).
+                if _unreal_connection.socket is None:
+                    raise ConnectionError("socket already closed")
                 # Simple test by sending an empty buffer to check if socket is still connected
                 _unreal_connection.socket.sendall(b'\x00')
                 logger.debug("Connection verified with ping test")
+            except ConnectionError as e:
+                logger.debug(f"Reconnecting to Unreal: {e}")
+                _unreal_connection.disconnect()
+                _unreal_connection = None
+                _unreal_connection = UnrealConnection()
+                if not _unreal_connection.connect():
+                    logger.warning("Could not reconnect to Unreal Engine")
+                    _unreal_connection = None
+                else:
+                    logger.info("Successfully reconnected to Unreal Engine")
+                return _unreal_connection
             except Exception as e:
                 logger.warning(f"Existing connection failed: {e}")
                 _unreal_connection.disconnect()

@@ -120,6 +120,27 @@ CREATE TABLE IF NOT EXISTS cell_ground (
     PRIMARY KEY (col, row, footing)
 );
 
+-- Cells an APC looked at and decided not to walk into, with the reason it gave
+-- (#59). The map had exactly two states — named, or unexplored — so a cell an
+-- APC deliberately rejected relaxed back to "unexplored" and was re-advertised
+-- as a survey target on the next run, forever. Dufus walked into the same corn
+-- field across SR34, SR37, SR38 and SR39 for this reason.
+--
+-- Nothing in the code enforces a refusal: it is a fact the APC stated, stored
+-- so it stops being forgotten, and shown back to every APC. The reason matters
+-- more than the flag — "standing corn", "someone's yard" and "fence" are three
+-- different refusals, and the navmesh-walkable/APC-refused pair is exactly the
+-- training signal the world exists to collect.
+CREATE TABLE IF NOT EXISTS cell_refusals (
+    col        INTEGER NOT NULL,
+    row        INTEGER NOT NULL,
+    refused_by TEXT    NOT NULL,
+    reason     TEXT    NOT NULL,
+    refused_at TEXT    NOT NULL,   -- world time, as the APC stated it
+    updated_at TEXT    NOT NULL,   -- real UTC
+    PRIMARY KEY (col, row, refused_by)
+);
+
 -- Per-APC living visual history linked to exact shared image revisions.
 CREATE TABLE IF NOT EXISTS agent_visual_history (
     agent_id       TEXT NOT NULL,
@@ -262,7 +283,7 @@ class PlaceDB:
             image_paths = [r[0] for r in conn.execute("SELECT image_path FROM place_images")]
             tables = ("agent_visual_history", "place_images", "place_cells",
                       "place_observations", "agent_visits", "owned_place_cells",
-                      "cell_ground")
+                      "cell_ground", "cell_refusals")
             counts = {
                 table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
                 for table in tables
@@ -608,6 +629,62 @@ class PlaceDB:
                 "SELECT footing, sample_count, last_seen_by, last_seen FROM cell_ground "
                 "WHERE col=? AND row=? ORDER BY sample_count DESC, footing ASC",
                 (col, row),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def refuse_cell(self, agent_id: str, col: int, row: int, reason: str,
+                    world_time: str) -> bool:
+        """Record that an APC looked at a cell and chose not to walk into it.
+
+        Re-refusing updates the reason rather than stacking duplicates — an APC
+        is allowed to change its mind about why, and a later look is the better
+        one. Returns False for an empty reason: a refusal without a stated
+        reason is the flag we specifically did not want.
+        """
+        why = str(reason or "").strip()
+        if not why:
+            return False
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                "INSERT INTO cell_refusals (col, row, refused_by, reason, refused_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(col, row, refused_by) DO UPDATE SET "
+                "  reason = excluded.reason, refused_at = excluded.refused_at, "
+                "  updated_at = excluded.updated_at",
+                (col, row, agent_id, why, str(world_time or ""), _iso_now()),
+            )
+        return True
+
+    def clear_refusal(self, agent_id: str, col: int, row: int) -> bool:
+        """Withdraw this APC's refusal of a cell — it may change its mind."""
+        with self._lock, self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM cell_refusals WHERE col=? AND row=? AND refused_by=?",
+                (col, row, agent_id),
+            )
+        return cur.rowcount > 0
+
+    def get_refusals(self, col: int, row: int) -> list[dict]:
+        """Every APC's stated refusal of this cell, newest first. Empty = none."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT refused_by, reason, refused_at FROM cell_refusals "
+                "WHERE col=? AND row=? ORDER BY updated_at DESC",
+                (col, row),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def all_refusals(self) -> list[dict]:
+        """Every refusal in the world — the visible record of what got skipped.
+
+        A gap in the corpus must stay countable. Surveyed and
+        refused-with-a-reason are different states and neither may look like the
+        other; this is what a reviewer reads to see what was left out and why.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT col, row, refused_by, reason, refused_at, updated_at "
+                "FROM cell_refusals ORDER BY updated_at DESC"
             ).fetchall()
         return [dict(r) for r in rows]
 

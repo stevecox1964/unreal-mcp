@@ -29,6 +29,8 @@ _ACTION_SCHEMAS: dict[str, str] = {
     "wander":           '{"type": "wander"}  -- keep moving: take one step (~15m) in the direction you are facing',
     "walk_to":          '{"type": "walk_to", "target_location": "<place name>"} to travel to a named place you know (e.g. "village square", "home"), OR {"type": "walk_to", "target_actor": "<actor_label>"} to walk to a known character, OR {"type": "walk_to", "direction": "north|south|east|west|northeast|northwest|southeast|southwest"} to walk ~15m along that compass heading, OR {"type": "walk_to", "direction": "forward|forward-left|forward-right|left|right|back"} to walk ~15m relative to the way your body is currently facing',
     "survey_here":      '{"type": "survey_here"} to survey the cell you are standing in — captures all four compass headings over the next few ticks and adds the cell to the shared map. Only works on a cell that has no current survey, and only for the cell underfoot',
+    "refuse_cell":      '{"type": "refuse_cell", "direction": "north|south|east|west|northeast|northwest|southeast|southwest", "reason": "<what you can see that makes it not worth walking into>"} to record that the cell one step that way is not ground you will walk into. It stops being offered as somewhere to survey, for you and for every other APC, until someone withdraws it. Use it when you can SEE the reason — standing crops, water, a fence, someone\'s private yard. Omit "direction" to refuse the cell you are standing in',
+    "allow_cell":       '{"type": "allow_cell", "direction": "<compass word, or omit for here>"} to withdraw a refusal you made earlier — the cell goes back to being ordinary ground',
     "speak_to":         '{"type": "speak_to", "target": "<actor_label>", "message": "<text>"}',
     "inspect_object":   '{"type": "inspect_object", "target": "<actor_name>"}',
     "follow_character": '{"type": "follow_character", "target": "<actor_name>"}',
@@ -492,7 +494,7 @@ class LLMRouter:
                 raw = self._decide_openai(model, self._system_text(agent), user_text)
             else:
                 raw = self._decide_anthropic(model, self._system_text(agent), user_text)
-            orientation = json.loads(raw)
+            orientation = _load_decision_json(raw)
             logger.info(
                 "[%s] %s/%s woke up: %s",
                 agent.agent_id, provider, model,
@@ -539,7 +541,10 @@ class LLMRouter:
                 z=loc.get("z", 0),
                 facing=_facing_text(observation.get("rotation")),
                 travel_note=_travel_note(observation.get("travel")),
-                direction_lines=_direction_lines(observation.get("directions")),
+                direction_lines=_direction_lines(
+                    observation.get("directions"),
+                    (observation.get("seen") or {}).get("landmarks"),
+                    _yaw_of_rotation(observation.get("rotation"))),
                 seen=_seen_text(observation.get("seen"), observation.get("breadcrumbs")),
                 world_time=observation.get("world_time", "unknown"),
                 current_action=action_state,
@@ -585,7 +590,7 @@ class LLMRouter:
                 return _idle_decision(agent.agent_id, f"Unknown LLM provider: {provider}")
 
             logger.debug(f"[{agent.agent_id}] Raw LLM response: {raw}")
-            decision = json.loads(raw)
+            decision = _load_decision_json(raw)
             logger.info(
                 "[%s] %s/%s decided: %s - %s",
                 agent.agent_id,
@@ -823,6 +828,19 @@ def _sense_note(observation: dict) -> str:
     the agent is wedged on them. The LLM reasons; the lizard brain senses.
     """
     lines = []
+    # Whether the last order actually moved the body. The engine reports a walk
+    # as "accepted" the moment it takes the command, so an order that achieved
+    # nothing looked identical to one that crossed a field (#59).
+    last_move = observation.get("last_move")
+    if isinstance(last_move, dict) and last_move.get("intent"):
+        if last_move.get("stalled"):
+            lines.append(
+                f"Sense: you ordered \"{last_move['intent']}\" last tick and have "
+                f"not moved since — you are against something that stopped you.")
+        elif last_move.get("moved_cm") is not None:
+            lines.append(
+                f"Sense: your last order (\"{last_move['intent']}\") moved you "
+                f"{round(last_move['moved_cm'] / 100, 1)} m.")
     if observation.get("stuck"):
         lines.append("Sense: you have not advanced for several ticks while moving.")
     blocker = observation.get("blocker")
@@ -1129,15 +1147,49 @@ _OPPOSITE = {"N": "S", "S": "N", "E": "W", "W": "E",
              "NE": "SW", "SW": "NE", "NW": "SE", "SE": "NW"}
 
 
-def _direction_lines(directions: dict | None) -> str:
+def _load_decision_json(raw: str) -> dict:
+    """Parse a decision, tolerating a trailing sign-off after the JSON (#59).
+
+    SR39 lost a whole decision to ``Extra data: line 1 column 207`` — the object
+    was complete and well-formed, with prose after it. Throwing away a good
+    decision because the model kept talking is our bug, not its. Anything that
+    is not a complete leading JSON object still raises.
+    """
+    decoded, end = json.JSONDecoder().raw_decode(raw.strip())
+    if not isinstance(decoded, dict):
+        raise json.JSONDecodeError("decision must be a JSON object", raw, 0)
+    trailing = raw.strip()[end:].strip()
+    if trailing:
+        logger.info("dropped %d chars of prose after the decision JSON", len(trailing))
+    return decoded
+
+
+def _yaw_of_rotation(rotation) -> float | None:
+    """UE yaw from either rotation shape, or None when there isn't one."""
+    if isinstance(rotation, dict) and rotation.get("y") is not None:
+        return float(rotation["y"])
+    if isinstance(rotation, (list, tuple)) and len(rotation) >= 2:
+        return float(rotation[1])
+    return None
+
+
+def _direction_lines(directions: dict | None, landmarks: list | None = None,
+                     facing_yaw: float | None = None) -> str:
     """Render the per-direction next-cell sense from agent_manager._direction_places.
 
-    Each value is ``{"cell": "col,row", "place": <name|None>, "ground": [...]}``
-    — a named place means that cell is already mapped; None means it's
-    unexplored (go map it). ``ground`` is what APCs have actually stood on
-    there, commonest first; empty means nobody has ever stood in that cell, and
-    that gap is stated rather than left to look like a clean bill of health
-    (#58).
+    Each value is ``{"cell": "col,row", "place": <name|None>, "ground": [...],
+    "refusals": [...]}`` — a named place means that cell is already mapped; None
+    means it's unexplored (go map it). ``ground`` is what APCs have actually
+    stood on there, commonest first; empty means nobody has ever stood in that
+    cell, and that gap is stated rather than left to look like a clean bill of
+    health (#58).
+
+    ``landmarks`` are this tick's sightings, which carry a bearing. They are
+    folded onto the matching compass line rather than listed separately (#59):
+    the reason not to walk somewhere was in the picture, the invitation to walk
+    there was in this list, and joining them was left to the model to do in its
+    head every tick — under a goal that pays it for unexplored ground. SR39 has
+    Dufus naming the corn and stepping into it in the same sentence.
     """
     if not directions:
         return "Nothing mapped yet — navigate by what you see in the image."
@@ -1145,12 +1197,67 @@ def _direction_lines(directions: dict | None) -> str:
     for d, info in directions.items():
         if isinstance(info, dict):
             place = info.get("place")
-            status = f'"{place}"' if place else "unexplored"
+            refusal = _refusal_text(info.get("refusals"))
+            # A refused cell is not "unexplored ground waiting to be surveyed",
+            # and must never read like it — that description is what kept
+            # pulling Dufus back into the same field run after run (#59).
+            status = refusal or (f'"{place}"' if place else "unexplored")
             lines.append(f"- {d}: cell {info.get('cell', '?')} — {status}"
                          f", {_ground_text(info.get('ground'))}")
+            seen_that_way = _visible_that_way(d, landmarks, facing_yaw)
+            if seen_that_way:
+                lines[-1] += f"; you can see {seen_that_way}"
         else:  # legacy list-of-labels form
             lines.append(f"- {d}: {', '.join(info) if info else 'unmapped'}")
     return "\n".join(lines)
+
+
+def _refusal_text(refusals: list | None) -> str:
+    """State that a cell was ruled out, by whom, and why (#59).
+
+    Named or unexplored were the only two things a cell could be, so a cell an
+    APC deliberately rejected went back to reading "unexplored" — an open
+    invitation, re-issued every run. The reason is carried because it is the
+    whole point: "standing corn" and "a fence" are different facts about the
+    world, and this pairing (walkable by the engine, refused by an APC) is the
+    training signal the corpus is being built to hold.
+    """
+    stated = [r for r in (refusals or []) if isinstance(r, dict) and r.get("reason")]
+    if not stated:
+        return ""
+    first = stated[0]
+    more = f" (+{len(stated) - 1} more)" if len(stated) > 1 else ""
+    return (f"REFUSED by {first.get('refused_by', 'someone')}: "
+            f"{first['reason']}{more} — not somewhere to survey")
+
+
+# A sighting's bearing is where it sits in the frame, not a compass heading.
+_VIEW_BEARING_OFFSET = {"left": -45.0, "center": 0.0, "right": 45.0}
+
+
+def _visible_that_way(direction: str, landmarks: list | None,
+                      facing_yaw: float | None = None) -> str:
+    """What this tick's view shows toward one compass direction (#59).
+
+    Perception reports a landmark as left/center/right of the frame, which only
+    means a compass heading once you know which way the body points — so this
+    needs the facing yaw and returns nothing without it rather than guessing.
+    """
+    if facing_yaw is None or not landmarks:
+        return ""
+    want = str(direction or "").strip().lower()
+    hits = []
+    for lm in landmarks:
+        if not isinstance(lm, dict) or not lm.get("label"):
+            continue
+        offset = _VIEW_BEARING_OFFSET.get(str(lm.get("bearing", "center")).lower())
+        if offset is None:
+            continue
+        heading = yaw_to_compass(facing_yaw + offset)
+        if _COMPASS_WORD.get(heading, "").lower() == want:
+            distance = str(lm.get("distance") or "").strip()
+            hits.append(f"{lm['label']}{f' ({distance})' if distance else ''}")
+    return ", ".join(hits[:3])
 
 
 def _ground_text(ground: list | None) -> str:
@@ -1257,11 +1364,18 @@ def _place_text(observation: dict) -> str:
 
 
 def _grid_text(grid: dict | None) -> str:
+    """Name this cell exactly once (#59).
+
+    This used to print the raw signed grid key *and* the col/row pair — "-3,0
+    (col 6, row 6 of 12x9)" — two names for one cell in a single line. SR39 has
+    Dufus reasoning about "cell -3,0" all run while everything we stored called
+    it "6,6". Only col/row is spoken now; it is what PlaceDB, the decision log
+    and the survey messages already key on.
+    """
     grid = grid or {}
-    text = grid.get("key", "unknown")
-    if grid.get("col") is not None:
-        text += f" (col {grid['col']}, row {grid['row']} of {grid['cols']}x{grid['rows']})"
-    return text
+    if grid.get("col") is None:
+        return str(grid.get("key", "unknown"))
+    return f"{grid['col']},{grid['row']} (of {grid.get('cols', '?')}x{grid.get('rows', '?')})"
 
 
 def _idle_decision(agent_id: str, reason: str) -> dict:

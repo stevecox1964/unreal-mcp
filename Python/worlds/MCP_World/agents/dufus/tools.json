@@ -4,6 +4,8 @@
     "wander",
     "walk_to",
     "survey_here",
+    "refuse_cell",
+    "allow_cell",
     "observe",
     "remember"
   ]
