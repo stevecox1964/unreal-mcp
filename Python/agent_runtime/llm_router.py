@@ -841,6 +841,9 @@ def _sense_note(observation: dict) -> str:
             lines.append(
                 f"Sense: your last order (\"{last_move['intent']}\") moved you "
                 f"{round(last_move['moved_cm'] / 100, 1)} m.")
+    tried = _tried_here_text(last_move)
+    if tried:
+        lines.append(tried)
     if observation.get("stuck"):
         lines.append("Sense: you have not advanced for several ticks while moving.")
     blocker = observation.get("blocker")
@@ -852,6 +855,27 @@ def _sense_note(observation: dict) -> str:
         if blocker.get("halted"):
             lines.append("Sense: your walk has been halted.")
     return ("\n" + "\n".join(lines) + "\n") if lines else ""
+
+
+def _tried_here_text(last_move: dict | None) -> str:
+    """Every heading already attempted from this exact spot, and what's left (#60).
+
+    SR40 alternated east and southeast for eight ticks against the same
+    obstacle, because each tick only knew the previous order had failed and the
+    other direction therefore looked untried. Both halves are stated: what has
+    failed here, and what has not been attempted from here — the second is what
+    ends the loop, and it is a fact, not a suggestion. Which one to take, or
+    whether to speak to whoever is in the way instead, stays the model's call.
+    """
+    tried = (last_move or {}).get("tried_here")
+    if not isinstance(tried, dict) or not tried:
+        return ""
+    failed = ", ".join(f"{d} ({round(cm / 100, 1)} m)" for d, cm in tried.items())
+    untried = [w for w in _COMPASS_WORD.values() if w not in tried]
+    line = f"Sense: from this exact spot you have already tried: {failed}."
+    if untried:
+        line += f" Not yet tried from here: {', '.join(untried)}."
+    return line
 
 
 def _active_interrupt_note(record: dict | None) -> str:

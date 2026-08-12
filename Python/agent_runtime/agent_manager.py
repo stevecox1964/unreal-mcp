@@ -251,6 +251,7 @@ class AgentManager:
         self._travel: dict[str, dict] = {}          # agent_id -> last real heading travelled (#56)
         self._breadcrumbs: dict[str, list[dict]] = {}  # agent_id -> recent legs walked (#58)
         self._last_order: dict[str, dict] = {}      # agent_id -> last movement ordered, for the achieved-vs-ordered check (#59)
+        self._tried_here: dict[str, dict] = {}      # agent_id -> {at, tried: {heading: moved_cm}} while wedged on one spot (#60)
         self._no_progress: dict[str, int] = {}      # agent_id -> consecutive "moving but didn't advance" ticks
         self._last_grid_place: dict[str, tuple] = {}  # agent_id -> (grid, place), reported even when LLM skipped
         self._routes: dict[str, dict] = {}          # agent_id -> cached grid-first route (#17/WP8)
@@ -326,6 +327,7 @@ class AgentManager:
         self._travel.clear()
         self._breadcrumbs.clear()
         self._last_order.clear()
+        self._tried_here.clear()
         self._no_progress.clear()
         self._routes.clear()
         self._live_pos.clear()
@@ -1381,16 +1383,21 @@ class AgentManager:
         # already wedged. A mobile blocker (someone crossing the path) becomes a
         # fact the LLM can sidestep *before* the collision; when stuck, whatever
         # is ahead is reported. Facts only — the decision stays with the LLM.
-        if moving or stuck:
+        # A stalled order is the strongest possible reason to look ahead, and it
+        # was the one case that never did: `moving` reads the engine's AI state,
+        # and a walk that never starts leaves that state idle, so SR40 spent
+        # eight wedged ticks with the forward trace switched off (#60).
+        stalled = bool((observation.get("last_move") or {}).get("stalled"))
+        if moving or stuck or stalled:
             trace = self.bridge.line_trace_forward(
                 agent.bound_unreal_actor_name,
-                _STUCK_TRACE_CM if stuck else _AHEAD_TRACE_CM,
+                _STUCK_TRACE_CM if (stuck or stalled) else _AHEAD_TRACE_CM,
             )
             if trace.get("hit"):
                 category = _classify_blocker(
                     trace.get("actor_name", ""), trace.get("actor_class", "")
                 )
-                if stuck or category in _MOBILE_BLOCKERS:
+                if stuck or stalled or category in _MOBILE_BLOCKERS:
                     observation["blocker"] = {
                         "category": category,
                         "distance_cm": trace.get("distance_cm", 0.0),
@@ -3309,7 +3316,36 @@ class AgentManager:
             logger.warning(
                 "[%s] STALLED: ordered %s, achieved %.1f cm — the bridge accepted "
                 "a move that did not happen", agent_id, order.get("intent"), moved)
+        fact["tried_here"] = self._record_attempt(
+            agent_id, xyz, order.get("intent"), moved)
         return fact
+
+    def _record_attempt(self, agent_id: str, xyz, intent, moved_cm: float) -> dict:
+        """Which headings have already failed from the spot the APC is on (#60).
+
+        SR40 spent eight ticks wedged at (-3200.7, 670.2) alternating east and
+        southeast — "east is blocked, try southeast", "southeast is blocked, try
+        east" — each decision correct given what it knew, which was only that
+        the *immediately previous* order failed. Same shape as SR37's footing
+        ping-pong: one tick of memory cannot see a two-item loop from inside it.
+
+        Cleared the moment the APC actually moves, because these headings are
+        facts about one spot, not about the world — a mailbox blocks east from
+        here and from nowhere else.
+        """
+        here = (round(xyz[0], 1), round(xyz[1], 1))
+        record = self._tried_here.get(agent_id)
+        if moved_cm >= _MOVEMENT_START_CM or record is None or record.get("at") != here:
+            if moved_cm >= _MOVEMENT_START_CM:
+                self._tried_here.pop(agent_id, None)
+                return {}
+            record = {"at": here, "tried": {}}
+            self._tried_here[agent_id] = record
+        if intent:
+            previous = record["tried"].get(intent)
+            record["tried"][intent] = (round(moved_cm, 1) if previous is None
+                                       else min(previous, round(moved_cm, 1)))
+        return dict(record["tried"])
 
     def _note_movement_order(self, agent_id: str, action: dict, observation: dict) -> None:
         """Remember the movement we just ordered, so next tick can check it."""
@@ -3802,6 +3838,7 @@ class AgentManager:
         self._travel.clear()
         self._breadcrumbs.clear()
         self._last_order.clear()
+        self._tried_here.clear()
         self._no_progress.clear()
         self._routes.clear()
         self._cell_sweeps.clear()

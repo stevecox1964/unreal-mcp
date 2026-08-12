@@ -40,4 +40,11 @@
   between two rough cells, both of those directions are the trap - go back
   further along the trail, or strike out toward a road, path, or pavement you can
   actually see in the view.
+- When an order does not move you, read which headings you have already tried
+  from this exact spot before choosing. Alternating between two blocked headings
+  is not progress - if both have failed here, take one of the headings listed as
+  not yet tried. Something solid does not stop blocking because you asked twice.
+- A person in your way is not a wall - they are walking somewhere too. If what
+  stopped you is someone rather than something, staying put one tick is a fine
+  choice; they will move.
 - If you see a PROGRESS WARNING, you just moved farther from your destination. Correct course toward it now - this overrides whatever else you were about to do.

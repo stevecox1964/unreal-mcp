@@ -2734,6 +2734,56 @@ behaviour is smoke-tested but not pinned (build → verify live → pin with tes
 
 ---
 
+## 60. SR40 — the corn field is solved; the new wall is a mailbox
+
+**Status:** **#59 VERIFIED LIVE 2026-08-12. Follow-on fix BUILT, unverified.** · **Source:** SR40 log review.
+
+**SR40 is the first run with no cultivated_field footing at all.** Every reading was road or pavement.
+Dufus named the hazard at wake — *"south is a cornfield edge I should not enter"* — and never went near
+it. Note *how*: he never called `refuse_cell`. The corn cells (5,6 / 6,6 / 6,7) were already recorded as
+`cultivated_field` in `cell_ground` from SR39, so the compass-keyed direction lines showed him rough
+ground before he stepped in it. **#58's ground memory did the work; #59's refusal state was not needed
+and remains unexercised.** Do not claim it as verified.
+
+Every #59 fix confirmed live:
+
+| Fix | SR39 | SR40 |
+|---|---|---|
+| `survey_here` at wake | `error: Unknown action` | `success` |
+| Compass vs body-relative walks | 2 of 15 compass | **15 of 15 compass** |
+| Cell naming in his thoughts | "cell -3,0" (log said 6,6) | "cell 7,5", "cell 8,6" — matches |
+| Survey decision rows | none (invisible) | `action_type: survey_here`, `survey_pending` |
+| Interrupt provenance | `source: "world"` (false) | `source: "agent"`, "dufus asked to survey (7,5)" |
+| Stalled orders | `success`, silent | `stalled_order` on 8 rows + WARNING |
+| Reconnect noise | 312 WARNING | 0 WARNING (292 INFO — see below) |
+| Malformed JSON drops | 1 | 0 |
+
+**The new failure:** eight ticks wedged at `(-3200.7, 670.2)` between a person and a mailbox, alternating
+`east → southeast → east → southeast`, each thought correct in isolation — *"east is blocked, so I'll
+angle southeast"*, then *"southeast is blocked, so I'll head east"*. Structurally identical to SR37's
+footing ping-pong: `stalled_order` reports only the *immediately previous* order, so the other heading
+always looked untried. One tick of memory cannot see a two-item loop from inside it.
+
+Fixed the same way that one was — by accumulating:
+- **`_record_attempt` / `tried_here`** — every heading attempted from this exact spot with its achieved
+  distance, cleared the moment the APC actually moves (these are facts about a spot, not the world).
+  Rendered with **both** halves: what has failed here, and what has *not been tried* from here. The
+  second is what ends the loop.
+- **The forward trace was switched off for the entire wedge.** `blocker` fired **zero** times in SR40:
+  the trace is gated on `moving or stuck`, `moving` reads the engine's AI state, and a walk that never
+  starts leaves that state idle. A stalled order is the strongest possible reason to look ahead and was
+  the one case that never did. Gate now includes `stalled`.
+- `rules.md`: don't alternate between two blocked headings; and a person in the way is not a wall —
+  standing still one tick is a fine answer.
+
+**Still open:** 292 reconnects in one run. No longer log noise (INFO, and the `NoneType` warning is
+gone), but the socket is being torn down and rebuilt constantly — that is churn, not a logging problem,
+and nobody has looked at why. Also unknown whether the forward trace would have *hit* the mailbox: it
+never ran, so `blocker: 0` proves the gate was shut, not that the trace works. Watch for a `blocker`
+line in the next run before trusting it.
+
+---
+
 ## Outstanding — human / editor / live (not loop-safe)
 
 - **#35/#13.4:** design the LLM-directed expedition contract and pristine-run purge boundary before
