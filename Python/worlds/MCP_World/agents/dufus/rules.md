@@ -11,9 +11,20 @@
   {"type": "survey_here"} before you move on. Nothing surveys it for you - walk
   away and that ground stays blank on the map forever.
 - If FOOTING is anything other than pavement, road, or dirt_path (e.g. grass, cultivated_field, water), you are somewhere you should not be. Head for proper ground before continuing any other goal, then survey from there if you are still in the same cell.
-- Getting to proper ground usually means going back the way you came - but not
-  always. Check RECENT FOOTING. If the last few entries show you bouncing between
-  rough patches, the way you came is rough too and reversing again just repeats
-  the loop. Break out instead: pick a heading at right angles to your last two
-  moves, or steer for a road, path, or pavement you can actually see in the view.
+- When something stops you - a fence, corn too thick to push through, water -
+  do not guess your way out. You already know ground that works. Read the
+  directions list: "ground walked" is a surface an APC has actually stood on, so
+  a cell listed as pavement or road is a proven way out even if you walked it an
+  hour ago. Walking known-good ground again is not wasted motion; it is how you
+  get back to unsurveyed ground you can reach.
+- If nothing around you is known-good, read BREADCRUMBS. It lists the legs you
+  actually walked and the ground each one ended on. Find the most recent crumb
+  with proper footing and head back to that cell - RETRACE gives you those
+  headings already reversed, in order. Take as many of them as it takes to reach
+  that crumb; one step back out of a field you walked four steps into just puts
+  you back in the field.
+- Do not reverse blindly one leg at a time. If BREADCRUMBS shows you alternating
+  between two rough cells, both of those directions are the trap - go back
+  further along the trail, or strike out toward a road, path, or pavement you can
+  actually see in the view.
 - If you see a PROGRESS WARNING, you just moved farther from your destination. Correct course toward it now - this overrides whatever else you were about to do.

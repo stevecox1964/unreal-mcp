@@ -2638,6 +2638,46 @@ not a bug fix. Relates to: #49, #19/#27, [[project_dufus_vlm_training_corpus]].
 
 ---
 
+## 58. Breadcrumbs + remembered ground — escaping an obstacle with facts, not guesses
+
+**Status:** **BUILT 2026-08-12, unverified live** · **Source:** user, this session: *"when the LLM says
+'Looks like I cannot pass this obstacle, corn, etc' it should know to back track and maybe that's where
+a breadcrumb idea needs to happen. I would much rather have the APC look at existing surveys in its
+immediate area and say hey, this looks like a clear path, even if that path was walked through before."*
+
+Supersedes the `RECENT FOOTING` fact from #57, which was necessary but not sufficient: it listed
+*surfaces* with no *places* attached, so `cultivated_field -> grass -> cultivated_field` named the trap
+without naming anywhere to go. The rule it fed ("pick a heading at right angles") was a guess dressed as
+guidance — and the ground truth needed to answer properly was being thrown away every tick.
+
+Landed:
+- **`cell_ground` table (`place_db.py`)** — every footing reading an APC reports is banked against its
+  cell, shared across agents like all PlaceDB geography. Keyed by `(col, row, footing)` with counts, so a
+  30 m cell that is half road and half field reports both rather than flip-flopping between two truths.
+  `record_ground` / `get_ground`; included in `reset()`.
+- **Known ground in the direction sense** (`_direction_places` → `_direction_lines`) — each neighbour cell
+  now reads `cell 4,5 — unexplored, ground walked: gravel_road x7`. A name meant a cell was *seen*;
+  footing means it was *walked*. "Ground never walked" is stated explicitly so a gap never reads as a
+  clean bill of health.
+- **BREADCRUMBS replaces RECENT FOOTING** (`_drop_crumb` / `_stamp_footing` → `_breadcrumb_text`) — the
+  last 8 *legs* with cell, heading, distance and the footing each ended on, plus `RETRACE`, the recorded
+  headings reversed in order. Per leg, not per cell: SR37's whole ping-pong happened inside two cells and
+  a per-cell trail would have rendered it as one motionless crumb.
+- **`rules.md`** — reach for known-good ground first (walking it again is not wasted motion), then the
+  most recent proper-footing crumb; retrace *as many legs as it takes*, since one step back out of a field
+  walked four steps into just puts you back in the field.
+
+All facts, no blockers — consistent with [[feedback_facts_not_blocking]] and the lizard-brain contract
+(`RETRACE` is arithmetic on headings already stated, the same derivation as `came_from`, not advice).
+
+**Open for the next live run:** whether Dufus actually reaches for a previously-walked road instead of
+reversing blindly, and whether the per-direction ground line is enough on a *cold* DB — on a fresh world
+every neighbour reads "ground never walked" until he has been somewhere, so early ticks still fall back to
+breadcrumbs and the view. Suite 57/57 after the change; nothing yet pins the new behaviour (build → verify
+live → pin with tests).
+
+---
+
 ## Outstanding — human / editor / live (not loop-safe)
 
 - **#35/#13.4:** design the LLM-directed expedition contract and pristine-run purge boundary before

@@ -540,7 +540,7 @@ class LLMRouter:
                 facing=_facing_text(observation.get("rotation")),
                 travel_note=_travel_note(observation.get("travel")),
                 direction_lines=_direction_lines(observation.get("directions")),
-                seen=_seen_text(observation.get("seen"), observation.get("footing_trail")),
+                seen=_seen_text(observation.get("seen"), observation.get("breadcrumbs")),
                 world_time=observation.get("world_time", "unknown"),
                 current_action=action_state,
                 current_goal=agent.current_goal,
@@ -1063,7 +1063,7 @@ def _nearby_character_lines(characters: list | None) -> str:
     return "\n".join(lines) or "No other APC is nearby."
 
 
-def _seen_text(seen: dict | None, footing_trail: list | None = None) -> str:
+def _seen_text(seen: dict | None, breadcrumbs: list | None = None) -> str:
     """Render a perception result ({landmarks, characters, caption}) as prompt lines."""
     if not seen:
         return "(no view this tick)"
@@ -1074,7 +1074,7 @@ def _seen_text(seen: dict | None, footing_trail: list | None = None) -> str:
         lines.append(seen["caption"])
     if seen.get("footing"):
         lines.append(f"FOOTING: {seen['footing']}")
-    trail = _footing_trail_text(footing_trail)
+    trail = _breadcrumb_text(breadcrumbs)
     if trail:
         lines.append(trail)
     for lm in seen.get("landmarks") or []:
@@ -1084,24 +1084,60 @@ def _seen_text(seen: dict | None, footing_trail: list | None = None) -> str:
     return "\n".join(lines) or "(nothing notable)"
 
 
-def _footing_trail_text(trail: list | None) -> str:
-    """Recent ground underfoot, oldest first (#57).
+def _breadcrumb_text(trail: list | None) -> str:
+    """The legs the APC actually walked, oldest first, plus the way back (#58).
 
     One tick only ever shows the ground you are on now, so a two-cell ping-pong
     between rough patches is invisible from inside it — SR37 spent its last five
     decisions alternating between a cornfield and a lawn, each retreat correct on
-    its own. This is history, stated flatly; what it means is the model's call.
+    its own. Bare surfaces were not enough to escape it either: "field -> grass ->
+    field" names the trap without naming a single place, so there was nothing to
+    walk back to.
+
+    RETRACE is the recorded headings reversed, in order. That is arithmetic on
+    facts already stated, not counsel — the same derivation as ``came_from`` —
+    and the model remains free to ignore it and strike out somewhere new.
     """
     if not trail:
         return ""
-    return "RECENT FOOTING (oldest first): " + " -> ".join(str(f) for f in trail)
+    lines = ["BREADCRUMBS (oldest first — ground you have actually stood on):"]
+    for i, crumb in enumerate(trail):
+        if not isinstance(crumb, dict):
+            continue
+        leg = f"  {i + 1}. cell {crumb.get('cell', '?')}"
+        if crumb.get("heading"):
+            leg += f" (walked {crumb['heading']}"
+            if crumb.get("distance_cm"):
+                leg += f" {round(crumb['distance_cm'] / 100)}m"
+            leg += ")"
+        leg += f" — {crumb.get('footing') or 'ground not reported'}"
+        if i == len(trail) - 1:
+            leg += "   <- you are here"
+        lines.append(leg)
+    back = [_OPPOSITE[c["heading"]] for c in reversed(trail)
+            if isinstance(c, dict) and c.get("heading") in _OPPOSITE]
+    if back:
+        lines.append("RETRACE (undoes the trail above, in order): "
+                     + " then ".join(back))
+    return "\n".join(lines)
+
+
+# Reversing a compass heading — the same pairing agent_manager uses for
+# ``came_from``, kept here so the prompt text can state a retrace without
+# importing the manager.
+_OPPOSITE = {"N": "S", "S": "N", "E": "W", "W": "E",
+             "NE": "SW", "SW": "NE", "NW": "SE", "SE": "NW"}
 
 
 def _direction_lines(directions: dict | None) -> str:
     """Render the per-direction next-cell sense from agent_manager._direction_places.
 
-    Each value is ``{"cell": "col,row", "place": <name|None>}`` — a named place
-    means that cell is already mapped; None means it's unexplored (go map it).
+    Each value is ``{"cell": "col,row", "place": <name|None>, "ground": [...]}``
+    — a named place means that cell is already mapped; None means it's
+    unexplored (go map it). ``ground`` is what APCs have actually stood on
+    there, commonest first; empty means nobody has ever stood in that cell, and
+    that gap is stated rather than left to look like a clean bill of health
+    (#58).
     """
     if not directions:
         return "Nothing mapped yet — navigate by what you see in the image."
@@ -1110,10 +1146,25 @@ def _direction_lines(directions: dict | None) -> str:
         if isinstance(info, dict):
             place = info.get("place")
             status = f'"{place}"' if place else "unexplored"
-            lines.append(f"- {d}: cell {info.get('cell', '?')} — {status}")
+            lines.append(f"- {d}: cell {info.get('cell', '?')} — {status}"
+                         f", {_ground_text(info.get('ground'))}")
         else:  # legacy list-of-labels form
             lines.append(f"- {d}: {', '.join(info) if info else 'unmapped'}")
     return "\n".join(lines)
+
+
+def _ground_text(ground: list | None) -> str:
+    """What has been felt underfoot in a cell, commonest first (#58).
+
+    Two footings for one cell is not a contradiction — a 30 m cell can be half
+    road and half field — so both are named with their sample counts instead of
+    picking a winner. Capped at two: the top pair is what a decision turns on.
+    """
+    surfaces = [g for g in (ground or []) if isinstance(g, dict) and g.get("footing")]
+    if not surfaces:
+        return "ground never walked"
+    parts = [f"{g['footing']} x{g.get('sample_count', 1)}" for g in surfaces[:2]]
+    return "ground walked: " + ", ".join(parts)
 
 
 def _wake_schedule_line(directive: dict | None) -> str:

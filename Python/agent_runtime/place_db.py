@@ -103,6 +103,23 @@ CREATE TABLE IF NOT EXISTS place_images (
     UNIQUE (place_key, revision)
 );
 
+-- What the ground was actually like underfoot in a cell — shared world fact,
+-- accumulated from the lizard brain's footing report every tick an APC stands
+-- there (#58). Keyed by footing as well as cell because a 30 m cell is often
+-- part road and part field; storing only the newest reading would flip-flop and
+-- report "grass" for a cell an APC has crossed twenty times on gravel. Counts
+-- make the mix legible ("mostly gravel_road, some grass") instead of averaging
+-- two different truths into one wrong one.
+CREATE TABLE IF NOT EXISTS cell_ground (
+    col          INTEGER NOT NULL,
+    row          INTEGER NOT NULL,
+    footing      TEXT    NOT NULL,
+    sample_count INTEGER NOT NULL DEFAULT 1,
+    last_seen_by TEXT,
+    last_seen    TEXT    NOT NULL,
+    PRIMARY KEY (col, row, footing)
+);
+
 -- Per-APC living visual history linked to exact shared image revisions.
 CREATE TABLE IF NOT EXISTS agent_visual_history (
     agent_id       TEXT NOT NULL,
@@ -244,7 +261,8 @@ class PlaceDB:
         with self._lock, self._connect() as conn:
             image_paths = [r[0] for r in conn.execute("SELECT image_path FROM place_images")]
             tables = ("agent_visual_history", "place_images", "place_cells",
-                      "place_observations", "agent_visits", "owned_place_cells")
+                      "place_observations", "agent_visits", "owned_place_cells",
+                      "cell_ground")
             counts = {
                 table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
                 for table in tables
@@ -554,6 +572,44 @@ class PlaceDB:
                 "  visit_count = visit_count + 1, last_seen = excluded.last_seen",
                 (agent_id, col, row, now, now),
             )
+
+    def record_ground(self, agent_id: str, col: int, row: int, footing: str) -> None:
+        """Remember what an APC was actually standing on in this cell (#58).
+
+        Every tick of footing is a free measurement of walkability that we were
+        throwing away: SR37 crossed gravel to get into a cornfield and, once in
+        it, had no record that the cell behind it was road. Shared across
+        agents, like every other world fact in this DB.
+        """
+        surface = str(footing or "").strip()
+        if not surface:
+            return
+        now = _iso_now()
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                "INSERT INTO cell_ground (col, row, footing, sample_count, last_seen_by, last_seen) "
+                "VALUES (?, ?, ?, 1, ?, ?) "
+                "ON CONFLICT(col, row, footing) DO UPDATE SET "
+                "  sample_count = sample_count + 1, "
+                "  last_seen_by = excluded.last_seen_by, "
+                "  last_seen = excluded.last_seen",
+                (col, row, surface, agent_id, now),
+            )
+
+    def get_ground(self, col: int, row: int) -> list[dict]:
+        """Known footings for a cell, commonest first. Empty = never stood in.
+
+        Empty is a real answer and must stay distinguishable from "we walked it
+        and it was rough" — an APC choosing a way out needs to know which of the
+        two it is looking at.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT footing, sample_count, last_seen_by, last_seen FROM cell_ground "
+                "WHERE col=? AND row=? ORDER BY sample_count DESC, footing ASC",
+                (col, row),
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def set_name(self, agent_id: str, col: int, row: int, name: str, world_time: str,
                  source: str = None) -> bool:

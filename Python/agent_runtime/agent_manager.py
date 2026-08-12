@@ -47,9 +47,9 @@ _MAX_FRONTIER_FAILURES = 3
 # and a cell walled off by scenery would otherwise retry that walk forever. It
 # gets this many travel ticks; a leg that moves less than a tenth of a step is
 # not progress. Exhausting them abandons the survey and blocks the cell.
-# How many ticks of footing history the APC carries. Long enough to show a
-# two-cell ping-pong, short enough that old ground stops mattering.
-_FOOTING_TRAIL_LEN = 5
+# How many legs of the breadcrumb trail the APC carries. Long enough to walk
+# back out of a multi-leg detour, short enough that old ground stops mattering.
+_BREADCRUMB_LEN = 8
 
 _MAX_SURVEY_TRAVEL_TICKS = 4
 _SURVEY_TRAVEL_PROGRESS_CM = 150.0
@@ -223,7 +223,7 @@ class AgentManager:
         self._last_pos: dict[str, tuple] = {}       # agent_id -> last (x, y), for stuck detection
         self._travel_from: dict[str, tuple] = {}    # agent_id -> (x, y) at the previous observation
         self._travel: dict[str, dict] = {}          # agent_id -> last real heading travelled (#56)
-        self._footing_trail: dict[str, list[str]] = {}   # agent_id -> recent footings (#57)
+        self._breadcrumbs: dict[str, list[dict]] = {}  # agent_id -> recent legs walked (#58)
         self._no_progress: dict[str, int] = {}      # agent_id -> consecutive "moving but didn't advance" ticks
         self._last_grid_place: dict[str, tuple] = {}  # agent_id -> (grid, place), reported even when LLM skipped
         self._routes: dict[str, dict] = {}          # agent_id -> cached grid-first route (#17/WP8)
@@ -297,7 +297,7 @@ class AgentManager:
         self._last_pos.clear()
         self._travel_from.clear()
         self._travel.clear()
-        self._footing_trail.clear()
+        self._breadcrumbs.clear()
         self._no_progress.clear()
         self._routes.clear()
         self._live_pos.clear()
@@ -1302,7 +1302,7 @@ class AgentManager:
         observation["directions"] = self._direction_places(
             agent_id, observation.get("location"), observation.get("rotation")
         )
-        observation["travel"] = self._travel_fact(agent_id, observation.get("location"))
+        observation["travel"] = self._travel_fact(agent_id, observation.get("location"), grid)
 
         # Structured place context from SQLite (None if not yet named).
         if self.place_db and grid:
@@ -1566,7 +1566,8 @@ class AgentManager:
             if seen.get("error"):
                 logger.warning(f"[{agent_id}] perception failed: {seen['error']}")
             observation["seen"] = seen
-            observation["footing_trail"] = self._footing_trail_fact(agent_id, seen)
+            observation["breadcrumbs"] = self._stamp_footing(
+                agent_id, observation.get("grid"), seen)
             self._save_perception_evidence(agent_id, observation, seen)
 
             xyz = _loc_xyz(observation.get("location"))
@@ -3025,8 +3026,14 @@ class AgentManager:
 
         Reads PlaceDB (shared by every avatar), so one agent's discoveries steer
         another's — Maren's named cells show up in Dufus's options. Each value is
-        ``{"cell": "col,row", "place": <name or None>}``; ``place is None`` means
-        the cell is still unexplored, a good place to go map next.
+        ``{"cell": "col,row", "place": <name or None>, "ground": [...]}``;
+        ``place is None`` means the cell is still unexplored, a good place to go
+        map next, and ``ground`` is what APCs have actually stood on there.
+
+        The ground is the point of this fact when an APC is stuck (#58). A name
+        says a cell was *seen*; footing says it was *walked* — so a way out
+        already proven by somebody's feet stops being something the model has to
+        guess at from the picture. An empty list means nobody has stood there.
         """
         xyz = _loc_xyz(location)
         yaw = _yaw_of(rotation)
@@ -3038,10 +3045,13 @@ class AgentManager:
             grid = self.world_grid.locate(tx, ty)
             col, row = self._cell_col_row(grid)
             name = None
+            ground: list[dict] = []
             if self.place_db and col is not None:
                 known = self.place_db.get_place(col, row)
                 name = known.get("name") if known else None
-            out[direction] = {"cell": grid.get("key", "?"), "place": name}
+                ground = self.place_db.get_ground(col, row)
+            out[direction] = {"cell": grid.get("key", "?"), "place": name,
+                              "ground": ground}
         return out
 
     def _record_place(self, agent_id: str, location, place_name) -> None:
@@ -3076,29 +3086,31 @@ class AgentManager:
         smap.ingest(xyz[0], xyz[1], [{"label": name, "confidence": 0.8, "distance": "near"}])
         smap.save(self._agents_dir / agent_id / "spatial_map.json")
 
-    def _footing_trail_fact(self, agent_id: str, seen: dict | None) -> list[str]:
-        """What the APC has been standing on for the last few ticks (#57).
+    def _stamp_footing(self, agent_id: str, grid: dict | None,
+                       seen: dict | None) -> list[dict]:
+        """Attach the ground underfoot to the crumb the APC is standing on (#58).
 
-        SR37 ended with Dufus alternating cultivated_field → grass → cultivated
-        _field → grass for five straight decisions: the footing rule told him to
-        turn back, and turning back was the other bad cell. Each decision was
-        correct in isolation and he could not see the loop, because every tick
-        showed him only the ground under his feet right now.
-
-        This is history, not advice — the lizard brain reports, the model
-        concludes (see the lizard-brain contract). Whether four rough footings in
-        a row means "I am circling" is the model's call, not ours.
+        Footing arrives a phase later than position — the crumb is dropped
+        during observation assembly, perception reports the surface afterwards —
+        so the newest crumb gets stamped rather than a fresh one appended. Also
+        banks the reading as a shared world fact, so the cell is known ground
+        for every APC from now on, not just this one on this tick.
         """
+        trail = self._breadcrumbs.setdefault(agent_id, [])
         footing = str((seen or {}).get("footing") or "").strip()
         if not footing:
-            return list(self._footing_trail.get(agent_id, []))
-        trail = self._footing_trail.setdefault(agent_id, [])
-        trail.append(footing)
-        del trail[:-_FOOTING_TRAIL_LEN]
+            return list(trail)
+        if trail:
+            trail[-1]["footing"] = footing
+        if self.place_db:
+            col, row = self._cell_col_row(grid)
+            if col is not None:
+                self.place_db.record_ground(agent_id, col, row, footing)
         return list(trail)
 
-    def _travel_fact(self, agent_id: str, location) -> dict | None:
-        """Which way the APC actually travelled to reach this spot (#56).
+    def _travel_fact(self, agent_id: str, location, grid: dict | None = None) -> dict | None:
+        """Which way the APC actually travelled to reach this spot (#56), and a
+        breadcrumb for the leg it just walked (#58).
 
         "Turn back the way I came" was unrepresentable: nothing recorded the
         inbound heading, so the model had to guess with the body-relative word
@@ -3107,6 +3119,10 @@ class AgentManager:
         grid and the place database already use. ``None`` until the APC has
         actually moved; a stationary tick keeps the last real heading rather
         than inventing one from pose jitter.
+
+        One heading is one leg of memory, though, and a detour is several. Every
+        real leg also drops a crumb, so the whole way in is on the record and
+        the way out is a statement of fact rather than a guess.
         """
         xyz = _loc_xyz(location)
         if xyz is None:
@@ -3114,6 +3130,7 @@ class AgentManager:
         previous = self._travel_from.get(agent_id)
         self._travel_from[agent_id] = (xyz[0], xyz[1])
         if previous is None:
+            self._drop_crumb(agent_id, grid, None, 0.0)
             return self._travel.get(agent_id)
         dx, dy = xyz[0] - previous[0], xyz[1] - previous[1]
         if math.hypot(dx, dy) < _MOVEMENT_START_CM:
@@ -3124,7 +3141,26 @@ class AgentManager:
             "came_from": _OPPOSITE_COMPASS[heading],
             "distance_cm": round(math.hypot(dx, dy), 1),
         }
+        self._drop_crumb(agent_id, grid, heading, math.hypot(dx, dy))
         return self._travel[agent_id]
+
+    def _drop_crumb(self, agent_id: str, grid: dict | None,
+                    heading: str | None, distance_cm: float) -> None:
+        """Record one leg walked: where it ended, and the heading that got there.
+
+        Per *leg*, not per cell. Cells are 30 m districts and SR37's whole
+        ping-pong happened inside two of them — collapsing the trail to cell
+        changes would have rendered that loop as one motionless crumb, which is
+        exactly the blindness this fact exists to remove.
+        """
+        trail = self._breadcrumbs.setdefault(agent_id, [])
+        trail.append({
+            "cell": (grid or {}).get("key", "?"),
+            "heading": heading,
+            "distance_cm": round(distance_cm, 1),
+            "footing": None,
+        })
+        del trail[:-_BREADCRUMB_LEN]
 
     def _direction_target(self, observation: dict, direction: str) -> list[float] | None:
         """Resolve a direction word to a world location one step away.
@@ -3584,7 +3620,7 @@ class AgentManager:
         self._last_pos.clear()
         self._travel_from.clear()
         self._travel.clear()
-        self._footing_trail.clear()
+        self._breadcrumbs.clear()
         self._no_progress.clear()
         self._routes.clear()
         self._cell_sweeps.clear()
