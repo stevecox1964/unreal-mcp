@@ -3,11 +3,41 @@
 Rolling list of outstanding work — add items as they come up, check off or
 delete them as they land. Not session-scoped; this is the durable home for
 approved scope and priority. Handoffs are chronological session state.
-Newest grooming: **2026-07-17**.
+Newest grooming: **2026-08-12**.
 
-## Active view — groomed 2026-07-17
+## Active view — groomed 2026-08-12
 
-### Now
+### Now — direction reset (#62–#72): get the town out of the corn field
+
+**This supersedes the survey-navigation queue as the active priority.** Full analysis and all eleven
+item write-ups are under *"Direction reset 2026-08-12"* below; the short version:
+
+Maren was parked on 2026-07-30 *"until Dufus reliably does his one job"* — a condition with **no pass
+criterion**, so it never opens, so six weeks of work could only ever be Dufus navigation. Meanwhile
+MASTER_PLAN §0.2's success criteria all need 2–3 agents, Dufus has **already surveyed the places Maren's
+authored day needs** (5 of her 7 agenda tasks resolve against `world_places.db` today, lunch at Don's
+Donuts included), and the entire social substrate — earshot speech, recognition, social memory,
+episodic recall — is **built and has never been switched on**.
+
+**Do these in order, then run the sim with both APCs and grade the run on Maren's day, not Dufus's
+footing:**
+
+1. **#62** wake Maren; replace the unfalsifiable gate with a measured bar (SR40 already clears one).
+2. **#63** an unresolvable agenda place fails loud *before* the run — two live misses found already
+   (`"Sheriff's office"` → nothing; `"home"` → the mobile-home community).
+3. **#64** move the suppressive social clauses (*"Do NOT stop for strangers"*) out of the shared prompt
+   into `dufus/rules.md`, where per-agent behavior belongs.
+4. **#65** bounded stuck-recovery, so a wedge costs one tick instead of a run — **then stop working on
+   wedges.**
+
+Then Phase B (**#66** reaction gate, **#67** APC↔APC conversation, **#68** work that leaves a mark),
+Phase C (**#69** memory stream, **#70** reflection), Phase D (**#71** usable place names, **#72** the
+survey gets a customer).
+
+The carried live check from the SR40 handoff — does a `blocker` line ever appear, which gates #61 —
+rides along on that same run.
+
+### Also open (survey/navigation line — no longer the headline)
 
 - **#55 SR33 (2026-08-02) — the survey was photographing cells it was not standing in. FIXED, needs
   live verification.** SR33 ran 2 walks and 8 survey headings and never moved from
@@ -2856,6 +2886,274 @@ prerequisite for the whole reflex half of this item.
 
 **Relates to:** #53 (navmesh-vs-semantic disagreement as training signal — the approach frames are where
 that disagreement is visible), #49 (capture pose metadata), #19/#27, #60.
+
+---
+
+# Direction reset 2026-08-12 — get the town out of the corn field (#62–#72)
+
+**Source:** user, this session: *"take a higher view of this project... move away from back and forth
+with moving Dufus around and more having him really exploring the world and surveying for others...
+I want to get APCs moving around and chatting, doing virtual work. Going to lunch etc."* Plus the
+concern that scope was being followed too literally instead of being pushed
+([[feedback_fill_the_gaps]], [[feedback_take_control_be_brief]]).
+
+## The finding that reframes everything
+
+Commit `2026-07-30 refactor: Dufus is the surveyor` parked Maren with the condition:
+
+> **Maren parked (`is_active: false`) until Dufus reliably does his one job.**
+
+**"Reliably" has no pass criterion.** Every live run surfaces a navigation defect — there is always
+another one — so the gate never opens, so the only available work is Dufus navigation, so the next run
+surfaces the next navigation defect. Six weeks and ten commits (SR32 → SR40) have run inside that loop.
+It is not drift; it is the gate working exactly as written.
+
+The consequence is structural: **MASTER_PLAN §0.2's four success criteria all require 2–3 free-running
+agents.** With one APC active they are unreachable by construction. Live runs have been graded on the
+only thing observable in a single-agent world — *did he get stuck* — and so locomotion became the
+project.
+
+### The survey already paid off; nobody cashed it in
+
+`world_places.db` today holds `village square` (8,5), `Don's Donuts building with large donut sign`
+(7,5, **named by dufus**), `sheriff station square` (7,6, **dufus**), `Four Ways Crossing` (5,5,
+**dufus**), plus Maren's authored `vegetable truck` (5,5) and `home` (11,8).
+
+Maren's authored agenda — sitting on disk, disabled — is: walk the square 06:00 · open the truck 07:00 ·
+sales 08:00 · **lunch at Don's Donuts 12:00** · afternoon sales 13:00 · swap news at the Sheriff's
+office 18:00 · home 19:00. Resolved against the live DB: **5 of 7 tasks resolve right now.** The map
+Dufus built is the map she needs.
+
+### The social substrate is built and has never been switched on
+
+Not planned — built, and only ever exercised in an empty world: `_record_utterance` /
+`_attach_heard_speech` (speech published with a position, delivered within `_HEARING_CM`),
+`_identify_visible_apcs` (deterministic identity from position + yaw), `SocialMemory` (sentiment,
+`last_interacted`, greet cooldown), `EpisodicLog` (append-only + relevance blend), and the prompt's
+`## People You Know` / `## Nearby APCs` / `## What You Just Heard`. The comment on `_record_utterance`
+states the problem outright: *"the reaction gate's 'someone is speaking to you' clause could never fire
+because no agent ever received another's speech."*
+
+### Where the Master Plan actually stands
+
+Milestone 1 (planner/agenda) is built and solid. **Milestones 2, 3 and 4 were never started:**
+`memory_store.py` is still the flat list with `_MAX_MEMORIES = 30`; `grep -rn "reflect"
+agent_runtime/*.py` returns **no matches**; `should_react` does not exist; chat is director→APC only.
+One milestone into six, and six weeks spent below milestone one.
+
+## The reframe
+
+**Stop grading live runs on locomotion.** Locomotion becomes a background service with a failure
+budget — a wedge costs one tick, not a run — and stops being headline work. A run's success criterion
+becomes *did something social happen, and did both parties remember it*, which is the Master Plan's own
+criterion and has never once been measured.
+
+**And the survey acquires a customer.** Today Dufus surveys for a corpus: valuable, but unfalsifiable
+session to session. The moment Maren needs the Sheriff's office and can't get there, his map is either
+the answer or it isn't — visibly. That is "surveying for others" literally, and it is what finally makes
+#35 concrete: an expedition target is another APC's unmet need, not a frontier heuristic.
+
+---
+
+## 62. Retire the unfalsifiable gate — wake Maren
+
+**Status:** **OPEN 2026-08-12, ready** · **Phase A** · **Loop-safe:** no (needs a live run to mean
+anything)
+
+Replace *"until Dufus reliably does his one job"* with a **measured** bar, and record that SR40 already
+cleared a reasonable version of it: 15/15 compass-keyed walks, zero `cultivated_field` footings, a
+contiguous westward survey, six composites. Set `maren/state.json` `is_active: true` — that is a
+checkbox in the web UI (`web_ui/main.py:220`), not a code change.
+
+Expect a pile of two-agent bugs on the first run: bridge contention (single socket, sequential act
+phase), identity mix-ups, agenda-vs-agenda timing, a much noisier log. **That is the point.** Those bugs
+are on the path to the goal in a way another wedge fix is not.
+
+**Done when:** one run has both APCs ticking, each appearing in the other's `## Nearby APCs`, and both
+`social.json` files naming the other.
+
+---
+
+## 63. An unresolvable agenda place must fail loud, before the run
+
+**Status:** **OPEN 2026-08-12, ready** · **Phase A** · **Loop-safe:** yes
+
+`_validate_schedule` (`agent_manager.py:1907`) already resolves every block through the same chain as
+`_at_scheduled_place` and logs `place '<name>' resolves to NOTHING — agent will hunt`. It fires **mid-run,
+into a log nobody reads**, and then the APC hunts. Move the check to sim start and surface it in the
+start report and the cockpit, so a broken destination is on screen *before* Start.
+
+**Two live misses found while checking Maren's day** (resolved against `world_places.db`):
+
+- **`"Sheriff's office"` → nothing.** The cell is named `"sheriff station square"`; neither string
+  contains the other, so `find_named_cell`'s exact-then-substring match misses. Her 18:00 task has no
+  destination.
+- **`"home"` → community cell (6,5), `"Mobile **home** community with pergola"`.** Bare substring match
+  hijacks it. Maren survives only because her owned `home` row is `source: "authored"`, which takes
+  precedence in `_resolve_place_endpoint`. Any runtime-named home would route to the wrong side of town.
+
+Global rule 12 (fail loud). This is precisely the class of defect that silently eats a live run.
+
+**Done when:** starting a sim with an unresolvable agenda place shows it in the start report, and both
+live misses above are fixed (name the cell, or author the alias).
+
+---
+
+## 64. Per-role standing instructions — get the suppression clauses out of the shared prompt
+
+**Status:** **OPEN 2026-08-12, ready** · **Phase A** · **Loop-safe:** yes
+
+`_USER_TEMPLATE_VISION` in `llm_router.py` carries ~68 lines of standing instruction after the fact
+sections. **About 45 are navigation, obstacles and unwedging.** The social clauses are *suppressive*:
+
+> "Do NOT stop for strangers, scenery, or cells you could explore — those can wait."
+> "...a nod is enough, keep going; do not stop again."
+
+Correct for a lone surveyor on a 15-hour survey block. **Exactly backwards for a town** — and Maren
+inherits them the moment she wakes, because they live in the shared template.
+
+Move them (and the survey-specific travel doctrine) into `dufus/rules.md`, where per-agent behavior
+already belongs — MASTER_PLAN Part V rule 4, *behavior comes from the agent's authored files; code
+supplies senses* — and [[feedback_facts_not_blocking]]. Maren's `rules.md` gets the inverse: stopping to
+talk **is** her job. Side benefit: the shared template shrinks toward facts, which is what it is for.
+
+**Done when:** the shared template holds no agent-specific behavioral doctrine, and Dufus's run is
+unchanged by the move.
+
+---
+
+## 65. Bounded stuck-recovery — then stop working on wedges
+
+**Status:** **OPEN 2026-08-12, ready** · **Phase A** · **Loop-safe:** yes (offline-replayable against
+SR40's wedge sequence)
+
+`_detect_stuck` exists (`agent_manager.py:1575`). Give it a budget: **N consecutive zero-displacement
+ticks → deterministic recovery** (step toward a known-good neighbouring cell — `cell_ground` from #58
+already banks exactly this) → **log it loudly as a recovery event** → carry on.
+
+The goal is explicitly **not** to perfect navigation. It is to make a wedge cost one tick so it can
+never again consume a run or a session. After this lands, navigation defects go on the list; they do
+not become the session.
+
+**Done when:** a wedge produces a recovery event within N ticks instead of a run of identical
+`stalled_order` rows, and the recovery is visible in `agent_decisions.log`.
+
+---
+
+## 66. The reaction gate (`should_react`)
+
+**Status:** **OPEN 2026-08-12, design small** · **Phase B** · MASTER_PLAN §14, never built
+
+The piece that makes a routine interruptible, and the source of emergence. Cheap heuristic for tier
+2/3, LLM for tier 1. **Every input already exists:** `observation["heard"]`, `observation["recognized"]`,
+acquaintances carrying `recently_greeted` (`_mark_recent_greetings`), and the agenda's `right_now`.
+Output: continue / greet / converse / re-plan.
+
+Note this demotes the current "one validated action per tick" to exactly this interrupt path, as the
+Master Plan intends — and the generic interruption lifecycle (#12/#17) is already the machinery to
+carry it.
+
+---
+
+## 67. APC↔APC conversation, summarized into both streams
+
+**Status:** **OPEN 2026-08-12** · **Phase B** · MASTER_PLAN Milestone 4 + success criterion #2
+
+The **transport is done**: `_record_utterance` → earshot → `_attach_heard_speech`. What is missing is
+turn-taking, a close condition, and the exchange being summarized into **both** agents' memory. That
+last part is how a town knows things — it is the diffusion mechanism, and nothing in the project has it.
+
+Depends on #62 (there must be someone to talk to) and reads best after #66.
+
+**Done when:** Maren and Dufus hold an exchange neither was scripted to start, and it is recoverable
+from **both** `episodes.jsonl` files the next day.
+
+---
+
+## 68. Work that leaves a mark
+
+**Status:** **OPEN 2026-08-12, needs one design call** · **Phase B**
+
+"Tend the vegetables and greet customers" is currently **pantomime**: nothing in the world changes, so
+no one can observe it, remember it, or react to it. Until an APC's work alters shared state, "virtual
+work" can only ever be narration.
+
+Smallest honest version: **one** shared, persistent piece of state that an APC's work modifies and
+another APC can perceive — stock level on the truck, a note left at the sheriff's office. Keep it to
+one; the question this answers is "can work be observed", not "can we model an economy".
+
+**Design call needed:** where that state lives (PlaceDB has the shared-store precedent) and how it
+reaches perception as a *fact*, not a special case.
+
+---
+
+## 69. Retire the 30-item memory cap — promote `EpisodicLog` to the memory stream
+
+**Status:** **OPEN 2026-08-12** · **Phase C** · MASTER_PLAN Milestone 2
+
+`memory_store.py` still caps at `_MAX_MEMORIES = 30`, and `get_relevant_memories` is "importance ≥ 0.7
+plus the last 5". No embeddings, no poignancy, no recency·importance·relevance.
+
+**Do not build the `ConceptNode` SQLite design from scratch.** `episodic_memory.py` is *already* an
+append-only stream with consolidation and a relevance blend (recency + same cell + same place + known
+person present). Add poignancy and a real relevance signal to **that**, and delete the `memory.json`
+window. Reuse over new code (global rules 2 and 8) — Milestone 2 at a fraction of the cost.
+
+---
+
+## 70. Reflection, throttled, tier 1 only
+
+**Status:** **OPEN 2026-08-12** · **Phase C** · MASTER_PLAN Milestone 3 — `reflection.py` does not exist
+
+Poignancy-threshold trigger, question → insight → evidence-pointer procedure, insights stored as
+`thought` nodes that are themselves retrievable. **Only worth doing after #69** gives it a stream worth
+reflecting on.
+
+---
+
+## 71. Place names that survive being used by someone else
+
+**Status:** **OPEN 2026-08-12** · **Phase D** · Prerequisite for anyone navigating by Dufus's map
+
+Dufus names places in long descriptive VLM prose — `"blue house with FOR SALE sign"`, `"red corrugated
+metal building, misty lake"`, `"Mobile home community with pergola"` — and `find_named_cell` /
+`find_owned_place` resolve queries by **bare substring** over those names. Verified live: **`"home"`
+resolves to the mobile-home community.** As the map grows, collisions grow.
+
+Needs a short canonical name distinct from the long description, and a resolution rule that does not
+hand a query to the first cell that happens to contain the word. **If Dufus is to survey *for others*,
+his names must be usable *by* others** — nobody has looked at that yet.
+
+---
+
+## 72. The survey gets a customer (makes #35 concrete)
+
+**Status:** **OPEN 2026-08-12, design** · **Phase D**
+
+When another APC's agenda names a place that does not resolve (#63 now makes that visible), it becomes
+a **survey request** Dufus can accept. Expedition target selection stops being a frontier heuristic and
+becomes somebody's unmet need — more legible, and directly testable: *did Maren reach the Sheriff's
+office because Dufus went and found it?*
+
+This is the concrete form #35 has been waiting on, and it is what turns the survey from a treadmill into
+a service.
+
+---
+
+## Order of work, and what is explicitly NOT proposed
+
+**Do Phase A in order — #62, #63, #64, #65 — then run the sim with both APCs and grade the run on
+Maren's day, not on Dufus's footing.** Most of Phase A is configuration and deletion. The carried live
+check from the SR40 handoff (does a `blocker` line ever appear, proving the forward trace works — the
+gate on #61) costs nothing and rides along on that same run; it does not need its own session.
+
+**Not proposed:** no rewrite; no refactor of `agent_manager.py`'s 4,507 lines; no new navigation
+subsystem; no abandoning the survey or the VLM corpus ([[project_dufus_vlm_training_corpus]] stands,
+and #61 as written is good and stays parked until the `blocker` line is confirmed). The survey keeps
+running — it just stops being the only thing that runs.
+
+**Stated risk:** turning Maren on will break things, and testing Dufus's map against a real consumer
+(#71) may look like a regression. It isn't — it is the first real test that map has ever been given.
 
 ---
 
