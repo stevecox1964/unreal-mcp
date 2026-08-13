@@ -459,6 +459,9 @@ class AgentManager:
         # not block the run — an APC with one bad task still has a day worth
         # watching — but it must never again be discovered halfway through a log.
         unresolved = self.preflight_places(active)
+        # A name that resolves to two places is the same fault as one that
+        # resolves to none, and just as invisible until a run is over (#75).
+        merged = self.preflight_duplicate_places()
 
         self.running = True
         self.paused = False
@@ -472,6 +475,7 @@ class AgentManager:
             f"=== SIMULATION START === mode={self.mode} base_tick={tick_seconds}s "
             f"time={self.world_clock.now_text()} agents={[a.agent_id for a in active]}"
             + (f" UNRESOLVED PLACES: {len(unresolved)}" if unresolved else "")
+            + (f" MERGED DUPLICATE PLACES: {len(merged)}" if merged else "")
         )
         return {
             "status": "started",
@@ -479,6 +483,7 @@ class AgentManager:
             "tick_seconds": tick_seconds,
             "active_agents": [a.agent_id for a in active],
             "unresolved_places": unresolved,
+            "merged_places": merged,
         }
 
     async def stop_simulation(self) -> dict:
@@ -2029,6 +2034,76 @@ class AgentManager:
                     f"in places.json before relying on this run.")
         return rows
 
+    def preflight_duplicate_places(self) -> list[dict]:
+        """One physical place recorded as two owned rows, found before the run (#75).
+
+        The companion to ``preflight_places``: that one catches a name resolving
+        to *nothing*, this one catches a name resolving to *two things*. Both are
+        the same class of fault — the map disagreeing with the world — and both
+        were previously only discoverable by reading a finished run's log.
+
+        Two rows are the same place when one owner gives the same name to two
+        spots whose extent boxes overlap. That is not a judgement call: the boxes
+        are how "am I there?" is already answered, so two overlapping boxes mean
+        an APC is inside both at once. Rows that merely share a name across a real
+        distance are two genuinely different places and are left alone.
+
+        The surviving row is the authored one where there is one — ``places.json``
+        is ground truth and a runtime observation must never overwrite it — else
+        the oldest, so a name keeps meaning what it first meant. Returns one row
+        per merge ``{"owner", "name", "kept", "dropped", "gap_cm"}``; empty when
+        the map is clean.
+        """
+        merges: list[dict] = []
+        if self.place_db is None:
+            return merges
+
+        def _anchor(place):
+            center = self.world_grid.cell_center(place["col"], place["row"])
+            return None if center is None else (center[0] + place["dx"],
+                                                center[1] + place["dy"])
+
+        by_name: dict[tuple[str, str], list[dict]] = {}
+        for place in self.place_db.all_owned_places():
+            by_name.setdefault(
+                (place["owner"], str(place["name"]).strip().lower()), []).append(place)
+
+        for (owner, _), group in by_name.items():
+            if len(group) < 2:
+                continue
+            # Authored first, then oldest — the survivor is decided before any
+            # comparison, so which row wins never depends on iteration order.
+            group.sort(key=lambda p: (0 if p.get("source") == "authored" else 1,
+                                      str(p.get("created_at") or ""),
+                                      p["col"], p["row"]))
+            keeper, keep_at = group[0], _anchor(group[0])
+            if keep_at is None:
+                continue
+            for other in group[1:]:
+                spot = _anchor(other)
+                if spot is None:
+                    continue
+                half = (float(keeper.get("extent_cm") or PLACE_EXTENT_CM)
+                        + float(other.get("extent_cm") or PLACE_EXTENT_CM)) / 4.0
+                if abs(spot[0] - keep_at[0]) > half or abs(spot[1] - keep_at[1]) > half:
+                    continue                      # genuinely a different place
+                gap = math.hypot(spot[0] - keep_at[0], spot[1] - keep_at[1])
+                if not self.place_db.remove_owned_place(
+                        owner, other["col"], other["row"], other["name"]):
+                    continue
+                merges.append({"owner": owner, "name": keeper["name"],
+                               "kept": f"{keeper['col']},{keeper['row']}",
+                               "dropped": f"{other['col']},{other['row']}",
+                               "gap_cm": round(gap, 1)})
+                logger.warning(
+                    "[%s] PREFLIGHT: '%s' was recorded twice — cells (%s,%s) and "
+                    "(%s,%s), anchors %.0f cm apart, boxes overlapping. Kept the %s "
+                    "row at (%s,%s); dropped the other.",
+                    owner, keeper["name"], keeper["col"], keeper["row"],
+                    other["col"], other["row"], gap,
+                    keeper.get("source") or "oldest", keeper["col"], keeper["row"])
+        return merges
+
     def _wake_directive(self, agent: Agent, loc, grid: dict | None,
                         world_time: str) -> dict | None:
         """Sequencer directive for the spool-up wake, at the true spawn spot.
@@ -3297,6 +3372,43 @@ class AgentManager:
                               "ground": ground, "refusals": refusals}
         return out
 
+    def _owned_place_here(self, agent_id: str, name: str, xyz) -> dict | None:
+        """The place this agent already owns under this name, if ``xyz`` is in it (#75).
+
+        An owned place is a 9x9 m box, and the row that holds it keys on
+        ``(col, row, owner, name)`` — so the *cell* is part of its identity. A
+        place near a cell boundary therefore gets a second row the moment its
+        owner stands on the other side of that line, and the two rows are the
+        same physical thing recorded twice.
+
+        Maren's vegetable truck is the live example: authored at (5,5), recorded
+        again at runtime as (6,5), the two anchors **134 cm apart** across the
+        boundary at x=-9000. Her prompt listed the truck twice as her two nearest
+        places, and the SR41 log resolved 'vegetable truck' to a cell she was not
+        standing in on every tick of the run.
+
+        "The same place" is the test already used for arrival — inside the extent
+        box — so an APC that is *at* its truck by the schedule's reckoning cannot
+        simultaneously be somewhere new by the map's. Returns the owning row, or
+        None when this really is somewhere else.
+        """
+        if self.place_db is None or xyz is None:
+            return None
+        needle = str(name or "").strip().lower()
+        if not needle:
+            return None
+        for place in self.place_db.all_owned_places():
+            if place["owner"] != agent_id or str(place["name"]).strip().lower() != needle:
+                continue
+            center = self.world_grid.cell_center(place["col"], place["row"])
+            if center is None:
+                continue
+            half = float(place.get("extent_cm") or PLACE_EXTENT_CM) / 2.0
+            if (abs(xyz[0] - (center[0] + place["dx"])) <= half
+                    and abs(xyz[1] - (center[1] + place["dy"])) <= half):
+                return place
+        return None
+
     def _record_place(self, agent_id: str, location, place_name) -> None:
         """Persist an LLM-named place into PlaceDB and the legacy spatial map."""
         name = str(place_name or "").strip()
@@ -3319,11 +3431,21 @@ class AgentManager:
                     existing = self.place_db.get_place(col, row)
                     existing_name = ((existing or {}).get("name") or "").strip().lower()
                     if existing_name and existing_name != name.lower():
+                        already = self._owned_place_here(agent_id, name, xyz)
                         center = self.world_grid.cell_center(col, row)
-                        if center is not None and self.place_db.add_owned_place(
+                        if already is not None:
+                            # Standing in a place this agent already owns under this
+                            # name. Nothing to record — and recording it anyway is
+                            # what put two "vegetable truck" rows in the SR41 world
+                            # (#75), because owned rows key on the cell.
+                            logger.debug(
+                                "[%s] owned place '%s' already recorded at (%s,%s) — "
+                                "standing inside it, not duplicating",
+                                agent_id, name, already["col"], already["row"])
+                        elif center is not None and self.place_db.add_owned_place(
                                 agent_id, col, row, name,
                                 dx=xyz[0] - center[0], dy=xyz[1] - center[1]):
-                            logger.info(f"[{agent_id}] owned place: '{name}' at {grid.get('key')}")
+                            logger.info(f"[{agent_id}] owned place: '{name}' at {_cell_label(grid)}")
         # Also write to the legacy spatial map (keeps direction previews working).
         smap = self._spatial_map(agent_id)
         smap.ingest(xyz[0], xyz[1], [{"label": name, "confidence": 0.8, "distance": "near"}])

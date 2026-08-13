@@ -111,6 +111,14 @@ document.getElementById('btn-start').onclick = async () => {
       + bad.map(p => `[${p.agent_id}] ${p.start}-${p.end}  "${p.place}"  (${p.task_id})`).join('\n')
       + '\n\nName the cell, or author it in places.json.');
   }
+  // A name resolving to TWO places is the same fault seen from the other side —
+  // the map disagreeing with the world. These were merged; say which, so a
+  // dropped row is never a silent edit to someone's world.
+  const dupes = (result && result.merged_places) || [];
+  if(dupes.length){
+    alert('One place was recorded twice and has been merged:\n\n'
+      + dupes.map(p => `[${p.owner}] "${p.name}"  kept cell ${p.kept}, dropped ${p.dropped}  (${p.gap_cm} cm apart)`).join('\n'));
+  }
   refresh();
 };
 document.getElementById('btn-stop').onclick = async () => { await postJSON('/api/sim/stop'); refresh(); };

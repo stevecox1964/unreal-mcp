@@ -41,11 +41,12 @@ rides along on that same run.
 
 **SR41 (2026-08-12) ran it.** 48 ticks, both APCs, zero errors. Locomotion was the cleanest yet — four
 new cells surveyed, zero `cultivated_field` footings, no `WEDGED:` warning, no `blocker` line (so #61
-stays gated). Two defects found, both **BUILT the same session**: **#74** Dufus heard Maren, decided to
-answer, and chose `idle` — the reply was never spoken; and **#73** the survey has mapped 15 cells of 204
-in a strip 7 wide and 2 tall, because every navigation fact it had was one cell wide. Maren's day is
-still untested past 09:17 sim time, and her authored truck resolves to cell (5,5) while she stands in
-(6,5) — #71, live.
+stays gated). Three defects found, all **BUILT the same session**: **#74** Dufus heard Maren, decided to
+answer, and chose `idle` — the reply was never spoken; **#73** the survey has mapped 15 cells of 204 in
+a strip 7 wide and 2 tall, because every navigation fact it had was one cell wide; and **#75** Maren's
+truck sits astride a cell boundary and was recorded as two owned rows 134 cm apart, so her prompt
+listed it twice and the resolver named a cell she was not standing in. Maren's day is still untested
+past 09:17 sim time.
 
 ### Also open (survey/navigation line — no longer the headline)
 
@@ -3260,6 +3261,46 @@ Cheap, and it is the criterion the direction reset actually set: *did something 
 both parties remember it.* SR41 scored half a point on the only test that counts.
 
 **Live check:** does `dufus/social.json` reach `interaction_count ≥ 1` in SR42?
+
+## 75. One place, one row — a truck astride a cell boundary
+
+**Status:** **BUILT 2026-08-12** (offline 58/58) · unverified live · from SR41
+
+`owned_place_cells` keys on **`(col, row, owner, name)`**, so the grid cell is part of an owned place's
+identity. A place near a cell boundary therefore gets a *second row* the moment its owner stands on the
+other side of that line — and the two rows are the same physical thing recorded twice.
+
+Maren's vegetable truck is the live case. Authored at cell **(5,5)**, recorded again at runtime as
+**(6,5)**, the two anchors **134 cm apart** across the boundary at `x = -9000`. Consequences through
+SR41:
+
+- `known_places` does not dedupe, so **her prompt listed the truck twice** as her two nearest places —
+  the prompt she then reasoned over to say *"My position confirms I'm at the truck even though the view
+  shows mobile homes."*
+- `Resolved owned place 'vegetable truck' -> cell (5,5)` fired on **every tick** of a run she spent
+  standing in (6,5).
+
+Initially misread as #71 (place names that survive being used by someone else). It is not a naming
+problem — the names are identical. It is cell quantization, and worth separating because the fix is
+different and #71 is still open on its own terms.
+
+**Not broken, and deliberately not touched:** arrival. `_at_scheduled_place` already tests the world-
+space extent box, so Maren was correctly judged to be *at* her truck (120 cm off a 450 cm half-box)
+even while the map disagreed about the cell. That existing test is what the fix reuses.
+
+Two halves:
+
+- **Cause** — `_record_place` minted the second row. It now checks `_owned_place_here` first: standing
+  inside a place you already own under that name means there is nothing to record. Same box test as
+  arrival, so an APC cannot be *at* its truck by the schedule's reckoning and somewhere new by the
+  map's.
+- **The data already written** — `preflight_duplicate_places()` runs beside `preflight_places` on the
+  start path and merges rows whose boxes overlap, keeping the **authored** row (else the oldest), at
+  WARNING and surfaced in the cockpit. Verified on a copy of the live world: 7 owned rows → 6, exactly
+  the one merge, `maren/'vegetable truck'` (5,5) kept and (6,5) dropped.
+
+Rows that merely share a name across a real distance are two different places and are left alone —
+`maren/'home'` and `maren/'Marens Home Place'` both survive, which is #71's problem, not this one.
 
 ---
 

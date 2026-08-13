@@ -216,6 +216,102 @@ def test_preflight_accepts_owned_places():
         check("an owned place counts as resolved", mgr.preflight_places() == [])
 
 
+def _grid_manager(tmp):
+    """A manager on MCP_World's real 3000 cm grid, so cell boundaries are real."""
+    mgr = _manager_with_place(tmp, StubBridge())
+    mgr.llm = ExplodingLLM()
+    mgr.world_grid = WorldGrid(
+        cell_size=3000.0,
+        bounds={"min_x": -24600.0, "min_y": -15158.619140625,
+                "max_x": 22400.02734375, "max_y": 15700.0},
+        origin_x=0.0, origin_y=650.0)
+    return mgr
+
+
+def test_one_place_astride_a_cell_boundary_is_not_two_places():
+    """SR41's vegetable truck (#75).
+
+    An owned place row keys on ``(col, row, owner, name)``, so the cell is part
+    of its identity. Maren's truck sits 70 cm from the boundary at x=-9000: it
+    was authored in cell (5,5) and recorded again at runtime as (6,5), anchors
+    **134 cm apart**, and her prompt then listed the truck twice as her two
+    nearest places while the resolver answered a cell she was not standing in.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _grid_manager(tmp)
+        mgr.place_db.add_owned_place("maren", 5, 5, "vegetable truck",
+                                     dx=1430.0, dy=950.0, source="authored")
+        # Maren's real SR41 spawn — 134 cm from the authored anchor, next cell over.
+        standing = (-8950.0, 160.0, 89.9)
+        here = mgr._owned_place_here("maren", "vegetable truck", standing)
+        check("standing beside her own truck finds the authored row", here is not None)
+        check("and it is the authored cell, not the one underfoot",
+              (here["col"], here["row"]) == (5, 5))
+
+        check("a different owner's place is not mine",
+              mgr._owned_place_here("dufus", "vegetable truck", standing) is None)
+        check("a name I do not own resolves to nothing",
+              mgr._owned_place_here("maren", "donut stand", standing) is None)
+
+        # Far enough away and it really is somewhere else — the box is the test.
+        check("a spot outside the box is genuinely elsewhere",
+              mgr._owned_place_here("maren", "vegetable truck",
+                                    (-8950.0 + 900.0, 160.0, 89.9)) is None)
+
+        # The write path must not mint the second row.
+        mgr.place_db.set_name("dufus", 6, 5, "Mobile home community", "T0")
+        mgr._record_place("maren", {"x": standing[0], "y": standing[1], "z": standing[2]},
+                          "vegetable truck")
+        trucks = [p for p in mgr.place_db.all_owned_places()
+                  if p["name"] == "vegetable truck"]
+        check("naming a place you are standing in does not duplicate it",
+              len(trucks) == 1)
+        check("and the surviving row is still the authored one",
+              trucks[0]["source"] == "authored")
+
+
+def test_preflight_merges_a_place_recorded_twice():
+    """The companion to the unresolvable check: a name resolving to *two* things."""
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _grid_manager(tmp)
+        mgr.place_db.add_owned_place("maren", 5, 5, "vegetable truck",
+                                     dx=1430.0, dy=950.0, source="authored")
+        mgr.place_db.add_owned_place("maren", 6, 5, "vegetable truck",
+                                     dx=-1450.0, dy=1010.0, source="runtime")
+        check("the world starts with the duplicate SR41 left behind",
+              len(mgr.place_db.all_owned_places()) == 2)
+
+        merges = mgr.preflight_duplicate_places()
+        check("exactly one merge reported", len(merges) == 1)
+        check("the merge names the owner and place",
+              merges[0]["owner"] == "maren" and merges[0]["name"] == "vegetable truck")
+        check("ground truth is what survives", merges[0]["kept"] == "5,5")
+        check("the runtime row is what goes", merges[0]["dropped"] == "6,5")
+        check("the gap is measured, not asserted",
+              133.0 < merges[0]["gap_cm"] < 135.0)
+        check("one row is left", len(mgr.place_db.all_owned_places()) == 1)
+        check("a clean world merges nothing", mgr.preflight_duplicate_places() == [])
+
+
+def test_two_places_that_merely_share_a_name_are_left_alone():
+    """Overlapping boxes mean one place. A shared name across a field does not."""
+    with tempfile.TemporaryDirectory() as tmp:
+        mgr = _grid_manager(tmp)
+        # Two "home"s a whole cell apart — different buildings, same word.
+        mgr.place_db.add_owned_place("maren", 5, 5, "home", dx=0.0, dy=0.0,
+                                     source="authored")
+        mgr.place_db.add_owned_place("maren", 8, 8, "home", dx=0.0, dy=0.0,
+                                     source="runtime")
+        check("distant namesakes are not merged", mgr.preflight_duplicate_places() == [])
+        check("both rows survive", len(mgr.place_db.all_owned_places()) == 2)
+
+        # And one owner's name never eats another's.
+        mgr.place_db.add_owned_place("dufus", 5, 5, "home", dx=10.0, dy=10.0,
+                                     source="runtime")
+        check("different owners are never merged", mgr.preflight_duplicate_places() == [])
+        check("all three rows survive", len(mgr.place_db.all_owned_places()) == 3)
+
+
 def main():
     test_cell_center_inverse_of_locate()
     test_find_named_cell()
@@ -224,6 +320,9 @@ def main():
     test_preflight_reports_unresolvable_agenda_places()
     test_preflight_skips_inactive_agents_and_survives_no_agenda()
     test_preflight_accepts_owned_places()
+    test_one_place_astride_a_cell_boundary_is_not_two_places()
+    test_preflight_merges_a_place_recorded_twice()
+    test_two_places_that_merely_share_a_name_are_left_alone()
     print("\nAll place-resolver checks passed.")
 
 

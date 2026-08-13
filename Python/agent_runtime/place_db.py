@@ -846,17 +846,35 @@ class PlaceDB:
     def all_owned_places(self) -> list[dict]:
         """Every APC-owned place cell — the owned half of the world map (#11.2).
 
-        Returns ``{"col","row","owner","name","dx","dy","extent_cm"}`` per row,
-        ordered by (col, row, owner, name). ``known_places`` and the web map
-        read this alongside ``all_named_places`` so owned places ("My Home")
-        are consultable, not just resolvable.
+        Returns ``{"col","row","owner","name","dx","dy","extent_cm","source",
+        "created_at"}`` per row, ordered by (col, row, owner, name).
+        ``known_places`` and the web map read this alongside ``all_named_places``
+        so owned places ("My Home") are consultable, not just resolvable.
+        Provenance and age ride along because a duplicate row can only be judged
+        against them — authored is ground truth, oldest keeps a name's meaning
+        (#75).
         """
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT col, row, owner, name, dx, dy, extent_cm "
+                "SELECT col, row, owner, name, dx, dy, extent_cm, source, created_at "
                 "FROM owned_place_cells ORDER BY col, row, owner, name"
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def remove_owned_place(self, owner: str, col: int, row: int, name: str) -> bool:
+        """Delete one APC-owned place row. True if a row was actually removed.
+
+        Used to collapse a place recorded twice under one name in two cells
+        (#75). Exact match on the full key — this never removes "everything
+        called X", because two places genuinely sharing a name are two places.
+        """
+        with self._lock, self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM owned_place_cells "
+                "WHERE owner=? AND col=? AND row=? AND name=?",
+                (owner, col, row, name),
+            )
+        return cur.rowcount > 0
 
     def owned_places_in_cell(self, col: int, row: int) -> list[dict]:
         """All APC-owned place cells inside one grid cell, ordered by (owner, name)."""
