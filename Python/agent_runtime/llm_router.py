@@ -31,7 +31,7 @@ _ACTION_SCHEMAS: dict[str, str] = {
     "survey_here":      '{"type": "survey_here"} to survey the cell you are standing in — captures all four compass headings over the next few ticks and adds the cell to the shared map. Only works on a cell that has no current survey, and only for the cell underfoot',
     "refuse_cell":      '{"type": "refuse_cell", "direction": "north|south|east|west|northeast|northwest|southeast|southwest", "reason": "<what you can see that makes it not worth walking into>"} to record that the cell one step that way is not ground you will walk into. It stops being offered as somewhere to survey, for you and for every other APC, until someone withdraws it. Use it when you can SEE the reason — standing crops, water, a fence, someone\'s private yard. Omit "direction" to refuse the cell you are standing in',
     "allow_cell":       '{"type": "allow_cell", "direction": "<compass word, or omit for here>"} to withdraw a refusal you made earlier — the cell goes back to being ordinary ground',
-    "speak_to":         '{"type": "speak_to", "target": "<actor_label>", "message": "<text>"}',
+    "speak_to":         '{"type": "speak_to", "target": "<actor_label>", "message": "<text>"} -- say something out loud to someone. This is the ONLY action that produces speech: greeting, answering, asking, thanking, saying goodbye. If you intend to say anything at all this tick, the action is speak_to. "idle" and "observe" are silent',
     "inspect_object":   '{"type": "inspect_object", "target": "<actor_name>"}',
     "follow_character": '{"type": "follow_character", "target": "<actor_name>"}',
     "attack":           '{"type": "attack", "target": "<actor_name>"}',
@@ -89,6 +89,9 @@ Time: {world_time}
 
 ## Where You Can Go Next — neighboring grid cells (one step ~15m away)
 {direction_lines}
+
+## The Wider Map — how much of the world is mapped, and where its edge is
+{frontier_note}
 
 ## You See (your forward view, perceived just now)
 {seen}
@@ -540,6 +543,7 @@ class LLMRouter:
                     observation.get("directions"),
                     (observation.get("seen") or {}).get("landmarks"),
                     _yaw_of_rotation(observation.get("rotation"))),
+                frontier_note=_frontier_note(observation.get("frontier")),
                 seen=_seen_text(observation.get("seen"), observation.get("breadcrumbs")),
                 world_time=observation.get("world_time", "unknown"),
                 current_action=action_state,
@@ -954,9 +958,15 @@ def _heard_note(observation: dict) -> str:
              + (f' ({item["distance_cm"]:.0f} cm away)'
                 if item.get("distance_cm") is not None else "")
              for item in heard[:5]]
+    speakers = ", ".join(dict.fromkeys(str(item.get("speaker", "someone"))
+                                       for item in heard[:5]))
     return ("These people spoke within earshot just now. Being spoken to is one of the "
             "two things that may interrupt your routine — you may answer this tick.\n"
-            + "\n".join(lines))
+            + "\n".join(lines)
+            + f"\nIf you decide to answer {speakers}, the action is speak_to with your "
+              "words in \"message\". Deciding to answer and then choosing idle or "
+              "observe leaves them standing in silence — nothing you did not put in a "
+              "speak_to message was ever said out loud.")
 
 
 def _cell_survey_note(observation: dict) -> str:
@@ -1261,6 +1271,51 @@ def _direction_lines(directions: dict | None, landmarks: list | None = None,
                 lines[-1] += f"; you can see {seen_that_way}"
         else:  # legacy list-of-labels form
             lines.append(f"- {d}: {', '.join(info) if info else 'unmapped'}")
+    return "\n".join(lines)
+
+
+def _frontier_note(frontier: dict | None) -> str:
+    """How big the world is, what shape the map is, and where its edge lies (#73).
+
+    The eight-neighbour list above answers "where can I put my foot". It cannot
+    answer "where should the survey go next", because it is one cell wide in
+    every direction and every unmapped neighbour looks equally worth having. Ask
+    that question 48 times with no wider fact and you get SR41: 15 cells of a
+    17x12 grid, laid out 7 wide and 2 tall, because whichever way the body was
+    already pointing won every tie.
+
+    The map's own shape is stated because that is the fact that was missing —
+    "2 rows tall" is the sentence that makes going north thinkable. Nothing here
+    picks a cell. Per [[feedback_facts_not_blocking]] the frontier is measured
+    and shown; which edge to grow, and whether to grow one at all rather than
+    keep an appointment, stays the model's call and its Rules'.
+    """
+    if not isinstance(frontier, dict):
+        return ("The extent of the world is not known here — no wider map fact is "
+                "available. Navigate by the neighbouring cells above.")
+
+    extent = frontier.get("extent") or {}
+    lines = [
+        f"The world grid is {frontier.get('cols')} cells across (west-east) and "
+        f"{frontier.get('rows')} deep (north-south) — {frontier.get('total')} cells in all.",
+        f"{frontier.get('mapped')} of them are mapped. Mapped ground currently spans "
+        f"columns {extent.get('min_col')}-{extent.get('max_col')} and rows "
+        f"{extent.get('min_row')}-{extent.get('max_row')}: a block "
+        f"{extent.get('width')} cells wide and {extent.get('height')} tall.",
+    ]
+    cells = frontier.get("cells") or []
+    if cells:
+        ways = "; ".join(
+            f"cell {f['cell']} — {f['direction']}, {f['steps']} "
+            f"cell{'s' if f['steps'] != 1 else ''} away" for f in cells)
+        more = frontier.get("frontier_total", len(cells)) - len(cells)
+        lines.append(
+            f"Nearest unmapped ground touching the mapped block, one per direction: "
+            f"{ways}" + (f" ({frontier.get('frontier_total')} such cells in all)"
+                         if more > 0 else "") + ".")
+    else:
+        lines.append("No unmapped cell touches the mapped block — every edge of it "
+                     "is either mapped or refused.")
     return "\n".join(lines)
 
 

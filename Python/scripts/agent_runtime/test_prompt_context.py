@@ -18,10 +18,12 @@ sys.path.insert(0, str(ROOT))
 
 from agent_runtime import agenda  # noqa: E402
 from agent_runtime.llm_router import (             # noqa: E402
+    _ACTION_SCHEMAS,
     _USER_TEMPLATE_VISION,
     _USER_TEMPLATE,
     _acquaintance_lines,
     _episode_lines,
+    _heard_note,
     _known_place_lines,
     _nearby_character_lines,
     _schedule_note,
@@ -109,8 +111,9 @@ def test_nearby_character_lines():
 
 def test_template_contract():
     for placeholder in ("{acquaintance_lines}", "{known_place_lines}", "{episode_lines}",
-                        "{nearby_character_lines}", "{agenda_context}"):
+                        "{nearby_character_lines}", "{agenda_context}", "{frontier_note}"):
         check(f"template has {placeholder}", placeholder in _USER_TEMPLATE_VISION)
+    check("template has the wider-map heading", "## The Wider Map" in _USER_TEMPLATE_VISION)
     check("template has People You Know heading", "## People You Know" in _USER_TEMPLATE_VISION)
     check("template has Places You Know heading", "## Places You Know" in _USER_TEMPLATE_VISION)
     check("sighting rule references People You Know",
@@ -196,6 +199,8 @@ def test_reaction_gate_template():
           "even if you already greeted them" in dufus_rules)
     check("dufus still explores when unscheduled",
           "keep exploring" in dufus_rules and "unexplored" in dufus_rules)
+    check("dufus reads the wider map, not only his eight neighbours (#73)",
+          "The Wider Map" in dufus_rules and "grows a blob, not a line" in dufus_rules)
 
     # And Maren carries the opposite policy, which is the whole point of the move.
     maren_rules = _rules("maren")
@@ -204,6 +209,45 @@ def test_reaction_gate_template():
     check("maren stays at her post when unscheduled", "stay at the truck" in maren_rules)
     check("maren does not inherit the surveyor's suppression",
           "Do NOT stop for strangers" not in maren_rules)
+
+
+def test_answering_requires_speak_to():
+    """SR41's one social exchange, half-completed (#74).
+
+    Maren greeted Dufus. Dufus heard it, and decided: "Maren greeted me, so I'll
+    answer her before continuing east" — then chose ``idle``, which is silent.
+    His ``social.json`` interaction_count stayed 0. Every component worked:
+    earshot delivered the line, the gate let him react, cognition chose to
+    answer. Nothing anywhere said that answering *is* an action with a name, so
+    the intent to speak never became speech.
+    """
+    quiet = _heard_note({})
+    check("silence is stated so no conversation is imagined",
+          "Nobody has spoken to you" in quiet)
+
+    heard = _heard_note({"heard": [
+        {"speaker": "Maren", "text": "Morning, Dufus.", "distance_cm": 1378.0},
+    ]})
+    check("the speaker and their words are quoted",
+          "Maren" in heard and "Morning, Dufus." in heard)
+    check("reacting this tick is still permitted", "you may answer this tick" in heard)
+    check("the action that answers is named", "speak_to" in heard)
+    check("the silent actions are named as silent",
+          "idle" in heard and "observe" in heard)
+    check("choosing to answer without speaking is called out",
+          "leaves them standing in silence" in heard)
+
+    # Two speakers must both be addressable, not collapsed into "someone".
+    both = _heard_note({"heard": [{"speaker": "Maren", "text": "Morning."},
+                                  {"speaker": "Cal", "text": "Hey."}]})
+    check("every speaker is named in the answer prompt",
+          "Maren, Cal" in both)
+
+    check("speak_to's schema says it is the only action that makes sound",
+          "ONLY action that produces speech" in _ACTION_SCHEMAS["speak_to"])
+    check("speak_to's schema still shows the JSON shape",
+          '"type": "speak_to"' in _ACTION_SCHEMAS["speak_to"]
+          and '"message"' in _ACTION_SCHEMAS["speak_to"])
 
 
 def test_schedule_note_weighting():
@@ -278,6 +322,7 @@ def main():
     test_template_contract()
     test_agenda_prompt_context()
     test_reaction_gate_template()
+    test_answering_requires_speak_to()
     test_schedule_note_weighting()
     test_active_interrupt_prompt_fact()
     test_seen_text_footing()

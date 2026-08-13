@@ -39,6 +39,14 @@ survey gets a customer).
 The carried live check from the SR40 handoff — does a `blocker` line ever appear, which gates #61 —
 rides along on that same run.
 
+**SR41 (2026-08-12) ran it.** 48 ticks, both APCs, zero errors. Locomotion was the cleanest yet — four
+new cells surveyed, zero `cultivated_field` footings, no `WEDGED:` warning, no `blocker` line (so #61
+stays gated). Two defects found, both **BUILT the same session**: **#74** Dufus heard Maren, decided to
+answer, and chose `idle` — the reply was never spoken; and **#73** the survey has mapped 15 cells of 204
+in a strip 7 wide and 2 tall, because every navigation fact it had was one cell wide. Maren's day is
+still untested past 09:17 sim time, and her authored truck resolves to cell (5,5) while she stands in
+(6,5) — #71, live.
+
 ### Also open (survey/navigation line — no longer the headline)
 
 - **#55 SR33 (2026-08-02) — the survey was photographing cells it was not standing in. FIXED, needs
@@ -3176,6 +3184,82 @@ office because Dufus went and found it?*
 
 This is the concrete form #35 has been waiting on, and it is what turns the survey from a treadmill into
 a service.
+
+---
+
+## 73. The wider map — a survey that grows a blob, not a line
+
+**Status:** **BUILT 2026-08-12** (offline 58/58) · unverified live · from SR41
+
+SR41's map is 15 cells of a **17×12** grid, and they are a strip **7 wide and 2 tall**: rows 5 and 6
+saturated across seven columns, rows 4 and 7 holding one cell each. Nothing malfunctioned. Every
+navigation fact an APC had was **one cell wide** — the eight neighbours and whether each was named —
+which answers *where do I put my foot* and cannot answer *where should the survey go next*. With no
+wider fact the tie went to whichever way the body already pointed, and a random walk with no sense of
+extent draws a line. Dufus's own rules made it worse: *"pick a direction whose neighbouring cell is
+still unexplored"* is precisely the greedy local rule that produces a ribbon.
+
+Every one of his 48 thoughts that run was a variant of *"this cell's already mapped, so I'll keep
+pushing east."*
+
+**Considered and rejected: walk to the centroid of the map, then fan out.** The centroid of a mapped
+blob is always *inside* it — SR41's centroid is (6, 5.4) and Dufus woke standing on it — so the
+instruction resolves to a no-op or a walk backwards over known ground, and "fan out" is the thing
+already being done badly. The ribbon is created one cell at a time, at the moment the next direction is
+chosen; that is the only place it can be fixed.
+
+**Built as a fact, per [[feedback_facts_not_blocking]]** — `AgentManager._frontier_fact` →
+`observation["frontier"]` → a new *"The Wider Map"* prompt section:
+
+- how big the grid is (17 across, 12 deep, 204 cells) and how much is mapped;
+- the **bounding box of mapped ground**, stated as a shape — *"7 cells wide and 2 tall"* is the sentence
+  that makes going north thinkable;
+- the nearest unmapped cell **touching** mapped ground, by compass bearing and distance in cells.
+
+Three properties that are load-bearing, each pinned by a test:
+
+- **Frontier means adjacent to mapped ground**, not merely unmapped — an APC cannot usefully be sent to
+  a grid corner it has no route to, and the edge of the blob is exactly the set of cells that grow it.
+- **Refused cells are excluded.** A cell someone ruled out must not return as "unexplored ground", which
+  is the regression #59 fixed once already.
+- **One cell per bearing.** Sorting by distance alone fills a short list from whichever side of the blob
+  happens to be nearest — the same "everything points that way" input that drew the line. A truncated
+  list that all points one way is not a choice.
+
+`place_db.explored_cells()` already existed and had **no production caller** — only a test. Reused.
+
+Dufus's rules gained one clause: read the wider map, not just the eight cells at your feet; a good
+survey grows a blob, and when the block is far wider than tall the ground worth having is off its long
+side. No new override; the model still picks.
+
+**Live check:** does the mapped block's *height* grow in SR42? Ribbon → blob is the whole measurement.
+
+## 74. Answering someone is an action with a name
+
+**Status:** **BUILT 2026-08-12** (offline 58/58) · unverified live · from SR41
+
+The one social exchange the whole direction reset was built to produce, half-completed. Maren greeted
+Dufus (*"Morning, Dufus. Hat still on your head, I see."*). Dufus **heard** it — `[dufus] heard:` is in
+the log — and decided, in his own words, *"Maren greeted me, so I'll answer her before continuing east"*
+— then chose **`idle`**, which is silent. His `social.json` `interaction_count` stayed **0**; Maren's
+reached 1.
+
+Every component worked. Earshot delivered the line (#45), the reaction gate let him react (#64), and
+cognition *chose to answer*. The intent to speak never became speech because nothing in the prompt said
+that answering **is** an action with a name:
+
+- `speak_to` was the one action in `_ACTION_SCHEMAS` with no gloss — a bare JSON shape among fifteen
+  entries that each explain what they do.
+- `_heard_note` said *"you may answer this tick"* and never named `speak_to` as the way.
+
+Both closed. `speak_to` now states it is the only action that produces speech and that `idle`/`observe`
+are silent; `_heard_note` names the speakers, names the action, and says outright that deciding to
+answer and then choosing `idle` leaves them standing in silence.
+
+Cheap, and it is the criterion the direction reset actually set: *did something social happen and did
+both parties remember it.* SR41 scored half a point on the only test that counts.
+
+**Live check:** does `dufus/social.json` reach `interaction_count ≥ 1` in SR42?
 
 ---
 

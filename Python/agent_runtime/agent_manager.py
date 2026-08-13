@@ -101,6 +101,20 @@ def _cell_label(grid: dict | None) -> str:
     return str(grid.get("key", "?"))
 
 
+def _compass_word(dcol: int, drow: int) -> str:
+    """The compass word for a cell offset: +col is east, +row is south.
+
+    Grid rows count down from the min-y corner, so a cell with a larger row index
+    is further south — the same convention ``_ABSOLUTE_DIRECTION_YAW`` encodes and
+    the one every survey heading already used. Sign only; the caller carries the
+    distance separately, because "northeast, 3 cells" is two facts and squashing
+    them into one word is how a bearing turns into a route.
+    """
+    vertical = "north" if drow < 0 else "south" if drow > 0 else ""
+    horizontal = "east" if dcol > 0 else "west" if dcol < 0 else ""
+    return f"{vertical}{horizontal}" or "here"
+
+
 # Compass reversal — "the way I came" is the opposite of the way I travelled.
 _OPPOSITE_COMPASS = {
     "N": "S", "NE": "SW", "E": "W", "SE": "NW",
@@ -136,6 +150,10 @@ _WEDGE_BUDGET_TICKS = 3
 # recorded with one of these has been *walked*, not merely seen, so it is a
 # proven escape rather than a guess from the picture.
 _GOOD_FOOTING = ("pavement", "road", "dirt_path")
+
+# How many frontier cells to name (#73). Enough to show there is a choice and
+# that it has a shape; not so many the list reads as a route to follow.
+_FRONTIER_LIMIT = 4
 
 # Path sense (B7): while traveling, watch what is directly ahead so the agent
 # can step around people/vehicles instead of walking through them — pawn-vs-pawn
@@ -1370,6 +1388,7 @@ class AgentManager:
         observation["last_move"] = self._last_move_fact(agent_id, observation.get("location"))
         observation["wedge"] = self._wedge_fact(
             agent_id, observation.get("last_move"), observation.get("directions"))
+        observation["frontier"] = self._frontier_fact(grid)
         observation["travel"] = self._travel_fact(agent_id, observation.get("location"), grid)
 
         # Structured place context from SQLite (None if not yet named).
@@ -3454,6 +3473,91 @@ class AgentManager:
             ", ".join(tried) or "nothing yet",
             ", ".join(f"{e['direction']} ({e['footing']})" for e in escapes) or "NONE KNOWN")
         return fact
+
+    def _frontier_fact(self, grid: dict | None) -> dict | None:
+        """The size of the map, the shape of what is mapped, and where its edge is (#73).
+
+        Every navigation fact an APC had was one step wide: the eight neighbouring
+        cells, and whether each was named. That is enough to answer "where do I put
+        my foot" and cannot answer "where should this survey go next", so the choice
+        fell to whichever heading the body already pointed — a random walk, and a
+        random walk with no sense of extent draws a line.
+
+        SR41's map is the proof. 15 cells surveyed out of a 17x12 grid, and they
+        are a strip **7 wide and 2 tall**: rows 5 and 6 are saturated across seven
+        columns while rows 4 and 7 hold one cell each. Nothing was malfunctioning.
+        Dufus simply never had a fact that said the world has twelve rows in it.
+
+        So three measured things, none of them an instruction: how big the grid is,
+        what fraction of it is mapped and the bounding box that map occupies, and
+        the nearest unmapped cells that touch mapped ground — by compass bearing
+        and distance in cells. Refused cells are excluded; someone already said
+        they are not ground to walk into, and the frontier must not re-offer them
+        the way plain "unexplored" used to (#59).
+
+        Frontier means *adjacent to mapped ground*, not merely unmapped: an APC
+        cannot usefully be sent to the far corner of a grid it has no route to,
+        and the edge of the blob is exactly the set of cells that grow it.
+
+        Returns ``None`` when the grid is unbounded or nothing has been mapped yet
+        (there is no frontier without a blob), else ``{"cols", "rows", "total",
+        "mapped", "extent": {...}, "cells": [{"cell", "direction", "steps"}]}``.
+        """
+        col, row = self._cell_col_row(grid)
+        if col is None or not self.place_db:
+            return None
+        cols, rows = grid.get("cols"), grid.get("rows")
+        if not cols or not rows:
+            return None
+        mapped = self.place_db.explored_cells()
+        if not mapped:
+            return None
+
+        refused = {(r["col"], r["row"]) for r in self.place_db.all_refusals()
+                   if r.get("col") is not None}
+        neighbours = [(dc, dr) for dc in (-1, 0, 1) for dr in (-1, 0, 1)
+                      if (dc, dr) != (0, 0)]
+        frontier = {
+            (c + dc, r + dr)
+            for (c, r) in mapped for dc, dr in neighbours
+            if (c + dc, r + dr) not in mapped
+            and (c + dc, r + dr) not in refused
+            and 0 <= c + dc < cols and 0 <= r + dr < rows
+        }
+
+        cells = []
+        for (fc, fr) in frontier:
+            dc, dr = fc - col, fr - row
+            if (dc, dr) == (0, 0):
+                continue  # the cell underfoot has its own authoritative verdict
+            cells.append({"cell": f"{fc},{fr}",
+                          "direction": _compass_word(dc, dr),
+                          "steps": max(abs(dc), abs(dr))})
+        # Nearest first; a stable tiebreak so the list does not reshuffle between
+        # ticks and read as new information when nothing has changed.
+        cells.sort(key=lambda f: (f["steps"], f["direction"], f["cell"]))
+        # One cell per bearing. Sorting by distance alone fills the whole list
+        # from whichever side of the blob happens to be closest, which is exactly
+        # the input that produced a 7x2 strip — a short list that all points one
+        # way is not a choice. Nearest *in each direction* is the same measurement
+        # shown so its shape survives the truncation.
+        nearest_by_bearing: dict[str, dict] = {}
+        for f in cells:
+            nearest_by_bearing.setdefault(f["direction"], f)
+        cells = sorted(nearest_by_bearing.values(),
+                       key=lambda f: (f["steps"], f["direction"]))
+
+        mapped_cols = [c for c, _ in mapped]
+        mapped_rows = [r for _, r in mapped]
+        return {
+            "cols": cols, "rows": rows, "total": cols * rows, "mapped": len(mapped),
+            "extent": {"min_col": min(mapped_cols), "max_col": max(mapped_cols),
+                       "min_row": min(mapped_rows), "max_row": max(mapped_rows),
+                       "width": max(mapped_cols) - min(mapped_cols) + 1,
+                       "height": max(mapped_rows) - min(mapped_rows) + 1},
+            "cells": cells[:_FRONTIER_LIMIT],
+            "frontier_total": len(frontier),
+        }
 
     def _record_attempt(self, agent_id: str, xyz, intent, moved_cm: float) -> dict:
         """Which headings have already failed from the spot the APC is on (#60).
