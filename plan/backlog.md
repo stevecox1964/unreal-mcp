@@ -227,16 +227,11 @@ verification, which folds into the #36/#37 live session.
 Raised while working, parked here on purpose — none is urgent, none should be done as a drive-by.
 Add to this list rather than refactoring adjacent code mid-task.
 
-- **`test_apc_agenda_ui.py` is not hermetic.** Its last two checks assert that
-  `/api/sim/agents/<id>` returns 503 "no sim runner running". They hit the real runner URL, so the
-  test **fails whenever the sim is actually running** (observed 2026-07-24 with `sim_runner` live on
-  8777). The offline suite is meant to need no Unreal and no keys; it should not care whether a
-  local port is bound. Fix by pointing the runner URL at a definitely-dead port for that assertion.
-
-- **`plan/backlog.md` is ~2,800 lines and expensive to read.** A full read blows past a 25k-token cap,
-  so every session pays to find the active view at the top. Suggest moving everything below the
-  "Historical status log" banner into `plan/backlog_history.md` and leaving a pointer. *(Raised
-  2026-07-24; directly affects per-session token cost.)*
+- ~~**`test_apc_agenda_ui.py` is not hermetic.**~~ **DONE 2026-08-19:** the runner-down checks
+  now point at a dead port and restore the URL after.
+- ~~**`plan/backlog.md` is expensive to read.**~~ **DONE 2026-08-19:** dated ⚑ banners and the
+  completed 2026-07 queues (581 lines) moved to `plan/backlog_history.md`; numbered spec sections
+  stayed because live items reference them.
 - **`agent_runtime/agent_manager.py` is ~3,800 lines.** Tick phases, survey/interruption mechanics,
   agenda wiring, place resolution, and bridge execution all live in one class. A split along those
   seams would make each testable alone; the survey helpers are the most self-contained starting point.
@@ -246,8 +241,9 @@ Add to this list rather than refactoring adjacent code mid-task.
   Invalid HTML that browsers resolve inconsistently; predates this work and was left alone deliberately.
 - **Template `<script>` blocks duplicate fetch/poll helpers** across `index`, `sim`, `map`, and `agent`.
   `web_ui/static/apc_drilldown.js` (#43) establishes the precedent for extracting shared JS.
-- **`save_agent` silently defaults malformed form values** (`int(form.get(...) or 10)`), so a bad tier or
-  interval becomes a default instead of an error — the "fail loud" rule would prefer a rejection.
+- ~~**`save_agent` silently defaults malformed form values.**~~ **DONE 2026-08-19:** non-numeric
+  tier/interval/cooldown is rejected with the field named, nothing written, and a rejected create
+  leaves no half-made agent folder (`test_agent_form_validation.py`). Blank still means default.
 - **Bridge client reconnect noise:** SR32's log is ~400 lines of
   `Existing connection failed: 'NoneType' object has no attribute 'sendall'` — the socket client
   drops/rebuilds the connection around every command. Harmless (every command succeeded) but it is
