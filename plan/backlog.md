@@ -80,6 +80,27 @@ eating the sessions that should be spent there.
 
 ### Also open (survey/navigation line — no longer the headline)
 
+- **SR42 (2026-08-19) — first run of the #76/#77 lane. 53 ticks, 12.4 min, clean stop; the CLI
+  session driving it crashed, but the runner shut down properly and all data persisted.**
+  - **Worked:** 4 cells surveyed — (5,5), (6,5), (7,4), (7,3) — all 16 headings succeeded. #75
+    preflight merged the duplicate 'vegetable truck' row on startup as designed. Zero LLM errors
+    after wake. Stall recovery worked: 3× "ordered north, achieved 0.0 cm" and the model rerouted
+    northeast each time without code help.
+  - **Bug (FIXED this session, offline 58/58): wake `refuse_cell` never reached its handler.**
+    Dufus opened the run refusing the cornfield cell — exactly the pre-emptive refusal #77 wants —
+    and the wake path sent the verb straight to the bridge: "Unknown action: refuse_cell". Same
+    class as SR39's `survey_here` wake bug; `_apply_cell_verdict` now runs on the wake path too.
+    Needs live verification next run.
+  - **#77 not yet satisfied: the "north trap".** North from the (5,5)/(6,5) road repeatedly leads
+    into a grassy yard (pergola) or *inside a mobile home bedroom*; Dufus stepped in and retreated
+    5 times (ticks 8-9, 11-12, 23-24, 28-29, and at run end). Cell (6,4) is still unsurveyed
+    because every approach lands on bad footing. All discoveries were post-step — zero pre-emptive
+    vetoes. This is precisely the per-direction footing-probe gap #77 exists to close.
+  - **Maren place/view mismatch.** Twice she reasoned "the system marks me at my truck post but
+    the view shows the mobile home community". She stands at (-8950, 160), cell (6,5); the kept
+    truck row is at (5,5) — the boundary-straddling truck from #75. Her place label and her camera
+    disagree; worth one look at whether her spawn/anchor should move with the kept row.
+
 - **#55 SR33 (2026-08-02) — the survey was photographing cells it was not standing in. FIXED, needs
   live verification.** SR33 ran 2 walks and 8 survey headings and never moved from
   `(-10491.7, 718.6)` — grid cell **(5,6)**. From that one spot it wrote `community:5:5` rev 4 *and*

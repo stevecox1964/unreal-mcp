@@ -950,7 +950,12 @@ class AgentManager:
                     }
                     # Wake is a tick like any other: the APC may open the run by
                     # asking to survey where it woke up, and that must reach the
-                    # same handler the normal path uses (SR39).
+                    # same handler the normal path uses (SR39). Same for a cell
+                    # ruling — SR42's wake opened with refuse_cell and the bridge
+                    # answered "Unknown action".
+                    verdict = self._apply_cell_verdict(agent, first_action, wake_obs)
+                    if verdict is not None:
+                        first_action = verdict
                     first_action, pending = self._resolve_survey_here(
                         agent, first_action, wake_obs)
                     if pending:
