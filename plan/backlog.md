@@ -126,6 +126,21 @@ tick. The recorder makes every perceived frame a training pair at the moment it 
 - Out of scope on purpose: dataset packaging/export, dedup, train/val splits — that is a
   build-time job over the JSONL, not a sim-time one.
 
+**#80 — refused ground on the /map (spec'd 2026-08-19; source: user — "update the map UI to show
+cells that are off limits, refused and why").** The refusal record exists (#59 cells, #78
+patches) and the APCs read it every tick, but the operator cannot see it: a refused cell renders
+as plain "unexplored", which visually re-invites exactly the ground someone ruled out.
+
+- `build_map` additionally returns `refusals` (`cell_refusals` rows: col, row, refused_by,
+  reason, refused_at) and `no_go` (`no_go_patches` rows: x, y, radius_cm, refused_by, reason),
+  plus `counts.refused` (distinct refused cells) and `counts.no_go`.
+- `/map` paints a refused cell with a red diagonal hatch — over whatever survey state it also has,
+  since refused-after-swept is a real combination — and its tooltip leads with
+  `REFUSED by <who>: <reason> (<world time>)`. A no-go patch draws as a red dashed circle of its
+  true radius at its true anchor, tooltip likewise. Legend gains both, with the refused count.
+- Read-only: the map shows the record; withdrawing a refusal stays the APC's own act
+  (`allow_cell`), not a map click.
+
 **This lane is capped on purpose.** #76 and #77 are prompt-and-facts work on machinery that already
 exists (#73 frontier, footing probes, `mark_blocked`) — no new navigation subsystem. Once one live run
 shows (a) rings instead of a ribbon and (b) at least one *pre-emptive* refusal ("I see corn, going
