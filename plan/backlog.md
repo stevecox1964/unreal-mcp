@@ -103,6 +103,27 @@ not re-entered.**
   X and straight back out N times this run" with the refuse-the-spot escape named. This is SR32's
   "louder facts" watch item, now a fact.
 
+**#79 — perception dataset recorder (spec'd 2026-08-19, Fable; source: user — "I am thinking
+ahead for a VLM and want to build a training dataset").** Dufus's captures are the VLM training
+corpus ([[project_dufus_vlm_training_corpus]]), but only the survey pipeline keeps its text: 21
+`place_images` rows carry descriptions, while the per-tick stream — 348 PNGs in dufus's
+observations folder alone — computes a full VLM label every tick (caption, landmarks, footing,
+now `ground_ahead`/`path_ahead`) and throws it away; `last_perception.json` is overwritten each
+tick. The recorder makes every perceived frame a training pair at the moment it is perceived:
+
+- One method, `_record_perception_pair`, appends one JSON line per perceived image to
+  `agents/<id>/observations/perception_log.jsonl` — the label lives next to the pixels it labels.
+- Line: `recorded_at`, `sim_run`, `world_time`, `image` (basename — the pair survives a folder
+  move), `context` (`tick|wake|survey_sweep|explore`), `heading` (compass, when the facing is
+  known), `at` [x,y], `cell`, `model`, `caption`, `footing`, `ground_ahead`, `path_ahead`,
+  `landmarks`, `characters`, and `error` when perception failed (recorded, not hidden — the
+  dataset builder filters, per fail-loud).
+- Called from all four perceive sites: the tick view, the wake look-around, the survey sweep
+  heading, and legacy explore. Append-only, never raises; a write failure warns and degrades the
+  tick, exactly like perception itself.
+- Out of scope on purpose: dataset packaging/export, dedup, train/val splits — that is a
+  build-time job over the JSONL, not a sim-time one.
+
 **This lane is capped on purpose.** #76 and #77 are prompt-and-facts work on machinery that already
 exists (#73 frontier, footing probes, `mark_blocked`) — no new navigation subsystem. Once one live run
 shows (a) rings instead of a ribbon and (b) at least one *pre-emptive* refusal ("I see corn, going
