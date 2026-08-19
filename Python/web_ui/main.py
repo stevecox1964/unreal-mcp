@@ -203,7 +203,25 @@ def validate_agenda_text(text: str) -> tuple[dict | None, list[str]]:
         return None, list(exc.errors)
 
 
+def _form_int(form: dict, key: str, default: int) -> int:
+    """A blank numeric field means "use the default"; a non-number is the
+    user's mistake and must be said, not silently replaced (fail loud)."""
+    raw = str(form.get(key) or "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        raise ValueError(f"{key} must be a whole number, got {raw!r} — not saved")
+
+
 def save_agent(level: str, agent_id: str, form: dict) -> None:
+    # Validate before any directory or file is touched: a rejected create must
+    # not leave an empty agent folder behind to block the retry.
+    tier = _form_int(form, "tier", 2)
+    tick_interval = _form_int(form, "tick_interval_seconds", 10)
+    speech_cooldown = _form_int(form, "speech_cooldown_seconds", 30)
+
     agents_dir = _agents_dir(level)
     agents_dir.mkdir(parents=True, exist_ok=True)
     base = _contained(agents_dir, _path_id(agent_id, "agent"))
@@ -216,12 +234,12 @@ def save_agent(level: str, agent_id: str, form: dict) -> None:
         "agent_id": agent_id,
         "unreal_actor_name": form.get("unreal_actor_name") or agent_id.title(),
         "blueprint_class": form.get("blueprint_class", ""),
-        "tier": int(form.get("tier") or 2),
+        "tier": tier,
         "is_active": form.get("is_active") == "on",
         "is_busy": state.get("is_busy", False),
         "current_goal": form.get("current_goal", "idle"),
-        "tick_interval_seconds": int(form.get("tick_interval_seconds") or 10),
-        "speech_cooldown_seconds": int(form.get("speech_cooldown_seconds") or 30),
+        "tick_interval_seconds": tick_interval,
+        "speech_cooldown_seconds": speech_cooldown,
     })
     state.setdefault("last_tick_time", None)
     state.setdefault("last_spoke_time", None)
@@ -729,6 +747,12 @@ async def create_agent(request: Request, level: str):
     elif _contained(_agents_dir(level), agent_id).exists():
         error = f"Agent '{agent_id}' already exists in {level}"
 
+    if not error:
+        try:
+            save_agent(level, agent_id, form)
+        except ValueError as exc:
+            error = str(exc)
+
     if error:
         return templates.TemplateResponse(request, "agent.html", {
             "request": request,
@@ -746,7 +770,6 @@ async def create_agent(request: Request, level: str):
             "agenda_errors": [],
         })
 
-    save_agent(level, agent_id, form)
     return RedirectResponse(f"/worlds/{level}/agents/{agent_id}?saved=1", status_code=303)
 
 
@@ -771,7 +794,28 @@ async def edit_agent_form(request: Request, level: str, agent_id: str, saved: bo
 async def update_agent(request: Request, level: str, agent_id: str):
     _agent_dir(level, agent_id, must_exist=True)
     form = dict(await request.form())
-    save_agent(level, agent_id, form)
+    try:
+        save_agent(level, agent_id, form)
+    except ValueError as exc:
+        # Nothing was written — re-render with the rejection and the user's
+        # text kept on screen, same contract as the agenda editor (fail loud).
+        data = load_agent(level, agent_id)
+        data.update({
+            "state": form,
+            "character": form.get("character", ""),
+            "goals": form.get("goals", ""),
+            "rules": form.get("rules", ""),
+            "allowed_actions": form.get("allowed_actions", ""),
+        })
+        return templates.TemplateResponse(request, "agent.html", {
+            "request": request,
+            "level": level,
+            "agent_id": agent_id,
+            "is_new": False,
+            "saved": False,
+            "error": str(exc),
+            **data,
+        })
     return RedirectResponse(f"/worlds/{level}/agents/{agent_id}?saved=1", status_code=303)
 
 
