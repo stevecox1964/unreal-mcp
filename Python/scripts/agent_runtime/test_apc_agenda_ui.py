@@ -126,9 +126,16 @@ try:
           wm.validate_agenda_text(wm.AGENDA_STARTER)[1] == [])
 
     # ── Runner down is a bounded message, not a stack trace ──────────────────
-    down = client.get("/api/sim/agents/dufus")
-    check("no runner yields the bounded envelope", down.status_code == 503)
-    check("no runner explains itself", down.json().get("error") == "no sim runner running")
+    # Point at a definitely-dead port: the offline suite must not care whether
+    # a real sim_runner happens to be serving on the default port right now.
+    old_runner = wm.RUNNER_URL
+    wm.RUNNER_URL = "http://127.0.0.1:1"
+    try:
+        down = client.get("/api/sim/agents/dufus")
+        check("no runner yields the bounded envelope", down.status_code == 503)
+        check("no runner explains itself", down.json().get("error") == "no sim runner running")
+    finally:
+        wm.RUNNER_URL = old_runner
 finally:
     wm.WORLDS_DIR = old_worlds
 
