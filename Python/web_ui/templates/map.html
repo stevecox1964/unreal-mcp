@@ -79,6 +79,8 @@
     <span><span class="swatch" style="box-shadow:inset 0 0 0 2px #c0392b"></span> stale <b id="n-stale">0</b></span>
     <span><span class="swatch" style="border:2px solid #6f42c1; background:rgba(111,66,193,.3)"></span> owned place <b id="n-owned">0</b></span>
     <span><span class="swatch" style="background:#e63946; border-radius:50%; border:2px solid #fff"></span> agent (live)</span>
+    <span><span class="swatch" style="background:repeating-linear-gradient(45deg, rgba(230,57,70,.7) 0 3px, transparent 3px 7px)"></span> refused (off-limits) <b id="n-refused">0</b></span>
+    <span><span class="swatch" style="border:2px dashed #e63946; border-radius:50%; background:rgba(230,57,70,.15)"></span> no-go patch <b id="n-nogo">0</b></span>
     <span id="pct" style="color:#666"></span>
   </div>
   <p class="breadcrumb" style="margin-top:-.25rem;">stale = saved survey older than {{ map.stale_after_hours }}h (real time); eligible for refresh at the next survey opportunity</p>
@@ -158,6 +160,12 @@
     #cells .cell.named { background:rgba(45,106,79,.45); }
     #cells .cell.swept { background:rgba(233,196,106,.5); }
     #cells .cell.stale { box-shadow:inset 0 0 0 2px #c0392b; }
+    /* Refused ground (#80): the hatch overlays any survey state — a cell can
+       be swept AND ruled off-limits, and both facts must stay visible. */
+    #cells .cell.refused { background-image:repeating-linear-gradient(45deg,
+        rgba(230,57,70,.55) 0 6px, transparent 6px 14px); }
+    .nogo-mark { position:absolute; border:2px dashed #e63946;
+        background:rgba(230,57,70,.18); border-radius:50%; z-index:4; }
     /* APC-owned place cells (#11.2): a 9x9 m box at anchor + offset. */
     #places .owned-mark { position:absolute; box-sizing:border-box; pointer-events:auto;
                           border:2px solid #6f42c1; background:rgba(111,66,193,.3); border-radius:2px; }
@@ -318,6 +326,18 @@
           `${cell.visual_sightings} sightings${age}`;
       }
 
+      // Refused ground (#80): hatch the cell and lead the tooltip with why.
+      // Painted after the survey states because a refusal overlays them —
+      // most refused cells were never swept, so their base state is bare.
+      for (const ref of data.refusals || []) {
+        const el = document.getElementById(`c-${ref.col}-${ref.row}`);
+        if (!el) continue;
+        el.classList.add("refused");
+        const base = el.dataset.tip.replace(`(${ref.col}, ${ref.row}) — `, "");
+        el.dataset.tip = `(${ref.col}, ${ref.row}) — REFUSED by ${ref.refused_by}: ` +
+          `${ref.reason} (${ref.refused_at || "?"}) · ${base}`;
+      }
+
       // Durable community surveys: a blue center marker opens the current
       // N/S/E/W composite and its capture metadata.
       placesEl.innerHTML = "";
@@ -344,6 +364,17 @@
         placeRect(d, cx - e / 2, cy - e / 2, e, e);
         d.dataset.tip = `owned: "${o.name}" (${o.owner}) — ` +
                         `${(e / 100).toFixed(0)}×${(e / 100).toFixed(0)} m in cell (${o.col}, ${o.row})`;
+        placesEl.appendChild(d);
+      }
+
+      // Sub-cell no-go patches (#78/#80): dashed red circles at true radius.
+      for (const p of data.no_go || []) {
+        const d = document.createElement("div");
+        d.className = "nogo-mark";
+        placeRect(d, p.x - p.radius_cm, p.y - p.radius_cm,
+                  2 * p.radius_cm, 2 * p.radius_cm);
+        d.dataset.tip = `NO-GO patch (${(p.radius_cm / 100).toFixed(0)} m): ` +
+                        `refused by ${p.refused_by} — ${p.reason} (${p.refused_at || "?"})`;
         placesEl.appendChild(d);
       }
 
@@ -380,6 +411,8 @@
       document.getElementById("n-surveyed").textContent = data.counts.surveyed;
       document.getElementById("n-stale").textContent = data.counts.stale;
       document.getElementById("n-owned").textContent = data.counts.owned || 0;
+      document.getElementById("n-refused").textContent = data.counts.refused || 0;
+      document.getElementById("n-nogo").textContent = data.counts.no_go || 0;
       const built = data.counts.mapped;
       const total = data.counts.total_cells || 1;
       document.getElementById("pct").textContent =

@@ -320,6 +320,11 @@ def build_map(level: str) -> dict:
             if image_id else None
         )
     owned = db.all_owned_places() if db else []
+    # Ground someone ruled out, and why (#80). Refusals are cells; no-go
+    # patches are sub-cell circles (#78). Shown, never editable from the map:
+    # withdrawing one stays the APC's own act (allow_cell).
+    refusals = db.all_refusals() if db else []
+    no_go = db.all_patches() if db else []
     named = sum(1 for c in cells if c["named"])
     swept = sum(1 for c in cells if c["swept"])
     surveyed = sum(1 for c in cells if c["surveyed"])
@@ -342,8 +347,17 @@ def build_map(level: str) -> dict:
         "owned": [{"col": o["col"], "row": o["row"], "owner": o["owner"], "name": o["name"],
                    "dx": o["dx"], "dy": o["dy"], "extent_cm": o["extent_cm"]}
                   for o in owned],
+        "refusals": [{"col": r["col"], "row": r["row"], "refused_by": r["refused_by"],
+                      "reason": r["reason"], "refused_at": r["refused_at"]}
+                     for r in refusals],
+        "no_go": [{"x": p["x"], "y": p["y"], "radius_cm": p["radius_cm"],
+                   "refused_by": p["refused_by"], "reason": p["reason"],
+                   "refused_at": p["refused_at"]}
+                  for p in no_go],
         "counts": {"named": named, "surveyed": surveyed, "swept": swept,
                    "mapped": len(cells), "stale": stale, "owned": len(owned),
+                   "refused": len({(r["col"], r["row"]) for r in refusals}),
+                   "no_go": len(no_go),
                    "total_cells": (cols or 0) * (rows or 0)},
     }
 

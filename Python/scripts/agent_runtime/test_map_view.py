@@ -167,6 +167,40 @@ def test_api_map_returns_grid_and_cells():
         _with_worlds(tmp, body)
 
 
+def test_api_map_carries_refused_ground():
+    """Refused cells and no-go patches reach the map, with who and why (#80)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        world = _world(tmp)
+        db = PlaceDB(world / "world_places.db")
+        db.refuse_cell("dufus", 5, 5, "standing corn", "Day 1, 08:02")
+        db.refuse_cell("maren", 5, 5, "not my ground", "Day 1, 09:00")
+        db.refuse_patch("dufus", -1500.0, -1500.0, "private backyard", "Day 1, 09:15")
+
+        def body(client):
+            data = client.get("/api/map?level=TestWorld").json()
+            refusals = data["refusals"]
+            check("every refusal reaches the map", len(refusals) == 2)
+            corn = next(r for r in refusals if r["refused_by"] == "dufus")
+            check("a refusal says who, why, and when",
+                  (corn["col"], corn["row"], corn["reason"], corn["refused_at"])
+                  == (5, 5, "standing corn", "Day 1, 08:02"))
+            check("two refusals of one cell count it once",
+                  data["counts"]["refused"] == 1)
+            patch = data["no_go"][0]
+            check("a no-go patch carries its true geometry",
+                  (patch["x"], patch["y"], patch["radius_cm"]) == (-1500.0, -1500.0, 450.0))
+            check("a patch says who and why",
+                  patch["refused_by"] == "dufus" and patch["reason"] == "private backyard")
+            check("patches are counted", data["counts"]["no_go"] == 1)
+            check("a refused-only cell is NOT a mapped place cell",
+                  all((c["col"], c["row"]) != (5, 5) for c in data["cells"]))
+
+            page = client.get("/map?level=TestWorld").text
+            check("the legend names refused ground", "refused (off-limits)" in page)
+            check("the legend names no-go patches", "no-go patch" in page)
+        _with_worlds(tmp, body)
+
+
 def test_api_map_carries_image_bounds_calibration():
     # #6c registration fix: a capture that doesn't frame the world bounds
     # exactly gets an image_bounds calibration in world_grid.json; the overlay
@@ -341,6 +375,7 @@ def main():
     test_is_stale_by_wall_clock()
     test_map_cells_surfaces_stale_flag_when_asked()
     test_api_map_returns_grid_and_cells()
+    test_api_map_carries_refused_ground()
     test_api_map_carries_image_bounds_calibration()
     test_api_map_missing_db_is_empty_not_error()
     test_map_page_renders_with_legend_and_polls_api()
