@@ -96,6 +96,10 @@ eating the sessions that should be spent there.
     5 times (ticks 8-9, 11-12, 23-24, 28-29, and at run end). Cell (6,4) is still unsurveyed
     because every approach lands on bad footing. All discoveries were post-step — zero pre-emptive
     vetoes. This is precisely the per-direction footing-probe gap #77 exists to close.
+    User screenshots (11:14) confirm it visually: Dufus wedged in a dead-end trash alley behind a
+    building, and pressed flat against a mobile home's back wall on grass. "Behind buildings" is
+    ground the navmesh calls walkable but no APC should route through — #77 (see it first) plus
+    #26 dead-end recognition are the planned closers; no new mechanism needed.
   - **Maren place/view mismatch.** Twice she reasoned "the system marks me at my truck post but
     the view shows the mobile home community". She stands at (-8950, 160), cell (6,5); the kept
     truck row is at (5,5) — the boundary-straddling truck from #75. Her place label and her camera
