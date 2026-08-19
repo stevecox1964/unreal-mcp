@@ -1070,6 +1070,10 @@ class AgentManager:
             if seen.get("error"):
                 logger.warning(f"[{agent.agent_id}] sweep perception '{direction}' failed: {seen['error']}")
             self._note_eyes(agent.agent_id, loc, yaw, seen)
+            self._record_perception_pair(
+                agent.agent_id, image_path, seen, location=loc, yaw=yaw,
+                grid=self.world_grid.locate(xyz[0], xyz[1]),
+                world_time=self.world_clock.now_text(), context="wake")
             sightings.extend(seen.get("landmarks") or [])
             tx, ty, _ = _offset_location(*xyz, yaw, _STEP_DISTANCE)
             views.append({
@@ -1695,6 +1699,12 @@ class AgentManager:
             self._note_eyes(agent_id, observation.get("location"),
                             _yaw_of(observation.get("rotation")), seen)
             self._save_perception_evidence(agent_id, observation, seen)
+            self._record_perception_pair(
+                agent_id, observation.get("image_path"), seen,
+                location=observation.get("location"),
+                yaw=_yaw_of(observation.get("rotation")),
+                grid=observation.get("grid"),
+                world_time=observation.get("world_time"), context="tick")
 
             xyz = _loc_xyz(observation.get("location"))
             if xyz and seen.get("landmarks"):
@@ -4045,6 +4055,11 @@ class AgentManager:
             return {"status": "error", "action": "observe_heading", "direction": direction,
                     "error": "capture failed"}
         seen = self.perceiver.perceive(image_path, observation.get("known_characters") or [])
+        self._record_perception_pair(
+            agent_id, image_path, seen,
+            location=observation.get("location"), yaw=yaw,
+            grid=observation.get("grid"),
+            world_time=observation.get("world_time"), context="survey_sweep")
         if seen.get("error"):
             return {"status": "error", "action": "observe_heading", "direction": direction,
                     "error": f"perception failed: {seen['error']}"}
@@ -4137,6 +4152,12 @@ class AgentManager:
             caption = perceived.get("caption", "")
             if perceived.get("error"):
                 logger.warning(f"[{agent_id}] perception error: {perceived['error']}")
+            self._record_perception_pair(
+                agent_id, image_path, perceived,
+                location=observation.get("location"),
+                yaw=_yaw_of(observation.get("rotation")),
+                grid=self.world_grid.locate(x, y),
+                world_time=self.world_clock.now_text(), context="explore")
 
         # Map: record the occupied cell + what was seen, link the traversed edge.
         smap = self._spatial_map(agent_id)
@@ -4871,6 +4892,52 @@ class AgentManager:
         }
 
     # Helpers
+
+    def _record_perception_pair(self, agent_id: str, image_path, seen: dict | None, *,
+                                location=None, yaw=None, grid: dict | None = None,
+                                world_time: str | None = None,
+                                context: str = "tick") -> None:
+        """Append one image+label line to the agent's perception log (#79).
+
+        Every perceived frame already costs a VLM call; this keeps its answer.
+        The line lands in ``observations/perception_log.jsonl`` next to the PNG
+        it labels — the training pair the corpus exists to collect
+        (project_dufus_vlm_training_corpus). ``last_perception.json`` stays the
+        overwritten latest-only debug surface; this file only grows. A failed
+        perception is recorded with its ``error`` (the dataset builder filters;
+        the sim does not hide misses), and a failed write warns and degrades
+        the tick, exactly like perception itself.
+        """
+        if not self._agents_dir or not image_path or not isinstance(seen, dict):
+            return
+        xyz = _loc_xyz(location)
+        line = {
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "sim_run": self.sim_run_id,
+            "agent_id": agent_id,
+            "world_time": world_time,
+            "image": Path(image_path).name,
+            "context": context,
+            "heading": yaw_to_compass(float(yaw)) if yaw is not None else None,
+            "at": [round(xyz[0], 1), round(xyz[1], 1)] if xyz else None,
+            "cell": _cell_label(grid) if grid else None,
+            "model": seen.get("model"),
+            "caption": seen.get("caption", ""),
+            "footing": seen.get("footing", ""),
+            "ground_ahead": seen.get("ground_ahead", ""),
+            "path_ahead": seen.get("path_ahead", ""),
+            "landmarks": seen.get("landmarks") or [],
+            "characters": seen.get("characters") or [],
+        }
+        if seen.get("error"):
+            line["error"] = seen["error"]
+        try:
+            path = self._agents_dir / agent_id / "observations" / "perception_log.jsonl"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(line) + "\n")
+        except Exception as e:
+            logger.warning(f"[{agent_id}] could not record perception pair: {e}")
 
     def _save_perception_evidence(self, agent_id: str, observation: dict, seen: dict) -> None:
         """Persist the latest structured VLM output so live misses are inspectable."""
