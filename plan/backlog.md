@@ -156,10 +156,11 @@ eating the sessions that should be spent there.
     building, and pressed flat against a mobile home's back wall on grass. "Behind buildings" is
     ground the navmesh calls walkable but no APC should route through — #77 (see it first) plus
     #26 dead-end recognition are the planned closers; no new mechanism needed.
-  - **Maren place/view mismatch.** Twice she reasoned "the system marks me at my truck post but
-    the view shows the mobile home community". She stands at (-8950, 160), cell (6,5); the kept
-    truck row is at (5,5) — the boundary-straddling truck from #75. Her place label and her camera
-    disagree; worth one look at whether her spawn/anchor should move with the kept row.
+  - **Maren place/view mismatch — PARKED (user, 2026-08-19: "Forget about Maren for next few
+    sessions").** Twice she reasoned "the system marks me at my truck post but the view shows the
+    mobile home community". She stands at (-8950, 160), cell (6,5); the kept truck row is at
+    (5,5) — the boundary-straddling truck from #75. When picked back up: check whether her
+    spawn/anchor should move with the kept row. Do not spend session time on her until then.
 
 - **#55 SR33 (2026-08-02) — the survey was photographing cells it was not standing in. FIXED, needs
   live verification.** SR33 ran 2 walks and 8 survey headings and never moved from
