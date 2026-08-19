@@ -104,7 +104,9 @@ not re-entered.**
   "louder facts" watch item, now a fact.
 
 **#79 — perception dataset recorder (spec'd 2026-08-19, Fable; source: user — "I am thinking
-ahead for a VLM and want to build a training dataset").** Dufus's captures are the VLM training
+ahead for a VLM and want to build a training dataset"). BUILT same day, offline 60/60
+(`test_perception_dataset.py`, 18 checks). Live check (SR43): `perception_log.jsonl` grows in
+dufus's observations folder, one line per capture, tick + wake + survey contexts all present.** Dufus's captures are the VLM training
 corpus ([[project_dufus_vlm_training_corpus]]), but only the survey pipeline keeps its text: 21
 `place_images` rows carry descriptions, while the per-tick stream — 348 PNGs in dufus's
 observations folder alone — computes a full VLM label every tick (caption, landmarks, footing,
