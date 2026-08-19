@@ -121,6 +121,17 @@ _OPPOSITE_COMPASS = {
     "S": "N", "SW": "NE", "W": "E", "NW": "SE",
 }
 
+# Compass letter (yaw_to_compass, crumbs, survey headings) → the direction word
+# the prompt and _direction_places speak in (#77).
+_COMPASS_LETTER_WORD = {
+    "N": "north", "NE": "northeast", "E": "east", "SE": "southeast",
+    "S": "south", "SW": "southwest", "W": "west", "NW": "northwest",
+}
+
+# A cached "what my eyes saw down that heading" is a fact about one spot, not
+# about the world — it goes stale the moment the body leaves the spot (#77).
+_EYES_VALID_CM = 300.0
+
 # One movement "step" for direction-relative walks (cm).
 _STEP_DISTANCE = 1500.0
 
@@ -290,6 +301,8 @@ class AgentManager:
         self._heard_seq: dict[str, int] = {}        # agent_id -> last utterance id consumed (#45)
         self._utterance_seq = 0                     # monotonic id so nobody hears a line twice
         self._movement_timing: dict[str, dict] = {} # agent_id -> wake/first-walk/displacement clocks (#20)
+        self._eyes: dict[str, dict] = {}            # agent_id -> {at, views: {compass_word: seen-ahead}} at the current spot (#77)
+        self._bounces: dict[str, dict] = {}         # agent_id -> {cell: times walked in and straight back out} this run (#26)
 
         # Fixed per-level grid; reloaded with the level in _load_agents.
         self.world_grid = WorldGrid()
@@ -362,6 +375,8 @@ class AgentManager:
         self._no_progress.clear()
         self._routes.clear()
         self._live_pos.clear()
+        self._eyes.clear()
+        self._bounces.clear()
 
         self._load_agents(active_agents)
         if active_agents:
@@ -1054,6 +1069,7 @@ class AgentManager:
             seen = self.perceiver.perceive(image_path, known_characters)
             if seen.get("error"):
                 logger.warning(f"[{agent.agent_id}] sweep perception '{direction}' failed: {seen['error']}")
+            self._note_eyes(agent.agent_id, loc, yaw, seen)
             sightings.extend(seen.get("landmarks") or [])
             tx, ty, _ = _offset_location(*xyz, yaw, _STEP_DISTANCE)
             views.append({
@@ -1400,6 +1416,13 @@ class AgentManager:
             agent_id, observation.get("last_move"), observation.get("directions"))
         observation["frontier"] = self._frontier_fact(grid)
         observation["travel"] = self._travel_fact(agent_id, observation.get("location"), grid)
+        # Cells walked into and straight back out of, twice or more (#26).
+        bounced = [{"cell": cell, "count": count}
+                   for cell, count in (self._bounces.get(agent_id) or {}).items()
+                   if count >= 2]
+        if bounced:
+            observation["bounce"] = sorted(
+                bounced, key=lambda b: (-b["count"], b["cell"]))
 
         # Structured place context from SQLite (None if not yet named).
         if self.place_db and grid:
@@ -1669,6 +1692,8 @@ class AgentManager:
             observation["seen"] = seen
             observation["breadcrumbs"] = self._stamp_footing(
                 agent_id, observation.get("grid"), seen)
+            self._note_eyes(agent_id, observation.get("location"),
+                            _yaw_of(observation.get("rotation")), seen)
             self._save_perception_evidence(agent_id, observation, seen)
 
             xyz = _loc_xyz(observation.get("location"))
@@ -2860,6 +2885,7 @@ class AgentManager:
             return None
         agent_id = agent.agent_id
         direction = str(action.get("direction") or "").strip()
+        target = None
         if direction:
             target = self._direction_target(observation, direction)
             grid = self.world_grid.locate(target[0], target[1]) if target else None
@@ -2869,6 +2895,34 @@ class AgentManager:
                 return {"type": "idle", "_note": f"could not resolve direction {direction!r}"}
         else:
             grid = observation.get("grid")
+
+        # scope "spot": rule on the ~9 m patch one step that way, not the whole
+        # 30 m cell (#78) — a bad backyard must not un-target a surveyable cell.
+        if str(action.get("scope") or "").strip().lower() == "spot":
+            if target is None:
+                xyz = _loc_xyz(observation.get("location"))
+                target = [xyz[0], xyz[1]] if xyz else None
+            if target is None:
+                return {"type": "idle", "_note": "no position to rule on"}
+            where = f"({target[0]:.0f}, {target[1]:.0f})"
+            if kind == "refuse_cell":
+                reason = str(action.get("reason") or "").strip()
+                self.place_db.refuse_patch(agent_id, target[0], target[1], reason,
+                                           str(observation.get("world_time") or ""))
+                logger.info("[%s] refused a %s-m patch %s %s — %s", agent_id,
+                            round(PLACE_EXTENT_CM / 100), direction or "here",
+                            where, reason)
+                self._pie_activity(
+                    agent_id, f"refused ground {direction or 'here'}: {reason}")
+                return {"type": "idle",
+                        "_note": f"refused the ground {direction or 'here'} ({reason}) "
+                                 "— the rest of the cell stays surveyable"}
+            cleared = self.place_db.clear_patches_at(agent_id, target[0], target[1])
+            logger.info("[%s] %s no-go patch at %s", agent_id,
+                        "withdrew" if cleared else "had no", where)
+            return {"type": "idle",
+                    "_note": f"ground {direction or 'here'} is ordinary again"}
+
         col, row = self._cell_col_row(grid)
         if col is None:
             return {"type": "idle", "_note": "no grid cell to rule on"}
@@ -3334,6 +3388,37 @@ class AgentManager:
         place = self._spatial_map(agent_id).place_labels(grid["key"])
         return grid, place
 
+    def _note_eyes(self, agent_id: str, location, yaw, seen: dict | None) -> None:
+        """File what this APC's own eyes reported down one heading (#77).
+
+        Every perceived view with a known facing — the tick view, a wake sweep
+        heading, a survey sweep heading — carries ``ground_ahead``/``path_ahead``:
+        what the walkable path in the frame is made of, and whether it stays
+        open. Cached per compass word for the spot the APC stands on, and
+        dropped the moment it moves (same one-spot scope as `_record_attempt`):
+        look-before-step means the looks taken *here* inform the step taken
+        *from here*.
+        """
+        if not isinstance(seen, dict) or seen.get("error"):
+            return
+        ahead = str(seen.get("ground_ahead") or "").strip()
+        path = str(seen.get("path_ahead") or "").strip()
+        if not ahead and not path:
+            return
+        xyz = _loc_xyz(location)
+        if xyz is None or yaw is None:
+            return
+        word = _COMPASS_LETTER_WORD.get(yaw_to_compass(float(yaw)))
+        if not word:
+            return
+        record = self._eyes.get(agent_id)
+        if (record is None
+                or math.hypot(xyz[0] - record["at"][0],
+                              xyz[1] - record["at"][1]) > _EYES_VALID_CM):
+            record = {"at": (xyz[0], xyz[1]), "views": {}}
+            self._eyes[agent_id] = record
+        record["views"][word] = {"ground_ahead": ahead, "path_ahead": path}
+
     def _direction_places(self, agent_id: str, location, rotation=None) -> dict[str, dict]:
         """Lizard-brain navigation sense: the grid cell one step (~15m) ahead in
         each walkable direction, plus what the SHARED world map knows about it.
@@ -3360,6 +3445,10 @@ class AgentManager:
         xyz = _loc_xyz(location)
         if xyz is None:
             return {}
+        eyes = self._eyes.get(agent_id)
+        if eyes is not None and math.hypot(xyz[0] - eyes["at"][0],
+                                           xyz[1] - eyes["at"][1]) > _EYES_VALID_CM:
+            eyes = None  # looks taken somewhere else say nothing about here (#77)
         out: dict[str, dict] = {}
         for direction, yaw in _ABSOLUTE_DIRECTION_YAW.items():
             tx, ty, _ = _offset_location(*xyz, yaw, _STEP_DISTANCE)
@@ -3368,13 +3457,21 @@ class AgentManager:
             name = None
             ground: list[dict] = []
             refusals: list[dict] = []
+            no_go: list[dict] = []
             if self.place_db and col is not None:
                 known = self.place_db.get_place(col, row)
                 name = known.get("name") if known else None
                 ground = self.place_db.get_ground(col, row)
                 refusals = self.place_db.get_refusals(col, row)
+            if self.place_db:
+                # Patches are points, not cells — the step target decides (#78).
+                no_go = self.place_db.patches_at(tx, ty)
             out[direction] = {"cell": _cell_label(grid), "place": name,
-                              "ground": ground, "refusals": refusals}
+                              "ground": ground, "refusals": refusals,
+                              "no_go": no_go}
+            seen_ahead = (eyes or {}).get("views", {}).get(direction)
+            if seen_ahead:
+                out[direction]["seen_ahead"] = seen_ahead
         return out
 
     def _owned_place_here(self, agent_id: str, name: str, xyz) -> dict | None:
@@ -3736,6 +3833,7 @@ class AgentManager:
         exactly the blindness this fact exists to remove.
         """
         trail = self._breadcrumbs.setdefault(agent_id, [])
+        previous = trail[-1] if trail else None
         trail.append({
             "cell": _cell_label(grid),
             "heading": heading,
@@ -3743,6 +3841,14 @@ class AgentManager:
             "footing": None,
         })
         del trail[:-_BREADCRUMB_LEN]
+        # Two consecutive legs in opposite headings = walked in and straight
+        # back out. The pocket entered (the previous leg's end) is the trap;
+        # counting it per run is the #26 "louder fact", not a blocker.
+        if (isinstance(previous, dict) and heading and previous.get("heading")
+                and _OPPOSITE_COMPASS.get(heading) == previous["heading"]):
+            counts = self._bounces.setdefault(agent_id, {})
+            trap = previous.get("cell") or "?"
+            counts[trap] = counts.get(trap, 0) + 1
 
     def _direction_target(self, observation: dict, direction: str) -> list[float] | None:
         """Resolve a direction word to a world location one step away.
@@ -3942,6 +4048,7 @@ class AgentManager:
         if seen.get("error"):
             return {"status": "error", "action": "observe_heading", "direction": direction,
                     "error": f"perception failed: {seen['error']}"}
+        self._note_eyes(agent_id, observation.get("location"), yaw, seen)
         landmarks = seen.get("landmarks") or []
         col, row = self._cell_col_row(observation.get("grid"))
         if self.place_db and col is not None and landmarks:

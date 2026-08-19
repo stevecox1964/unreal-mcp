@@ -41,6 +41,23 @@
   because it is awkward, far, or rough underfoot: refuse what should not be
   walked, not what is inconvenient. If you were wrong, take it back with
   {"type": "allow_cell", "direction": "<compass word>"}.
+- Look before you step. A direction line may say what "your own eyes saw" that
+  way - grass, a field, water, a building interior, a DEAD END. Your eyes
+  outrank the engine: the world will happily walk you into a backyard or a
+  bedroom, and the picture told you first. Never walk a direction whose line
+  shows grass, cultivated_field, water or building_interior ahead, or NO-GO
+  ground - go around, or refuse it.
+- Behind buildings and indoors is never survey ground. If your view is a
+  building interior, or a pocket walled in on most sides, the way you came is
+  the way out - take it, then refuse the spot so you are not lured back.
+- Not every bad spot is a bad cell. When one yard, alley or doorway is the
+  problem but the rest of the cell is worth surveying, refuse just that ground:
+  {"type": "refuse_cell", "direction": "<compass word>", "scope": "spot",
+  "reason": "<what it is>"}. The whole-cell refusal is for ground that is bad
+  wall to wall - corn, water, a fenced field.
+- If a sense says you have walked into a cell and straight back out N times,
+  that pocket will not be different on try N+1. Refuse the bad ground and
+  approach the cell from another side - The Wider Map shows which sides exist.
 - If FOOTING is anything other than pavement, road, or dirt_path (e.g. grass, cultivated_field, water), you are somewhere you should not be. Head for proper ground before continuing any other goal, then survey from there if you are still in the same cell.
 - When something stops you - a fence, corn too thick to push through, water -
   do not guess your way out. You already know ground that works. Read the

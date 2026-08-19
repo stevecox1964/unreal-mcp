@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import sqlite3
 import shutil
 import threading
@@ -139,6 +140,24 @@ CREATE TABLE IF NOT EXISTS cell_refusals (
     refused_at TEXT    NOT NULL,   -- world time, as the APC stated it
     updated_at TEXT    NOT NULL,   -- real UTC
     PRIMARY KEY (col, row, refused_by)
+);
+
+-- Sub-cell no-go ground (#78). A cell refusal paints a whole 30 m district —
+-- right for a cornfield, wrong for one bad backyard in an otherwise surveyable
+-- cell: SR42's cell (6,4) had to stay a survey target while its south approach
+-- (a pergola yard and a mobile-home interior) kept trapping Dufus. A patch is a
+-- point plus a radius (default one place-cell extent, 9 m), refused by an APC
+-- with a stated reason. Same contract as cell_refusals: a fact shown back to
+-- every APC, never an enforcement — nothing stops a step onto a patch.
+CREATE TABLE IF NOT EXISTS no_go_patches (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    x          REAL NOT NULL,
+    y          REAL NOT NULL,
+    radius_cm  REAL NOT NULL,
+    refused_by TEXT NOT NULL,
+    reason     TEXT NOT NULL,
+    refused_at TEXT NOT NULL,   -- world time, as the APC stated it
+    updated_at TEXT NOT NULL    -- real UTC
 );
 
 -- Per-APC living visual history linked to exact shared image revisions.
@@ -283,7 +302,7 @@ class PlaceDB:
             image_paths = [r[0] for r in conn.execute("SELECT image_path FROM place_images")]
             tables = ("agent_visual_history", "place_images", "place_cells",
                       "place_observations", "agent_visits", "owned_place_cells",
-                      "cell_ground", "cell_refusals")
+                      "cell_ground", "cell_refusals", "no_go_patches")
             counts = {
                 table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
                 for table in tables
@@ -671,6 +690,72 @@ class PlaceDB:
                 "SELECT refused_by, reason, refused_at FROM cell_refusals "
                 "WHERE col=? AND row=? ORDER BY updated_at DESC",
                 (col, row),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def refuse_patch(self, agent_id: str, x: float, y: float, reason: str,
+                     world_time: str,
+                     radius_cm: float = PLACE_EXTENT_CM / 2) -> bool:
+        """Record a sub-cell no-go patch: this ground, not this whole cell (#78).
+
+        Re-refusing a spot already inside one of this APC's patches updates
+        that patch's reason instead of stacking overlapping circles — a later
+        look is the better one, same rule as ``refuse_cell``. Returns False for
+        an empty reason.
+        """
+        why = str(reason or "").strip()
+        if not why:
+            return False
+        with self._lock, self._connect() as conn:
+            own = conn.execute(
+                "SELECT id, x, y, radius_cm FROM no_go_patches WHERE refused_by=?",
+                (agent_id,),
+            ).fetchall()
+            for row in own:
+                if math.hypot(x - row["x"], y - row["y"]) <= row["radius_cm"]:
+                    conn.execute(
+                        "UPDATE no_go_patches SET reason=?, refused_at=?, updated_at=? "
+                        "WHERE id=?",
+                        (why, str(world_time or ""), _iso_now(), row["id"]),
+                    )
+                    return True
+            conn.execute(
+                "INSERT INTO no_go_patches (x, y, radius_cm, refused_by, reason, "
+                "refused_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (float(x), float(y), float(radius_cm), agent_id, why,
+                 str(world_time or ""), _iso_now()),
+            )
+        return True
+
+    def patches_at(self, x: float, y: float) -> list[dict]:
+        """Every no-go patch containing this point, newest first. Empty = clear."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, x, y, radius_cm, refused_by, reason, refused_at "
+                "FROM no_go_patches ORDER BY updated_at DESC"
+            ).fetchall()
+        return [dict(r) for r in rows
+                if math.hypot(x - r["x"], y - r["y"]) <= r["radius_cm"]]
+
+    def clear_patches_at(self, agent_id: str, x: float, y: float) -> int:
+        """Withdraw this APC's patches containing a point. Returns how many."""
+        with self._lock, self._connect() as conn:
+            own = conn.execute(
+                "SELECT id, x, y, radius_cm FROM no_go_patches WHERE refused_by=?",
+                (agent_id,),
+            ).fetchall()
+            hits = [row["id"] for row in own
+                    if math.hypot(x - row["x"], y - row["y"]) <= row["radius_cm"]]
+            for patch_id in hits:
+                conn.execute("DELETE FROM no_go_patches WHERE id=?", (patch_id,))
+        return len(hits)
+
+    def all_patches(self) -> list[dict]:
+        """Every no-go patch in the world — the reviewable record, like refusals."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, x, y, radius_cm, refused_by, reason, refused_at, "
+                "updated_at FROM no_go_patches ORDER BY updated_at DESC"
             ).fetchall()
         return [dict(r) for r in rows]
 

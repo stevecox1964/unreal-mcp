@@ -29,8 +29,8 @@ _ACTION_SCHEMAS: dict[str, str] = {
     "wander":           '{"type": "wander"}  -- keep moving: take one step (~15m) in the direction you are facing',
     "walk_to":          '{"type": "walk_to", "target_location": "<place name>"} to travel to a named place you know (e.g. "village square", "home"), OR {"type": "walk_to", "target_actor": "<actor_label>"} to walk to a known character, OR {"type": "walk_to", "direction": "north|south|east|west|northeast|northwest|southeast|southwest"} to walk ~15m along that compass heading, OR {"type": "walk_to", "direction": "forward|forward-left|forward-right|left|right|back"} to walk ~15m relative to the way your body is currently facing',
     "survey_here":      '{"type": "survey_here"} to survey the cell you are standing in — captures all four compass headings over the next few ticks and adds the cell to the shared map. Only works on a cell that has no current survey, and only for the cell underfoot',
-    "refuse_cell":      '{"type": "refuse_cell", "direction": "north|south|east|west|northeast|northwest|southeast|southwest", "reason": "<what you can see that makes it not worth walking into>"} to record that the cell one step that way is not ground you will walk into. It stops being offered as somewhere to survey, for you and for every other APC, until someone withdraws it. Use it when you can SEE the reason — standing crops, water, a fence, someone\'s private yard. Omit "direction" to refuse the cell you are standing in',
-    "allow_cell":       '{"type": "allow_cell", "direction": "<compass word, or omit for here>"} to withdraw a refusal you made earlier — the cell goes back to being ordinary ground',
+    "refuse_cell":      '{"type": "refuse_cell", "direction": "north|south|east|west|northeast|northwest|southeast|southwest", "reason": "<what you can see that makes it not worth walking into>"} to record that the cell one step that way is not ground you will walk into. It stops being offered as somewhere to survey, for you and for every other APC, until someone withdraws it. Use it when you can SEE the reason — standing crops, water, a fence, someone\'s private yard. Omit "direction" to refuse the cell you are standing in. Add "scope": "spot" to refuse only the ~9m patch of ground one step that way instead of the whole 30m cell — use the patch for one bad yard, alley or doorway inside a cell that is otherwise worth surveying; use the whole cell for corn fields, water, and ground that is bad wall to wall',
+    "allow_cell":       '{"type": "allow_cell", "direction": "<compass word, or omit for here>"} to withdraw a refusal you made earlier — the cell goes back to being ordinary ground. Add "scope": "spot" to withdraw a patch refusal instead',
     "speak_to":         '{"type": "speak_to", "target": "<actor_label>", "message": "<text>"} -- say something out loud to someone. This is the ONLY action that produces speech: greeting, answering, asking, thanking, saying goodbye. If you intend to say anything at all this tick, the action is speak_to. "idle" and "observe" are silent',
     "inspect_object":   '{"type": "inspect_object", "target": "<actor_name>"}',
     "follow_character": '{"type": "follow_character", "target": "<actor_name>"}',
@@ -846,6 +846,15 @@ def _sense_note(observation: dict) -> str:
     wedge = _wedge_text(observation.get("wedge"))
     if wedge:
         lines.append(wedge)
+    for bounce in observation.get("bounce") or []:
+        # Walked in and straight back out, repeatedly — the pocket will not
+        # change on the next try (#26). Stated with the way out of the loop.
+        lines.append(
+            f"Sense: you have walked into cell {bounce.get('cell')} and straight "
+            f"back out {bounce.get('count')} times this run. That ground is a "
+            f"pocket that leads nowhere. Do not try it head-on again — refuse "
+            f"the bad ground (refuse_cell with \"scope\": \"spot\") or approach "
+            f"that cell from a different side.")
     if observation.get("stuck"):
         lines.append("Sense: you have not advanced for several ticks while moving.")
     blocker = observation.get("blocker")
@@ -1154,6 +1163,11 @@ def _seen_text(seen: dict | None, breadcrumbs: list | None = None) -> str:
         lines.append(seen["caption"])
     if seen.get("footing"):
         lines.append(f"FOOTING: {seen['footing']}")
+    if seen.get("ground_ahead"):
+        lines.append(f"GROUND AHEAD (where a step this way lands): {seen['ground_ahead']}")
+    path_ahead = str(seen.get("path_ahead") or "").strip()
+    if path_ahead and path_ahead != "open":
+        lines.append(f"PATH AHEAD: {path_ahead.replace('_', ' ')}")
     trail = _breadcrumb_text(breadcrumbs)
     if trail:
         lines.append(trail)
@@ -1266,6 +1280,12 @@ def _direction_lines(directions: dict | None, landmarks: list | None = None,
             status = refusal or (f'"{place}"' if place else "unexplored")
             lines.append(f"- {d}: cell {info.get('cell', '?')} — {status}"
                          f", {_ground_text(info.get('ground'))}")
+            no_go = _no_go_text(info.get("no_go"))
+            if no_go:
+                lines[-1] += f"; {no_go}"
+            eyes = _eyes_text(info.get("seen_ahead"))
+            if eyes:
+                lines[-1] += f"; {eyes}"
             seen_that_way = _visible_that_way(d, landmarks, facing_yaw)
             if seen_that_way:
                 lines[-1] += f"; you can see {seen_that_way}"
@@ -1317,6 +1337,43 @@ def _frontier_note(frontier: dict | None) -> str:
         lines.append("No unmapped cell touches the mapped block — every edge of it "
                      "is either mapped or refused.")
     return "\n".join(lines)
+
+
+def _no_go_text(patches: list | None) -> str:
+    """State that the ground one step that way was refused as a patch (#78).
+
+    A patch is smaller than a cell on purpose: the cell may still be worth
+    surveying while this particular approach — a yard, an alley mouth, a
+    doorway — is not ground to step onto. Like a cell refusal it is a stated
+    fact, not a wall.
+    """
+    stated = [p for p in (patches or []) if isinstance(p, dict) and p.get("reason")]
+    if not stated:
+        return ""
+    first = stated[0]
+    return (f"NO-GO ground one step that way (refused by "
+            f"{first.get('refused_by', 'someone')}: {first['reason']})")
+
+
+def _eyes_text(seen_ahead: dict | None) -> str:
+    """What the APC's own eyes saw down this heading, from this spot (#77).
+
+    The engine will happily walk a body into a backyard or a bedroom; the
+    pixels that said not to were on screen one look earlier. This is that look,
+    carried to the step decision. Facts only — the rules say what outranks what.
+    """
+    if not isinstance(seen_ahead, dict):
+        return ""
+    bits = []
+    ground = str(seen_ahead.get("ground_ahead") or "").strip()
+    if ground:
+        bits.append(f"{ground} ahead")
+    path = str(seen_ahead.get("path_ahead") or "").strip()
+    if path == "dead_end":
+        bits.append("the way ahead DEAD-ENDS")
+    elif path == "blocked":
+        bits.append("something solid immediately ahead")
+    return f"your own eyes saw: {', '.join(bits)}" if bits else ""
 
 
 def _refusal_text(refusals: list | None) -> str:

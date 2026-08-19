@@ -32,11 +32,20 @@ Also report what you are standing on: one of "pavement", "road", "dirt_path",
 "grass", "cultivated_field", "water", or "other" (use "other" and describe it
 in the caption if none fit).
 
+Also report the ground AHEAD — what the walkable path in the middle of the
+frame is made of, where the NPC would stand after a few steps forward. Same
+words as footing, plus "building_interior" when the view is inside a building.
+And report the path ahead: "open" if walking on is possible, "dead_end" if
+walls, fences, hedges or buildings close it off, "blocked" if something solid
+stands immediately in front.
+
 Schema:
 {{
   "landmarks":  [{{"label": "<place>", "bearing": "left|center|right", "distance": "near|mid|far", "confidence": 0.0}}],
   "characters": [{{"label": "<who, or 'unknown person'>", "bearing": "left|center|right", "distance": "near|mid|far", "confidence": 0.0}}],
   "footing": "pavement|road|dirt_path|grass|cultivated_field|water|other",
+  "ground_ahead": "pavement|road|dirt_path|grass|cultivated_field|water|building_interior|other",
+  "path_ahead": "open|dead_end|blocked",
   "caption": "one sentence describing the scene"
 }}
 
@@ -45,7 +54,8 @@ Use [] for an array with nothing to report. Confidence is 0.0-1.0."""
 
 def _empty(reason: str) -> dict:
     logger.debug("perceive: %s", reason)
-    return {"landmarks": [], "characters": [], "footing": "", "caption": "", "error": reason}
+    return {"landmarks": [], "characters": [], "footing": "", "ground_ahead": "",
+            "path_ahead": "", "caption": "", "error": reason}
 
 
 def _strip_fences(raw: str) -> str:
@@ -163,6 +173,8 @@ class VisionPerceiver:
             "landmarks": _clean(data.get("landmarks")),
             "characters": _clean(data.get("characters")),
             "footing": str(data.get("footing", "")),
+            "ground_ahead": str(data.get("ground_ahead", "")),
+            "path_ahead": str(data.get("path_ahead", "")),
             "caption": str(data.get("caption", "")),
             "model": model,
         }
