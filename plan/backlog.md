@@ -3,11 +3,11 @@
 Rolling list of outstanding work — add items as they come up, check off or
 delete them as they land. Not session-scoped; this is the durable home for
 approved scope and priority. Handoffs are chronological session state.
-Newest grooming: **2026-08-12**.
+Newest grooming: **2026-08-19**.
 
-## Active view — groomed 2026-08-12
+## Active view — groomed 2026-08-19
 
-### Now — direction reset (#62–#72): get the town out of the corn field
+### Direction reset (#62–#72): get the town out of the corn field — see "Now" below for 2026-08-19 priority
 
 **This supersedes the survey-navigation queue as the active priority.** Full analysis and all eleven
 item write-ups are under *"Direction reset 2026-08-12"* below; the short version:
@@ -48,6 +48,36 @@ truck sits astride a cell boundary and was recorded as two owned rows 134 cm apa
 listed it twice and the resolver named a cell she was not standing in. Maren's day is still untested
 past 09:17 sim time.
 
+### Now (groomed 2026-08-19) — perception-guided exploration, bounded, then Phase B
+
+**Source:** user, 2026-08-19: *"concentrate on perception and how Dufus can explore/survey the world
+from center of world out... not go into areas that can get him stuck regardless of navmesh saying he
+can. Like, I see corn field, I can't go there... vehicles are obstructions and the system needs to keep
+Dufus from running into them even though navmesh says area clear. I need the LLM to guide the
+navigation more... get beyond back-and-forth surveying and get back to people talking and doing
+things."*
+
+That decomposes into exactly three items, two of them new:
+
+- **#76 — center-out exploration.** The survey grows rings outward from the town center, stated as
+  facts on top of #73's frontier machinery. New item below.
+- **#77 — look before you step.** Terrain the APC can *see* (corn field, water, ploughed ground) vetoes
+  a move **before** the step is taken, navmesh notwithstanding — per-direction footing probes as facts
+  plus a rules.md clause that the model's own eyes outrank the navmesh. Promotes the #55 follow-on to a
+  numbered item. New item below.
+- **#61 (existing) — the reflex half covers vehicles.** Props and vehicles occupy space the navmesh
+  calls clear; that is the lizard-brain probe's job ("vehicle 183 cm ahead" as a fact, reflex standoff
+  at engine cadence), not the VLM's. #61's gate is unchanged: first prove the forward trace hits
+  anything at all (`blocker` line has still never been seen live).
+
+**This lane is capped on purpose.** #76 and #77 are prompt-and-facts work on machinery that already
+exists (#73 frontier, footing probes, `mark_blocked`) — no new navigation subsystem. Once one live run
+shows (a) rings instead of a ribbon and (b) at least one *pre-emptive* refusal ("I see corn, going
+around") with zero bad-footing entries, exploration goes back to being a background service and **the
+headline moves to Phase B — #66 reaction gate, #67 APC↔APC conversation, #68 work that leaves a
+mark.** People talking and doing things is the destination; this lane exists so survey defects stop
+eating the sessions that should be spent there.
+
 ### Also open (survey/navigation line — no longer the headline)
 
 - **#55 SR33 (2026-08-02) — the survey was photographing cells it was not standing in. FIXED, needs
@@ -74,7 +104,8 @@ past 09:17 sim time.
   apart. Rows now carry `at`, `cell`, `footing`, `facing_yaw`, `moved_cm` (real displacement since
   the previous decision) and `move: {intent, target, heading, distance_cm}`, where `intent`
   distinguishes a facing-relative `direction:back` from an absolute place/actor/cell/location.
-- **Next (#55 follow-on, not started): the LLM's "don't go there" has no way to reach the engine.**
+- **Promoted to #77 (2026-08-19) — kept here for history. (#55 follow-on, was: not started): the
+  LLM's "don't go there" has no way to reach the engine.**
   `walk_to direction` is a yaw offset from *current facing*, and after a survey the facing is the
   last cardinal sweep yaw — so "turn back the way I came" is unrepresentable and in SR33 executed as
   a step **deeper into** the field. Nothing records the inbound heading, and footing is only sampled
@@ -2852,6 +2883,15 @@ model's. The machinery already exists and is nearly free — `line_trace_forward
 `_STANDOFF_CM` reflex stop. What it lacks is **rate and coverage**: it fires once per tick, forward only.
 The fix is a faster probe at engine cadence with side rays, not a VLM.
 
+**Augmented 2026-08-19 (user):** *"vehicles are obstructions and the system needs to keep Dufus from
+running into them even though navmesh says area clear."* Vehicles and props are the canonical case for
+this reflex half: the navmesh is generated once and knows nothing about a truck parked on it, so
+"navmesh clear" and "path physically blocked" disagree exactly there. The probe reports it as a fact in
+the lizard-brain contract's shape — *"vehicle 183 cm ahead"*, never "go around" — and the standoff stop
+is the only code-side reflex; steering around it stays with the LLM
+([[feedback_lizard_brain_contract]], [[architecture_engine_agnostic_navigation]]). #77 handles the
+terrain-you-can-see half; this item owns the things-that-occupy-space half.
+
 **(b) Finer-grained visual coverage is the valuable half — and it serves the actual purpose.** Per
 [[project_dufus_vlm_training_corpus]], Dufus exists to produce a VLM training corpus. Four static
 headings per 30 m cell is a **sparse and repetitive** dataset: no motion parallax, no approach sequences,
@@ -3301,6 +3341,92 @@ Two halves:
 
 Rows that merely share a name across a real distance are two different places and are left alone —
 `maren/'home'` and `maren/'Marens Home Place'` both survive, which is #71's problem, not this one.
+
+---
+
+## 76. Center-out exploration — the survey grows rings from the town center
+
+**Status:** **OPEN 2026-08-19, design small** · **Source:** user, 2026-08-19: *"how Dufus can
+explore/survey the world from center of world out"* · Builds directly on #73
+
+#73 gave the APC a wider map — grid size, mapped-block shape, nearest frontier cell per bearing — but
+every frontier candidate is presented as equally good. The tiebreak is still the model's whim, and
+SR41's whim was "keep pushing east". The user's ask names the missing ordering principle: **grow
+outward from the center**, ring by ring, so coverage stays contiguous, stays near the town where the
+other APCs live and work, and never sprints down a map edge.
+
+**Built as facts on #73's machinery, per [[feedback_facts_not_blocking]]** — no route planner, no
+override:
+
+- The *"Wider Map"* prompt section states the **world center** (the town origin — decide whether that
+  is the grid's geometric center or an authored landmark; probably the authored town square, since
+  "center of the world" should mean the town, not the coordinate system) and the APC's distance from
+  it in cells.
+- Each frontier candidate carries its **distance from center**, alongside the existing bearing and
+  distance-from-here.
+- `dufus/rules.md` gains one clause: *prefer the frontier cell closest to the center; the survey grows
+  in rings — far ground is not lost, it becomes the next ring.*
+
+The model still picks. If it reads "north frontier is 2 cells from center, east frontier is 6" and
+still walks east, that is data, and the run will have measured it.
+
+**Why this also serves the real goal:** a center-out survey saturates the cells Maren's day actually
+uses (truck, Don's, sheriff station are all within ~3 cells of the square) before it spends a session
+photographing the map's rim. Coverage where the people are is what makes #72 (survey gets a customer)
+cheap.
+
+**Done when:** a live run shows frontier candidates carrying distance-from-center, and the mapped
+block grows around the center rather than extending its longest axis. Ring-shaped-ness is the
+measurement; SR42+ grades it next to #73's height check.
+
+---
+
+## 77. Look before you step — what the APC sees vetoes the move, navmesh notwithstanding
+
+**Status:** **OPEN 2026-08-19** — promotes the #55 follow-on to a numbered item · **Source:** user,
+2026-08-19: *"I want Dufus to not go into areas that can get him stuck regardless of navmesh saying he
+can. Like, I see corn field, I can't go there... I need the LLM to guide the navigation more."*
+
+Today bad ground is discovered **by standing on it**. Footing is sampled where the APC already is;
+SR32's celebrated "FOOTING works" moments were all *retreats* — the corn was entered, then left. The
+navmesh happily paths through cultivated fields, so nothing code-side ever says no, and nothing
+prompt-side asks the model to check its own eyes before ordering the step. The forward frame **shows
+the corn**; the VLM describes it; and then `walk_to` walks into it anyway, because seeing and stepping
+are not connected anywhere.
+
+Per [[architecture_engine_agnostic_navigation]] this is solved in the cognitive loop, not with engine
+patches — and per [[feedback_facts_not_blocking]], with facts and rules, not a code blocker. Three
+pieces, all on existing machinery:
+
+- **Per-direction ground probes as facts.** Before the move is chosen, the lizard brain samples the
+  footing of each candidate neighbour cell (nav probe / raycast at the cell center — any engine
+  primitive, output is the generic label per [[architecture_lizard_brain_sensing]]): *"north:
+  cultivated_field · east: cell_ground · south: grass"*. The #65 wedge fact already computes
+  known-good neighbours from walked history; this extends it to *probed* ground for cells nobody has
+  walked. The APC learns the corn is there **without paying a tick to stand in it**.
+- **The prompt connects eyes to feet.** One template line in the decision section: *what you can see
+  ahead of you outranks the pathfinder — if the ground you are about to walk looks like field, crop,
+  water, or a place you have refused before, do not order the step.* Plus a `rules.md` clause in the
+  same voice. This is the "LLM guides the navigation more" ask, stated as the standing instruction it
+  actually is.
+- **The refusal must land somewhere durable.** The model can already name a cell as off-limits →
+  `SpatialMap.mark_blocked`, and #73's frontier fact already excludes refused cells, so a cell refused
+  once stops being re-offered. Verify that path fires when the model refuses on sight; if the action
+  surface makes it awkward (refusal today is only implicit in choosing another direction), give it a
+  name the way #74 gave answering a name — an explicit `avoid_cell`-shaped action or argument, so *"I
+  see corn, I am not going there"* is one decision, recorded once, instead of a mood re-derived every
+  tick.
+
+**Explicitly out of scope:** moving obstructions. Vehicles and props are #61's reflex probe (navmesh
+says clear, world says truck — a lizard-brain fact at engine cadence, see #61's 2026-08-19
+augmentation). This item is *static terrain you can see and reason about at decision speed*; #61 is
+*things that occupy space at reflex speed*. Same contract — facts in, model decides, one reflex stop —
+different clock rates, kept apart on purpose.
+
+**Done when:** a live run shows at least one **pre-emptive** refusal — a decision row that names bad
+ground ahead as the reason for turning, with the APC never entering it — and zero
+`cultivated_field`-class footings for the run. The retreat count going to zero *because entries went to
+zero* is the whole point.
 
 ---
 
