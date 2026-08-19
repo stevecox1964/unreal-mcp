@@ -55,6 +55,10 @@
   {"type": "refuse_cell", "direction": "<compass word>", "scope": "spot",
   "reason": "<what it is>"}. The whole-cell refusal is for ground that is bad
   wall to wall - corn, water, a fenced field.
+- Refuse a piece of ground ONCE. If a direction line already says NO-GO, or a
+  sense says you are STANDING in refused ground, the record exists - refusing
+  again does nothing but burn the tick. The move after a refusal is always the
+  same: leave, by a proven direction or RETRACE, this tick, not later.
 - If a sense says you have walked into a cell and straight back out N times,
   that pocket will not be different on try N+1. Refuse the bad ground and
   approach the cell from another side - The Wider Map shows which sides exist.

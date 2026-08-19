@@ -291,6 +291,25 @@ A cognitive layer the agents build and share as they run (verified live in PIE, 
 - **Authored agendas + daily ledger (#36)** â€” `agenda.json` per agent is stable, user-authored schedule input (tasks, places, completion policy); `agent_runtime/agenda.py` derives runtime task state and a chronological ledger from it deterministically each tick, separate from the authored file.
 - **Behavioral guardrail facts, not code-side blocking** â€” when an agent does something a simple rule should have prevented (wandering off-path, drifting farther from a destination), the fix is a louder deterministic fact in the decision prompt (`FOOTING: <surface>`, `PROGRESS WARNING`) plus an explicit line in `rules.md`, not a validator that blocks the action. Judgment stays with the LLM; code's job is making the relevant fact impossible to miss.
 - **Maintenance/monitor APC** â€” an optional system-worker role (`"role": "maintenance"` in `state.json`) with **no personality or LLM** that sweeps unexplored grid cells (walk to cell center â†’ 360 observe â†’ drop a *community breadcrumb*) so the personality NPCs skip the costly re-sweep. *Decision + navigation logic is complete and tested; the live 360 rotation+capture in Unreal is pending.*
+- **Perception-guided exploration (#77/#78/#26, verified live SR43-SR45 2026-08-19)** — the APC's own eyes
+  outrank the navmesh. Perception reports `ground_ahead` (footing the APC would stand on a few steps out)
+  and `path_ahead` (`open|dead_end|blocked`); an eyes cache files those per compass word while the APC
+  stays on the spot, so a direction line reads "your own eyes saw: grass ahead, the way ahead DEAD-ENDS".
+  Refusal is two-scale: `refuse_cell` blocks a whole 30 m cell (corn field, water), `scope: "spot"` writes a
+  9 m **no-go patch** (`no_go_patches`) that poisons one bad yard while the cell stays a survey target.
+  Two consecutive opposite-heading legs count a **bounce**, stated as a fact once it repeats. All facts,
+  no blockers — nothing in code stops a step onto refused ground; the prompt and the map state the record.
+  A cell, once surveyed, is never re-offered (`SURVEY_STALE_REFRESH = False`).
+- **Perception dataset recorder (#79)** — every perceived frame is written as a training pair the moment it
+  is perceived: one JSON line per image to `agents/<id>/observations/perception_log.jsonl` (caption,
+  landmarks, footing, `ground_ahead`, `path_ahead`, heading, cell, model, `sim_run`, and `error` when
+  perception fails — recorded, not hidden). Wired into all four perceive sites (tick, wake sweep, survey
+  sweep, legacy explore). Before this only the ~21 survey composites kept their text while the per-tick
+  stream threw its labels away. Dataset packaging/dedup/splits are a build-time job over the JSONL.
+- **Refused ground on `/map` (#80)** — refused cells paint a red diagonal hatch over whatever survey state
+  they also carry, no-go patches draw as dashed red circles at their true radius, and both tooltips lead
+  with `REFUSED by <who>: <reason> (<world time>)`. Read-only: withdrawing a refusal stays the APC's own
+  `allow_cell` act, never a map click.
 - **`.env` config store** â€” `agent_runtime/config_store.py` reads/writes provider/model settings with secrets shown set/unset only (backs a future settings UI; no hand-editing `.env`).
 
 ### Standalone runner & web cockpit

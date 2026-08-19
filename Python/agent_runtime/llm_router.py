@@ -846,6 +846,16 @@ def _sense_note(observation: dict) -> str:
     wedge = _wedge_text(observation.get("wedge"))
     if wedge:
         lines.append(wedge)
+    here_no_go = observation.get("here_no_go")
+    if isinstance(here_no_go, dict):
+        # SR44: the patch only rendered on step targets, so the APC stood in
+        # the yard it had just refused and refused it again, eight ticks
+        # running. Underfoot is a fact too.
+        lines.append(
+            f"Sense: you are STANDING in ground already refused "
+            f"(by {here_no_go.get('refused_by', 'someone')}: "
+            f"{here_no_go.get('reason', '?')}). It is already recorded — do NOT "
+            f"refuse it again. Leave it: walk a proven direction or RETRACE.")
     for bounce in observation.get("bounce") or []:
         # Walked in and straight back out, repeatedly — the pocket will not
         # change on the next try (#26). Stated with the way out of the loop.

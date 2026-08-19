@@ -688,6 +688,14 @@ def test_stale_visual_is_refreshed_once():
                 "UPDATE place_cells SET updated_at='2000-01-01T00:00:00+00:00' "
                 "WHERE col=5 AND row=5"
             )
+        # Default policy (user, 2026-08-19): surveyed is surveyed — age never
+        # re-opens a cell. The refresh flow below is exercised under the
+        # explicit toggle, because #39's machinery must stay sound for the
+        # day re-surveying becomes a deliberate act again.
+        check("stale composite is NOT survey eligible with refresh off",
+              not mgr._should_sweep_here(_obs(200.0, 200.0), "dufus"))
+        from agent_runtime import agent_manager as _am
+        _am.SURVEY_STALE_REFRESH = True
         check("stale existing composite becomes survey eligible",
               mgr._should_sweep_here(_obs(200.0, 200.0), "dufus"))
 
@@ -715,6 +723,7 @@ def test_stale_visual_is_refreshed_once():
         check("refresh resolves without queueing another survey",
               agent.active_interrupt is None and agent.interrupt_queue == []
               and results[-1].get("action") == "sweep_done")
+        _am.SURVEY_STALE_REFRESH = False
 
 
 def test_observe_heading_direction_and_ingest():

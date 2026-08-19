@@ -127,7 +127,9 @@ tick. The recorder makes every perceived frame a training pair at the moment it 
   build-time job over the JSONL, not a sim-time one.
 
 **#80 — refused ground on the /map (spec'd 2026-08-19; source: user — "update the map UI to show
-cells that are off limits, refused and why").** The refusal record exists (#59 cells, #78
+cells that are off limits, refused and why"). BUILT same day, offline 61/61. Live check (SR43):
+after Dufus refuses the corn field, /map shows the red-hatched cell with his reason in the
+tooltip and the legend count at 1.** The refusal record exists (#59 cells, #78
 patches) and the APCs read it every tick, but the operator cannot see it: a refused cell renders
 as plain "unexplored", which visually re-invites exactly the ground someone ruled out.
 
@@ -150,6 +152,49 @@ mark.** People talking and doing things is the destination; this lane exists so 
 eating the sessions that should be spent there.
 
 ### Also open (survey/navigation line — no longer the headline)
+
+- **SR44 (2026-08-19, 31 ticks, 11 min) — the #77/#78 lane works. Three bugs found, all fixed
+  same session; needs SR45 to confirm.**
+  - **VERIFIED LIVE:** the wake `refuse_cell` fix (SR43 12:27:02 — Dufus refused cell (5,6),
+    "cultivated field, corn growing thick", no "Unknown action"); **#78 spot patches** (8 patch
+    refusals with real reasons — pergola yards, fenced lots, mailboxes); **#80 map paint** — user
+    saw "a whole cell stripped red plus a few circles". Dufus stayed out of the corn all run.
+    Zero LLM errors.
+  - **BUG 1 (FIXED): re-refusing the same ground, tick after tick.** Ticks 6-15: Dufus stood in
+    the pergola yard at (-9432, -1827) and refused it four times, plus (-8372, -2888) three
+    times — 8 ticks burned on already-recorded facts. Cause: a patch only rendered on *step
+    targets*, never underfoot, so standing in refused ground was invisible. Fix: `here_no_go`
+    observation fact + sense line ("you are STANDING in ground already refused — do NOT refuse
+    it again; leave it this tick") + a rules.md clause that ground is refused once.
+  - **BUG 2 (FIXED): "things sort of stopped" after a survey.** Ticks 29-31 idle
+    (`scene_unchanged`) then the run ended. Cause: a finished survey leaves the APC stationary
+    with an unchanged view, so the scene gate slept cognition until the every-Nth-tick
+    re-decide. Fix: `_force_next_decide` — a resolved sweep owes exactly one forced cognition
+    tick, because finishing a survey IS a decision point.
+  - **BUG 3 (FIXED, user call): re-surveying covered ground.** The 24 h staleness window marked
+    every July survey eligible again. `SURVEY_STALE_REFRESH = False` in `agent_manager.py`:
+    surveyed is surveyed, forever. #39's refresh machinery is kept and still tested under the
+    explicit toggle, for the day re-surveying becomes a deliberate act again. `/map` still
+    *labels* old surveys stale — display only, no behaviour.
+  - **Maren took off walking (user observed).** She spent the run alternating `walk_to vegetable
+    truck` / stalled / observe, never settling — the (5,5)-vs-(6,5) truck-row split from #75.
+    **Still parked** per user; noted here so SR45 is not misread as a new fault.
+
+### The plan, in order (2026-08-19, after SR44)
+
+1. **SR45 — confirm the three fixes.** No new code first: one run answers whether the patch
+   loop is gone, whether the post-survey stall is gone, and whether Dufus now pushes to
+   *unsurveyed* ground instead of re-shooting. Also confirms `perception_log.jsonl` fills (#79).
+2. **#61 forward blocker trace** — the one unbuilt half of the perception lane. Gate unchanged:
+   prove the trace hits anything at all before building standoff on top of it. Vehicles and
+   props are its job, not the VLM's.
+3. **#76 center-out exploration** — the last unbuilt item of the original three. Wait for SR45:
+   if rings now grow on their own from the frontier facts plus refusals, #76 may need nothing.
+4. **Then Phase B — the destination.** #66 reaction gate → #67 APC↔APC conversation → #68 work
+   that leaves a mark. The lane's exit condition is met once SR45 is clean; exploration goes
+   back to being a background service.
+5. **Catch-up lane (away-time work):** the "Needs tests (speed mode)" ledger, then the remaining
+   cleanup advisories (bridge reconnect noise, `agent_manager.py` / `web_ui/main.py` splits).
 
 - **SR42 (2026-08-19) — first run of the #76/#77 lane. 53 ticks, 12.4 min, clean stop; the CLI
   session driving it crashed, but the runner shut down properly and all data persisted.**
@@ -237,6 +282,14 @@ grounding, **#42** bounded action-error diagnostics. Three new test files landed
 request (`test_apc_agenda_ui.py`, `test_survey_grounding.py`, `test_action_errors.py`); the full offline
 suite passes at **54/54**, with no regression in the previously green 51. All three still await their live
 verification, which folds into the #36/#37 live session.
+
+### Needs tests (speed mode — user, 2026-08-19)
+
+Features built WITHOUT tests to speed up code-done → live-testing. One line per
+feature as it lands; the suite catches up here later. (Everything built before
+this banner on 2026-08-19 — #77/#78/#26/#79/#80 — already has tests.)
+
+- *(empty — next untested feature lands here)*
 
 ### Cleanup advisories (observed, not scheduled)
 

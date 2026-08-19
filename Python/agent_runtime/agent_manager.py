@@ -132,6 +132,12 @@ _COMPASS_LETTER_WORD = {
 # about the world — it goes stale the moment the body leaves the spot (#77).
 _EYES_VALID_CM = 300.0
 
+# Whether an aging survey makes a cell surveyable again (user, 2026-08-19:
+# "stop surveying what we have already done ... turn it off"). Off: a cell
+# with any composite is done ground; re-surveying becomes a deliberate,
+# user-triggered act (#39/#35), never an ambient one.
+SURVEY_STALE_REFRESH = False
+
 # One movement "step" for direction-relative walks (cm).
 _STEP_DISTANCE = 1500.0
 
@@ -303,6 +309,7 @@ class AgentManager:
         self._movement_timing: dict[str, dict] = {} # agent_id -> wake/first-walk/displacement clocks (#20)
         self._eyes: dict[str, dict] = {}            # agent_id -> {at, views: {compass_word: seen-ahead}} at the current spot (#77)
         self._bounces: dict[str, dict] = {}         # agent_id -> {cell: times walked in and straight back out} this run (#26)
+        self._force_next_decide: set[str] = set()   # agents owed one full cognition tick (e.g. survey just resolved)
 
         # Fixed per-level grid; reloaded with the level in _load_agents.
         self.world_grid = WorldGrid()
@@ -377,6 +384,7 @@ class AgentManager:
         self._live_pos.clear()
         self._eyes.clear()
         self._bounces.clear()
+        self._force_next_decide.clear()
 
         self._load_agents(active_agents)
         if active_agents:
@@ -1384,6 +1392,11 @@ class AgentManager:
         (scene_unchanged agents are skipped by phases 2 and 3).
         """
         agent_id = agent.agent_id
+        # One-shot debt from a resolved survey (or any state change that must
+        # be thought about now): consume it as a forced cognition tick.
+        if agent_id in self._force_next_decide:
+            self._force_next_decide.discard(agent_id)
+            force_cognition = True
         # The lizard-brain gate must run before camera capture. In particular,
         # a stationary APC at its scheduled mapped place should not create a
         # duplicate PNG merely to discover that cognition is asleep.
@@ -1420,6 +1433,14 @@ class AgentManager:
             agent_id, observation.get("last_move"), observation.get("directions"))
         observation["frontier"] = self._frontier_fact(grid)
         observation["travel"] = self._travel_fact(agent_id, observation.get("location"), grid)
+        # Standing inside a no-go patch is its own fact (SR44: Dufus stood in
+        # the pergola yard and re-refused it eight ticks running, because the
+        # patch only ever rendered on step targets, never underfoot).
+        xyz_here = _loc_xyz(observation.get("location"))
+        if self.place_db and xyz_here:
+            here_patches = self.place_db.patches_at(xyz_here[0], xyz_here[1])
+            if here_patches:
+                observation["here_no_go"] = here_patches[0]
         # Cells walked into and straight back out of, twice or more (#26).
         bounced = [{"cell": cell, "count": count}
                    for cell, count in (self._bounces.get(agent_id) or {}).items()
@@ -3191,6 +3212,10 @@ class AgentManager:
                     observation.get("world_time", self.world_clock.now_text())
                 )
             self._cell_sweeps.pop(agent_id, None)
+            # A finished survey is a decision point: without this the view is
+            # unchanged, the scene gate idles the APC, and the run reads as
+            # "things sort of stopped" (SR44 ticks 29-31). One full think, now.
+            self._force_next_decide.add(agent_id)
             logger.info(
                 f"[{agent_id}] sweep: ({active['col']},{active['row']}) "
                 + ("visual saved; breadcrumb dropped" if image
@@ -3345,15 +3370,21 @@ class AgentManager:
         return not self._survey_visual_is_current(agent_id, col, row)
 
     def _survey_visual_is_current(self, agent_id: str, col: int, row: int) -> bool:
-        """True only when a community composite exists and is not stale."""
+        """True when a community composite exists (staleness OFF per user).
+
+        SR44 (2026-08-19): the 24 h staleness window marked every July survey
+        as "needs a survey", so Dufus re-shot covered ground instead of pushing
+        outward. The user turned refresh off: surveyed is surveyed, forever,
+        until an explicit re-survey feature (#39/#35) is deliberately invoked.
+        The /map still *labels* old surveys stale — display only.
+        """
         if self.place_db is None:
             return False
-        return bool(
-            self.place_db.current_place_image(agent_id, col, row) is not None
-            and not self.place_db.is_stale(
-                col, row, COMMUNITY_SURVEY_MAX_AGE_SECONDS
-            )
-        )
+        if self.place_db.current_place_image(agent_id, col, row) is None:
+            return False
+        if not SURVEY_STALE_REFRESH:
+            return True
+        return not self.place_db.is_stale(col, row, COMMUNITY_SURVEY_MAX_AGE_SECONDS)
 
     def _episodic(self, agent_id: str) -> EpisodicLog:
         """Load (and cache) this agent's append-only episodic event log."""
