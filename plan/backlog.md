@@ -70,7 +70,10 @@ That decomposes into exactly three items, two of them new:
   at engine cadence), not the VLM's. #61's gate is unchanged: first prove the forward trace hits
   anything at all (`blocker` line has still never been seen live).
 
-**Build slice (spec'd 2026-08-19, Fable — after SR42):**
+**Build slice (spec'd 2026-08-19, Fable — after SR42): BUILT same day, offline 59/59
+(`test_look_before_step.py`, 35 checks). Needs live verification (SR43): a pre-emptive
+refusal from the eyes' facts, a spot patch surviving to the next run, and the north trap
+not re-entered.**
 
 - **#77 look-before-step, concretely.** Two eyes-first facts, both rendered onto the existing
   per-direction lines (`_direction_places` → `_direction_lines`):
