@@ -70,6 +70,36 @@ That decomposes into exactly three items, two of them new:
   at engine cadence), not the VLM's. #61's gate is unchanged: first prove the forward trace hits
   anything at all (`blocker` line has still never been seen live).
 
+**Build slice (spec'd 2026-08-19, Fable — after SR42):**
+
+- **#77 look-before-step, concretely.** Two eyes-first facts, both rendered onto the existing
+  per-direction lines (`_direction_places` → `_direction_lines`):
+  1. Perception (`perception.py`) additionally reports `ground_ahead` (same footing vocabulary +
+     `building_interior`) — the ground filling the walkable path in the frame, where the APC would
+     stand after a few steps — and `path_ahead` (`open|dead_end|blocked`). SR42's traps (backyard
+     pergola, mobile-home bedroom, trash alley) were all *visible* before the step; nothing carried
+     that pixel fact to the step decision.
+  2. An eyes cache per agent: every perceived view with a known facing (tick view, wake sweep,
+     survey sweep) files `ground_ahead`/`path_ahead` under its compass word, valid only while the
+     APC stays on the spot (cleared on ~3 m displacement, same idea as `_record_attempt`). The
+     direction line for a heading the APC has actually looked down says "your eyes: grass ahead,
+     dead end". Facts only; rules.md tells Dufus his eyes outrank the navmesh.
+- **#78 sub-cell no-go patches (user, 2026-08-19: "subgrid" idea).** `refuse_cell` today paints a
+  whole 30 m cell — right for a cornfield, wrong for one bad backyard in an otherwise surveyable
+  cell (SR42's cell 6,4 problem: the cell must stay a survey target while its south approach is
+  poisoned). New `no_go_patches` table in PlaceDB: point + radius (default 9 m = place-cell
+  extent), reason, refused_by. Surfaced to the model as
+  `{"type": "refuse_cell", "direction": "<compass>", "scope": "spot", "reason": ...}` — refuses
+  just the patch one step that way; `allow_cell` with `scope: "spot"` withdraws. Patches do NOT
+  touch the frontier (the cell stays offered); they only mark the ground on the direction lines:
+  "NO-GO ground (refused by dufus: private backyard)". Facts, not blockers — nothing stops a step
+  onto a patch.
+- **#26 slice — bounce fact (dead-end recognition, facts-only; the full controller stays in #27).**
+  `_drop_crumb` already sees every walked leg; two consecutive legs with opposite headings are a
+  bounce, counted per trap cell for the run. At ≥2 the prompt states: "you have stepped into cell
+  X and straight back out N times this run" with the refuse-the-spot escape named. This is SR32's
+  "louder facts" watch item, now a fact.
+
 **This lane is capped on purpose.** #76 and #77 are prompt-and-facts work on machinery that already
 exists (#73 frontier, footing probes, `mark_blocked`) — no new navigation subsystem. Once one live run
 shows (a) rings instead of a ribbon and (b) at least one *pre-emptive* refusal ("I see corn, going
