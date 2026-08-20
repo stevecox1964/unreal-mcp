@@ -411,6 +411,8 @@ Features built WITHOUT tests to speed up code-done → live-testing. One line pe
 feature as it lands; the suite catches up here later. (Everything built before
 this banner on 2026-08-19 — #77/#78/#26/#79/#80 — already has tests.)
 
+- **#89 look as far as you walk** (2026-08-20) — `_look_along` must return `(None, None)` on a probe
+  miss (no cap, never "clear"), and `plan_step` must not grow past an explicit `"close"`.
 - **#88 open headings** (2026-08-20) — `_open_headings` needs a fake bridge where straight ahead and
   one side are blocked and the other side is clear: it must return compass words (not body-relative),
   nearest-turn first, and an EMPTY list must stay distinguishable in the prompt from "never probed".
@@ -3922,6 +3924,53 @@ and now hands cognition something to do about it), #26, #61, #65,
 
 **Done when:** an APC blocked by a prop steps around it instead of retreating, and SR50 shows no
 NE↔SW bounce at the village square.
+
+---
+
+## 89. Look as far as you mean to walk
+
+**Status:** **BUILT 2026-08-20, no rebuild needed — needs a test, needs SR50.** **Source:** user,
+2026-08-20, on reading the SR49 write-up: *"I think we have a units problem. CMs?"*
+
+The units are clean — everything in the runtime is centimetres, and the engine agrees
+(`body_radius_cm: 34`, `body_half_height_cm: 88`, so a 1.76 m body 0.68 m wide). The **scale** was not.
+Laid side by side:
+
+| | |
+|---|---|
+| the body | 1.76 m tall, 0.68 m wide |
+| one "step" | **15 m** |
+| a grid cell | 30 m |
+| **how far it could see** | **5 m** (`_AHEAD_TRACE_CM`) |
+
+**An APC was committing to a 15 m move having measured the first 5 m of it — and after #86, to a 90 m
+move on the same 5 m.** The step became adaptive and the eyes did not. That is not a rounding error,
+it is the plan resting on a measurement that stops a fifth of the way along the thing it is sizing.
+
+### The fix
+
+`_plan_move` now runs **its own** probe, `_look_along`, as far as it means to travel (capped at
+`_PLAN_PROBE_MAX_CM`, 30 m — one cell), turning the probe to the heading being planned so the capsule
+sweep tests the actual line of travel. One extra bridge call per movement decision.
+
+**The travel probe is deliberately left alone at 5 m.** It answers a different question — *"is something
+about to stop me"* — which is why it is short and why a hit inside it may WAKE cognition. Lengthening it
+would have made a wall 15 m down a corridor wake a paid decision every tick. Two questions, two probes.
+
+### Two things found while building it
+
+- **"clear 5.0 m" was the probe's reach, not a measurement.** #88's heading list reported the cap as
+  though it were the free distance. It now reads *"clear for at least N m"*, which is what a sweep that
+  struck nothing actually proves.
+- **`"distance": "close"` could be overruled by the grow half.** Over proven ground an explicit `close`
+  became a 90 m sprint, because `open_run_cm > wanted` grew it. `close` is now a **ceiling**: it is the
+  model saying *"I can see the thing I want to stop at"*, and sailing past it is precisely the overshoot
+  #86 exists to end — re-introduced by the half meant to cure crawling.
+
+**Relates to:** #86, #88, #81, #61.
+
+**Done when:** the step the plan commits to is never longer than the ground it measured, and SR50 shows
+no arrival at an obstacle that was inside the planned step but outside the old 5 m probe.
 
 ---
 

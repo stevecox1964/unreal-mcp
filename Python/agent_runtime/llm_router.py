@@ -964,8 +964,8 @@ def _open_headings_text(blocker: dict) -> str:
                 f"{clearance:.1f} m), and it does not fit to either side or square "
                 f"left or right either. Every heading within a quarter turn of your "
                 f"facing was measured and your body fits down none of them.")
-    ways = ", ".join(f"{h['heading']} (clear {h['clearance_cm'] / 100:.1f} m)"
-                     for h in headings)
+    ways = ", ".join(f"{h['heading']} (clear for at least "
+                     f"{h['clearance_cm'] / 100:.1f} m)" for h in headings)
     return (f"Sense: your body DOES NOT FIT straight ahead (measured clearance "
             f"{clearance:.1f} m), but it DOES fit these ways: {ways}. Each one was "
             f"measured with your own body, not guessed from the picture.")

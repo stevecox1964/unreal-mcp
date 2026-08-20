@@ -153,6 +153,16 @@ _STEP_DISTANCE = 1500.0
 # in-memory patch list, with each cell looked up once. That is free.
 _SCAN_STEP_CM = 150.0
 
+# How far the move plan looks before committing to a step (#89). The travel
+# probe (`_AHEAD_TRACE_CM`, 5 m) answers a different question — "is something
+# about to stop me", which is why it is short and why a hit inside it may wake
+# cognition. Sizing a step is the other question: an APC was deciding to walk
+# 15 m, and on a grown step 90 m, having measured only the first 5 m. The step
+# became adaptive and the eyes did not. So the plan runs its OWN probe, as far as
+# it means to travel, capped here — one bridge call per movement decision, and
+# nothing about the urgency of the travel sense changes.
+_PLAN_PROBE_MAX_CM = 3000.0
+
 # Where to aim the body-box probe when the body does not fit straight ahead
 # (#88). The raster cannot answer this: its columns are offset by the capsule
 # RADIUS, so the whole scan is exactly as wide as the body and "far left" means
@@ -4495,7 +4505,8 @@ class AgentManager:
         out["open_run_cm"] = open_run
         return out
 
-    def _plan_move(self, observation: dict, direction: str, action: dict) -> dict:
+    def _plan_move(self, agent, observation: dict, direction: str,
+                   action: dict) -> dict:
         """Compute this step's length from world evidence (#86).
 
         The model chose the heading; everything about the distance is decided
@@ -4516,16 +4527,14 @@ class AgentManager:
                     "capped_by": None, "grew": False, "why": "", "stop_reason": ""}
         scan = self._scan_ahead(xyz, yaw, move_plan.MAX_STEP_CM)
 
-        clearance = None
-        fits = None
-        blocker = observation.get("blocker")
-        facing = _yaw_of(observation.get("rotation"))
-        if isinstance(blocker, dict) and facing is not None:
-            drift = abs((yaw - facing + 180.0) % 360.0 - 180.0)
-            if drift <= _PROBE_HEADING_TOLERANCE_DEG:
-                measured = blocker.get("clearance_cm", blocker.get("distance_cm"))
-                clearance = None if measured is None else float(measured)
-                fits = blocker.get("fits")
+        # Look as far as we mean to walk (#89). The travel probe only reaches 5 m,
+        # so reusing it sized a 15 m — or a grown 90 m — step on 5 m of sight.
+        want = max(scan["open_run_cm"],
+                   move_plan.PREFERRED_CM.get(
+                       str(action.get("distance") or "").strip().lower(),
+                       _STEP_DISTANCE))
+        look = min(max(want, _AHEAD_TRACE_CM), _PLAN_PROBE_MAX_CM)
+        clearance, fits = self._look_along(agent, observation, yaw, look)
 
         plan = move_plan.plan_step(
             prefer=action.get("distance"),
@@ -4537,7 +4546,39 @@ class AgentManager:
             nominal_cm=_STEP_DISTANCE,
         )
         plan["stop_reason"] = scan["stop_reason"]
+        plan["looked_cm"] = look
         return plan
+
+    def _look_along(self, agent, observation: dict, yaw: float,
+                    distance_cm: float) -> tuple[float | None, bool | None]:
+        """Measure free travel along one heading, turning the probe to face it (#89).
+
+        Returns ``(clearance_cm, fits)``, and ``(None, None)`` when nothing was
+        measured — which the plan treats as "no cap", never as "clear".
+
+        The engine sweeps the character's own capsule along the probe's rotation,
+        so this is a real body-fit test down that heading rather than the forward
+        one reused at an angle. A miss is honest silence: the plan then rests on
+        the shared map alone, which is the same position it was in before the
+        body-box probe existed at all.
+        """
+        volume = getattr(self.bridge, "forward_volume", None)
+        facing = _yaw_of(observation.get("rotation"))
+        if not callable(volume) or facing is None or self._volume_probe_unavailable:
+            return (None, None)
+        offset = (yaw - facing + 180.0) % 360.0 - 180.0
+        try:
+            result = volume(agent.bound_unreal_actor_name, distance_cm,
+                            yaw_offset_deg=offset) or {}
+        except Exception as e:
+            logger.warning("[%s] plan probe %+.0f failed: %s",
+                           agent.agent_id, offset, e)
+            return (None, None)
+        if not result.get("success") or "fits" not in result:
+            return (None, None)
+        if result.get("fits") is True:
+            return (None, True)      # nothing struck within the look: no cap
+        return (float(result.get("clearance_cm", 0.0) or 0.0), False)
 
     def _execute_routed_walk(self, agent: Agent, action: dict, observation: dict) -> dict:
         """Execute a walk_to-by-name as the current leg of a grid-first route
@@ -4631,7 +4672,7 @@ class AgentManager:
             # How far this step goes is the lizard brain's call, from the map and
             # the body — not a constant, and not something the model is asked to
             # get right (#86).
-            plan = self._plan_move(observation, direction, action)
+            plan = self._plan_move(agent, observation, direction, action)
             observation["_move_plan"] = plan
             self._walk_plans.pop(agent.agent_id, None)
             if plan["distance_cm"] <= 0.0:

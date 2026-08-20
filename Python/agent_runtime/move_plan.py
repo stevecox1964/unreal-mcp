@@ -90,8 +90,14 @@ def plan_step(prefer: str | None = None,
     # Grow across proven ground. Only a run LONGER than the step we already
     # wanted is a reason to change anything — a single open cell ahead is the
     # ordinary case, not an invitation to sprint.
+    #
+    # "close" is a CEILING, never a floor. It is the model saying "I can see the
+    # thing I want to stop at"; open ground beyond it is not a reason to sail
+    # past. Growing over an explicit "close" would be the overshoot this whole
+    # item exists to end, re-introduced by the half meant to cure crawling.
     grew = False
-    if open_run_cm and open_run_cm > wanted:
+    asked_close = str(prefer or "").strip().lower() == "close"
+    if open_run_cm and open_run_cm > wanted and not asked_close:
         wanted = open_run_cm
         grew = True
     wanted = min(wanted, max_cm)
