@@ -3739,6 +3739,45 @@ when NOTHING in it is struck, and when the capsule says "does not fit" while no 
 the scan reports that it **cannot name a side** instead of naming five. The C++ `open_columns` is left
 as it is and no longer read.
 
+### SR49 (2026-08-20) — #86 VERIFIED LIVE. The blocker moves to #81's body-width raster.
+
+22 ticks, 237 s, **zero errors, zero `DRIFT:` lines, zero `STALLED` lines.**
+
+**The proof:** `move plan: east 90.0 m (grew)` → `walk plan: east 90.0 m in 6 hops of 15 m` → `hop 2/6`
+… `hop 6/6` → `all hops walked`, and the decision log records **`moved 8971.4` cm ending on `y = -800.0`,
+the exact y he started on.** Ninety metres, dead straight, no detour. SR47's failure did not recur.
+The shrink half fired too: `northeast 38.0 m (wanted 45.0 m, capped by refused ground)`, capped by a
+refusal Dufus had filed himself twelve ticks earlier.
+
+**The cost win the exit condition needs:** walking ticks ran **1.66–1.89 s**; decision ticks ran
+**10–24 s**. A 90 m crossing of proven ground is one paid decision and five near-free ticks.
+
+**Where the run then stalled — Dufus bounced NE↔SW three times, ~30 m each way**, between
+`trash_bin_bigOpen6` and `lantern8` at the village square. Every plan after the first died on a prop
+within 5 m (`walk plan ended: prop 352 cm ahead`), he refused the ground northeast, went back, and
+came again. His own words at tick 20: *"I've bounced here too many times"* — #26's bounce fact reached
+him and he still had nowhere to go.
+
+**Root cause, confirmed in the C++.** `UnrealMCPCharacterCommands.cpp:346` offsets each raster column by
+`Right * (ColT * Radius)` with `Radius = 34` cm. **The scan is exactly as wide as the body — ±34 cm.**
+`far_left` means 34 cm left of centre. So `open_columns` can only ever report gaps *inside the APC's own
+shoulders*, which can never answer "how do I get around this". Dufus was told `open=none` while clear
+pavement sat a metre either side. **This is a missing fact, not a reasoning failure** — exactly the
+[[feedback_facts_not_blocking]] case.
+
+**Next (recommended, no rebuild):** `get_character_forward_volume` already accepts `yaw_offset_deg`.
+When `fits=False`, probe at ±45° and give the APC `open_headings` — *"you do not fit ahead; you DO fit
+to your left."* Four extra bridge calls, only on blocked ticks, testable today. The cleaner fix is a
+`scan_width_cm` (~3× body radius) in C++, but that needs another editor rebuild — do the angled probe
+first and find out whether the fact is what ends the bounce.
+
+**Also: Maren did nothing for the entire run.** 22 ticks, `moved 0.0`, 21 of them
+`idle(scene_unchanged)` / `settled routine sampled; VLM sleeping`. She woke believing the schedule's
+claim that the mobile home community is her truck post (*"Schedule says this spot counts as my truck
+post despite the mobile home visuals"*), the settled-agent gate then suppressed cognition, and she never
+moved again. #75/#71 place identity compounding with the settled gate into a fully asleep APC. Not
+attempted; see the handoff's open questions.
+
 ### The step must grow as well as shrink (user, 2026-08-20)
 
 *"As targets get closer, the steps need to get smaller. But when we have N grids in front of us, and
