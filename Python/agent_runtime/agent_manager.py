@@ -21,6 +21,7 @@ from . import cell_sweep
 from .cell_sweep import filter_survey_claims
 from .landmarks import merge_entries, scan_landmarks
 from . import map_capture
+from . import move_plan
 from . import places_manifest
 from . import planner
 from . import place_visuals
@@ -138,8 +139,25 @@ _EYES_VALID_CM = 300.0
 # user-triggered act (#39/#35), never an ambient one.
 SURVEY_STALE_REFRESH = False
 
-# One movement "step" for direction-relative walks (cm).
+# One movement "step" for direction-relative walks (cm). This is the NOMINAL
+# step now, not the only one: `move_plan.plan_step` shrinks it toward whatever
+# must not be walked into and grows it across ground the shared map has already
+# proven (#86). It stays the fixed answer to the *map* question "which cell lies
+# one step that way", which must not move because the body's step got shorter.
 _STEP_DISTANCE = 1500.0
+
+# How finely the move plan walks the line ahead (#86). The sample spacing is the
+# plan's precision floor — a coarse scan reports the last CLEAN sample, so it
+# stops the step further short of a refusal than it needs to, and short steps
+# cost paid ticks. 1.5 m over a 90 m scan is 60 samples of arithmetic against an
+# in-memory patch list, with each cell looked up once. That is free.
+_SCAN_STEP_CM = 150.0
+
+# The body-box probe (#81) traces along the avatar's FACING. Its clearance may
+# only cap a step heading within this much of that facing — a clearance measured
+# east says nothing about walking north, and applying it anyway would shorten
+# every sideways step for a wall it was never looking at.
+_PROBE_HEADING_TOLERANCE_DEG = 45.0
 
 # When the camera view is unchanged AND the avatar is standing still, re-decide
 # every Nth tick anyway so a stopped agent is always re-prompted to move to the
@@ -3876,12 +3894,27 @@ class AgentManager:
         moved = math.hypot(xyz[0] - order["from"][0], xyz[1] - order["from"][1])
         fact = {"intent": order.get("intent"), "moved_cm": round(moved, 1),
                 "stalled": moved < _MOVEMENT_START_CM}
-        if fact["stalled"]:
+        plan = order.get("plan")
+        held = isinstance(plan, dict) and not plan.get("distance_cm")
+        if fact["stalled"] and held:
+            logger.info(
+                "[%s] HELD: %s was not ordered — %s", agent_id,
+                order.get("intent"), plan.get("why"))
+        elif fact["stalled"]:
             logger.warning(
                 "[%s] STALLED: ordered %s, achieved %.1f cm — the bridge accepted "
                 "a move that did not happen", agent_id, order.get("intent"), moved)
         fact["tried_here"] = self._record_attempt(
             agent_id, xyz, order.get("intent"), moved)
+        # A step that was silently shortened is the bug class rule 12 forbids:
+        # the model cannot tell a capped step from a stall unless we say which
+        # it was, and why (#86).
+        if isinstance(plan, dict) and plan.get("why"):
+            fact["plan"] = {"distance_cm": plan.get("distance_cm"),
+                            "wanted_cm": plan.get("wanted_cm"),
+                            "capped_by": plan.get("capped_by"),
+                            "grew": plan.get("grew"),
+                            "why": plan["why"]}
         return fact
 
     def _wedge_fact(self, agent_id: str, last_move: dict | None,
@@ -4065,6 +4098,7 @@ class AgentManager:
         self._last_order[agent_id] = {
             "intent": intent,
             "from": (xyz[0], xyz[1]) if xyz else None,
+            "plan": observation.get("_move_plan"),
         }
 
     def _drop_crumb(self, agent_id: str, grid: dict | None,
@@ -4094,26 +4128,145 @@ class AgentManager:
             trap = previous.get("cell") or "?"
             counts[trap] = counts.get(trap, 0) + 1
 
-    def _direction_target(self, observation: dict, direction: str) -> list[float] | None:
-        """Resolve a direction word to a world location one step away.
+    def _direction_yaw(self, observation: dict, direction: str) -> float | None:
+        """The world yaw a direction word points along, or None if unresolvable.
 
         A compass word ("north") is absolute and means the same thing on every
         tick. A body-relative word ("back") is measured from the avatar's
         current facing, which changes as it walks and turns — so the same word
         can mean opposite headings two decisions apart (#56).
         """
-        xyz = _loc_xyz(observation.get("location"))
-        if xyz is None:
-            return None
         name = str(direction or "").strip().lower()
         absolute = _ABSOLUTE_DIRECTION_YAW.get(name)
         if absolute is not None:
-            return _offset_location(*xyz, absolute, _STEP_DISTANCE)
+            return absolute
         yaw = _yaw_of(observation.get("rotation"))
         offset = _DIRECTION_YAW_OFFSET.get(name)
         if yaw is None or offset is None:
             return None
-        return _offset_location(*xyz, yaw + offset, _STEP_DISTANCE)
+        return yaw + offset
+
+    def _direction_target(self, observation: dict, direction: str,
+                          distance_cm: float | None = None) -> list[float] | None:
+        """Resolve a direction word to a world location ``distance_cm`` away.
+
+        ``distance_cm`` is the move plan's answer (#86). It defaults to the
+        nominal step only so callers asking a *map* question — which cell lies
+        one step that way — keep the fixed 15 m they mean; the cell a heading
+        names must not move because the body's step got shorter.
+        """
+        xyz = _loc_xyz(observation.get("location"))
+        if xyz is None:
+            return None
+        yaw = self._direction_yaw(observation, direction)
+        if yaw is None:
+            return None
+        step = _STEP_DISTANCE if distance_cm is None else float(distance_cm)
+        return _offset_location(*xyz, yaw, step)
+
+    def _scan_ahead(self, xyz, yaw: float, limit_cm: float) -> dict:
+        """Look down one heading on the SHARED map: how far is proven, where must we stop?
+
+        The lizard brain's half of the move plan (#86), and it costs no engine
+        call — every fact is already in PlaceDB, filed by whoever walked there.
+        Two different answers come out of one walk along the line:
+
+        * ``open_run_cm`` — how far the ground ahead has been *stood on* with
+          good footing, cell after cell, with nothing refused in the way. This is
+          the reason a step may grow: crossing done ground should not cost one
+          paid decision per 15 m.
+        * ``stop_short_cm`` — the distance to the first ground somebody refused
+          (a no-go patch, a refused cell). This is the reason a step must shrink,
+          and it is the SR46 bug directly: patches refused accurately and then
+          walked into anyway, because the only step available was wider than the
+          patch.
+
+        Facts only ([[feedback_facts_not_blocking]]): a refusal caps the step's
+        LENGTH, never its heading, and never cancels the move. An APC that means
+        to go that way still goes that way — it stops at the edge.
+        """
+        out = {"open_run_cm": 0.0, "stop_short_cm": None, "stop_reason": ""}
+        if xyz is None or yaw is None or not self.place_db:
+            return out
+        patches = self.place_db.all_patches() or []
+        cells: dict[tuple, dict] = {}
+        open_run = 0.0
+        open_ended = False
+        d = _SCAN_STEP_CM
+        while d <= limit_cm:
+            px, py, _ = _offset_location(*xyz, yaw, d)
+            hit = next((q for q in patches
+                        if math.hypot(px - q["x"], py - q["y"]) <= q["radius_cm"]), None)
+            if hit is not None:
+                out["stop_short_cm"] = d - _SCAN_STEP_CM
+                out["stop_reason"] = f"no-go patch ({hit.get('reason') or 'refused'})"
+                break
+            col, row = self._cell_col_row(self.world_grid.locate(px, py))
+            if col is None:
+                open_ended = True          # off the authored grid: unknown, not refused
+                d += _SCAN_STEP_CM
+                continue
+            known = cells.get((col, row))
+            if known is None:
+                known = {"refusals": self.place_db.get_refusals(col, row),
+                         "ground": self.place_db.get_ground(col, row)}
+                cells[(col, row)] = known
+            if known["refusals"]:
+                out["stop_short_cm"] = d - _SCAN_STEP_CM
+                out["stop_reason"] = "refused cell"
+                break
+            walked = any(str(g.get("footing")) in _GOOD_FOOTING for g in known["ground"])
+            if not walked:
+                open_ended = True          # never stood in: not proven, not forbidden
+            if not open_ended:
+                open_run = d
+            d += _SCAN_STEP_CM
+        out["open_run_cm"] = open_run
+        return out
+
+    def _plan_move(self, observation: dict, direction: str, action: dict) -> dict:
+        """Compute this step's length from world evidence (#86).
+
+        The model chose the heading; everything about the distance is decided
+        here, from what the map and the body already know. Three inputs, each
+        skipped when it was not measured rather than guessed at:
+
+        * the shared map ahead (``_scan_ahead``) — grows or caps the step;
+        * the body-box probe (#81) — caps it, but only when the probe was
+          looking the way we are about to walk. ``_probe_ahead`` traces along the
+          avatar's *facing*; a clearance measured east says nothing about north,
+          and using it anyway would shorten every sideways step for no reason;
+        * the model's coarse ``distance`` word, when it offered one.
+        """
+        yaw = self._direction_yaw(observation, direction)
+        xyz = _loc_xyz(observation.get("location"))
+        if yaw is None:
+            return {"distance_cm": _STEP_DISTANCE, "wanted_cm": _STEP_DISTANCE,
+                    "capped_by": None, "grew": False, "why": "", "stop_reason": ""}
+        scan = self._scan_ahead(xyz, yaw, move_plan.MAX_STEP_CM)
+
+        clearance = None
+        fits = None
+        blocker = observation.get("blocker")
+        facing = _yaw_of(observation.get("rotation"))
+        if isinstance(blocker, dict) and facing is not None:
+            drift = abs((yaw - facing + 180.0) % 360.0 - 180.0)
+            if drift <= _PROBE_HEADING_TOLERANCE_DEG:
+                measured = blocker.get("clearance_cm", blocker.get("distance_cm"))
+                clearance = None if measured is None else float(measured)
+                fits = blocker.get("fits")
+
+        plan = move_plan.plan_step(
+            prefer=action.get("distance"),
+            open_run_cm=scan["open_run_cm"],
+            stop_short_cm=scan["stop_short_cm"],
+            clearance_cm=clearance,
+            fits=fits,
+            standoff_cm=_STANDOFF_CM,
+            nominal_cm=_STEP_DISTANCE,
+        )
+        plan["stop_reason"] = scan["stop_reason"]
+        return plan
 
     def _execute_routed_walk(self, agent: Agent, action: dict, observation: dict) -> dict:
         """Execute a walk_to-by-name as the current leg of a grid-first route
@@ -4204,7 +4357,25 @@ class AgentManager:
 
         if t == "wander" or (t == "walk_to" and action.get("direction")):
             direction = action.get("direction") or "forward"
-            target = self._direction_target(observation, direction)
+            # How far this step goes is the lizard brain's call, from the map and
+            # the body — not a constant, and not something the model is asked to
+            # get right (#86).
+            plan = self._plan_move(observation, direction, action)
+            observation["_move_plan"] = plan
+            if plan["distance_cm"] <= 0.0:
+                logger.info(f"[{agent.agent_id}] move plan: no step {direction} — "
+                            f"{plan['why']}")
+                return {"status": "accepted", "action": "idle",
+                        "note": f"no room to step {direction}: {plan['why']}"}
+            if plan["capped_by"] or plan["grew"]:
+                logger.info(
+                    f"[{agent.agent_id}] move plan: {direction} "
+                    f"{plan['distance_cm'] / 100:.1f} m "
+                    f"(wanted {plan['wanted_cm'] / 100:.1f} m"
+                    + (f", capped by {plan['capped_by']}" if plan["capped_by"] else ", grew")
+                    + ")")
+            target = self._direction_target(observation, direction,
+                                            plan["distance_cm"])
             if target is None and t == "wander":
                 # No yaw available — legacy random step so wander never dead-ends.
                 import random

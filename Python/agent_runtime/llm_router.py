@@ -27,8 +27,8 @@ _COMPASS_WORD = {
 # Field specs for actions that take parameters beyond "type".
 _ACTION_SCHEMAS: dict[str, str] = {
     "idle":             '{"type": "idle"}',
-    "wander":           '{"type": "wander"}  -- keep moving: take one step (~15m) in the direction you are facing',
-    "walk_to":          '{"type": "walk_to", "target_location": "<place name>"} to travel to a named place you know (e.g. "village square", "home"), OR {"type": "walk_to", "target_actor": "<character name>"} to walk to a known character, OR {"type": "walk_to", "direction": "north|south|east|west|northeast|northwest|southeast|southwest"} to walk ~15m along that compass heading, OR {"type": "walk_to", "direction": "forward|forward-left|forward-right|left|right|back"} to walk ~15m relative to the way your body is currently facing',
+    "wander":           '{"type": "wander"}  -- keep moving: take one step in the direction you are facing (about 15m, longer over ground already walked, shorter when something is close). Add "distance": "close|normal|far" to ask for a shorter or longer one',
+    "walk_to":          '{"type": "walk_to", "target_location": "<place name>"} to travel to a named place you know (e.g. "village square", "home"), OR {"type": "walk_to", "target_actor": "<character name>"} to walk to a known character, OR {"type": "walk_to", "direction": "north|south|east|west|northeast|northwest|southeast|southwest"} to walk ~15m along that compass heading, OR {"type": "walk_to", "direction": "forward|forward-left|forward-right|left|right|back"} to walk relative to the way your body is currently facing. Any walk with a "direction" may add "distance": "close" (a few metres, for something you can see and want to stop at), "normal" (the default, about 15m) or "far" (tens of metres, for crossing ground you are only passing through). How far you actually travel is worked out from the ground ahead: it is cut short of anything refused or in the way, and it stretches across ground APCs have already walked. You will be told the length you got',
     "survey_here":      '{"type": "survey_here"} to survey the cell you are standing in — captures all four compass headings over the next few ticks and adds the cell to the shared map. Only works on a cell that has no current survey, and only for the cell underfoot',
     "refuse_cell":      '{"type": "refuse_cell", "direction": "north|south|east|west|northeast|northwest|southeast|southwest", "reason": "<what you can see that makes it not worth walking into>"} to record that the cell one step that way is not ground you will walk into. It stops being offered as somewhere to survey, for you and for every other APC, until someone withdraws it. Use it when you can SEE the reason — standing crops, water, a fence, someone\'s private yard. Omit "direction" to refuse the cell you are standing in. Add "scope": "spot" to refuse only the ~9m patch of ground one step that way instead of the whole 30m cell — use the patch for one bad yard, alley or doorway inside a cell that is otherwise worth surveying; use the whole cell for corn fields, water, and ground that is bad wall to wall',
     "allow_cell":       '{"type": "allow_cell", "direction": "<compass word, or omit for here>"} to withdraw a refusal you made earlier — the cell goes back to being ordinary ground. Add "scope": "spot" to withdraw a patch refusal instead',
@@ -864,6 +864,9 @@ def _sense_note(observation: dict) -> str:
             lines.append(
                 f"Sense: your last order (\"{last_move['intent']}\") moved you "
                 f"{round(last_move['moved_cm'] / 100, 1)} m.")
+        plan = last_move.get("plan")
+        if isinstance(plan, dict) and plan.get("why"):
+            lines.append(f"Sense: {plan['why']}.")
     tried = _tried_here_text(last_move)
     if tried:
         lines.append(tried)

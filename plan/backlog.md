@@ -403,9 +403,20 @@ Features built WITHOUT tests to speed up code-done → live-testing. One line pe
 feature as it lands; the suite catches up here later. (Everything built before
 this banner on 2026-08-19 — #77/#78/#26/#79/#80 — already has tests.)
 
-- *(empty — next untested feature lands here)*
+- **#86 adaptive step length** (2026-08-20) — `move_plan.plan_step` is a pure function and is the
+  obvious unit test: shrink caps, the grow case, "no room" at zero, and that an unmeasured input
+  (`None`) never reads as clear. `AgentManager._scan_ahead` needs a PlaceDB fixture with one no-go
+  patch and one refused cell.
 
 ### Cleanup advisories (observed, not scheduled)
+
+- **`action["_resolved_target"]` never reaches the caller** (found while building #86).
+  `_execute_world_action` starts with `action = self._resolve_action_actor_refs(action)`, which
+  returns a **copy** — so the `_resolved_target` written at `agent_manager.py:4384` is discarded, and
+  `memory_store.py:196`, the only reader, always falls back to `action["location"]`. Harmless today
+  (the fallback is usually right) but it means the movement trace silently loses the resolved
+  heading for direction walks. #86 sidestepped it by carrying the move plan on the *observation*,
+  which is not copied.
 
 Raised while working, parked here on purpose — none is urgent, none should be done as a drive-by.
 Add to this list rather than refactoring adjacent code mid-task.
@@ -3559,7 +3570,18 @@ at preflight.
 
 ## 86. Adaptive step length — how far to walk is world evidence, not a constant
 
-**Status:** SPEC ONLY, not built. **Needs a test.** **Source:** user, 2026-08-20: *"Steps needs to be
+**Status:** **BUILT 2026-08-20 — needs a test, needs SR47.** New module
+`Python/agent_runtime/move_plan.py` (`plan_step`, pure) plus `AgentManager._scan_ahead`,
+`_plan_move` and `_direction_yaw`. The step now **shrinks** toward refused ground / a no-go patch /
+a body-box contact and **grows** across cells the shared map says have been walked with good
+footing, capped at 90 m. `walk_to`/`wander` gained an optional coarse `"distance":
+"close|normal|far"`, and the length actually taken is stated back to the model next tick
+(`last_move.plan.why`). No engine rebuild needed — every input was already in PlaceDB or the
+observation. **Scope taken beyond the spec:** the spec's "cap at remaining distance to goal" was
+*not* built, because the goal-bearing paths (routed legs, sweep centres) walk to exact coordinates
+and never overshoot; the paths that DO overshoot are direction words, whose "goal" is the refused
+patch or blocker ahead — so that is what caps them. Original spec follows. **Source:** user,
+2026-08-20: *"Steps needs to be
 adaptive. We seem to be running into bugs where 15 cm steps over shoots targets and we get into
 oscillations. The steps need to be computed based on world evidence and not just blindly goto here."*
 
@@ -3632,8 +3654,26 @@ Nothing here needs a plugin rebuild. The step length is computable from data the
 **Relates to:** #81 (supplies the clearance), #77 (shares the constant), #65 (most wedges are a step with
 nowhere to go), #26, #61, #20 (movement pacing), #87.
 
-**Done when:** an APC told to reach something 4 m away arrives at it without a reverse leg, and the
-movement log states the requested and actual length whenever they differ.
+### The step must grow as well as shrink (user, 2026-08-20)
+
+*"As targets get closer, the steps need to get smaller. But when we have N grids in front of us, and
+have all been cleared, surveyed, the steps need to increase. There is nothing ahead for the next 100
+meters, right? I think we are missing a move plan."*
+
+This is the half the original spec missed, and it is the half that pays for the overnight run.
+Shrinking stops the APC landing in ground it refused; **growing stops it spending a paid decision
+every 15 m to cross a district it has already surveyed.** Both come from the same scan of the shared
+map along the heading, so they are one function, not two features: `_scan_ahead` returns
+`open_run_cm` (how far the ground ahead has been *stood on* with good footing — the reason to grow)
+and `stop_short_cm` (the first refusal along the line — the reason to shrink).
+
+**"Proven" means walked, not seen.** A cell with a composite was *looked at*; a cell with good
+footing in `cell_ground` was *stood in*. Only the second earns a 90 m order, which is why the run
+grows over ground the survey has already crossed and never over ground it has only photographed.
+
+**Done when:** an APC told to reach something 4 m away arrives at it without a reverse leg; an APC
+crossing three surveyed cells does it in one order instead of six; and the movement log states the
+requested and actual length whenever they differ.
 
 ---
 
