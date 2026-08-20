@@ -35,22 +35,23 @@ NOMINAL_STEP_CM = 1500.0
 # so out loud rather than ordering a move that cannot help.
 MIN_STEP_CM = 200.0
 
-# The longest single order, however open the ground looks. ONE 30 m cell.
+# The longest single order, however open the ground looks. Three 30 m cells —
+# the user's "nothing ahead for the next 100 metres".
 #
-# SR47 set this to three cells and the run was unusable. The step is a straight
-# line on the map, but the engine walks a NAVMESH PATH to the point it names —
-# and the further away that point is, the more freedom the path has to go
-# somewhere else entirely. Dufus asked for 45 m north and arrived 48 m WEST,
-# having been routed around a building; the user watched him strike out, come
-# back to his starting point and walk into a trailer house. Every one of those
-# legs was a correct order badly executed.
+# SR47 proved this number is only safe because of how a long step is WALKED. A
+# step is a straight line on the map, but the engine walks a navmesh PATH to the
+# point it is given, and the further away that point is the more freedom the
+# path has to go somewhere else: Dufus asked for 45 m north twice and arrived
+# 52 m east, then 48 m west, routed around a building both times. The user
+# watched him strike out, come back to his starting point and walk into a
+# trailer house.
 #
-# A long step is therefore only safe when the runtime walks it leg by leg
-# itself (route_planner already does this for named places). Until a grown step
-# is routed that way, one cell is the ceiling: still double the old fixed step,
-# still cheap over done ground, and a detour can no longer throw the APC further
-# than the district it is standing in.
-MAX_STEP_CM = 3000.0
+# So a grown step is never handed to the engine whole. `leg_distances` cuts it
+# into hops of one nominal step, and `AgentManager._pulse_walk` walks them one
+# per tick with no model call — the engine is never given a target further away
+# than the fixed 15 m it always handled correctly, and the APC re-checks the
+# ground between every hop.
+MAX_STEP_CM = 9000.0
 
 # What the model's coarse distance word is worth. A word is a judgement it can
 # make from a picture; a number in centimetres is not.
@@ -121,6 +122,32 @@ def plan_step(prefer: str | None = None,
     return {"distance_cm": round(distance, 1), "wanted_cm": round(wanted, 1),
             "capped_by": capped_by, "grew": grew,
             "why": _why(distance, wanted, capped_by, grew, open_run_cm)}
+
+
+def leg_distances(distance_cm: float,
+                  leg_cm: float = NOMINAL_STEP_CM) -> list[float]:
+    """Cut a step into hops, as distances from the starting point.
+
+    The engine gets one hop at a time. A hop is a distance the fixed 15 m step
+    always walked correctly, so the navmesh has almost no room to route around
+    something and end up somewhere else — which is the whole reason a long step
+    was unusable in SR47.
+
+    Returns cumulative distances ending exactly on ``distance_cm``. A final
+    remainder shorter than ``MIN_STEP_CM`` is absorbed into the hop before it
+    rather than left as a shuffle at the end.
+    """
+    if distance_cm <= leg_cm:
+        return [float(distance_cm)]
+    legs: list[float] = []
+    d = leg_cm
+    while d < distance_cm:
+        legs.append(d)
+        d += leg_cm
+    if legs and distance_cm - legs[-1] < MIN_STEP_CM:
+        legs.pop()
+    legs.append(float(distance_cm))
+    return legs
 
 
 def _m(cm: float) -> str:

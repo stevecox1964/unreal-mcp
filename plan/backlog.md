@@ -387,9 +387,11 @@ verification, which folds into the #36/#37 live session.
 2. **SR47 ran and was killed at 5 ticks (2026-08-20).** See the SR47 section under #86: the shrink
    half worked, the grow half was wrong (a 45 m order is walked as a navmesh path and arrived 50 m
    sideways), and #81's `open_columns` was naming gaps that were not gaps. All three are fixed;
-   **SR48 is the re-run.** Grade SR48 on: no `DRIFT:` lines over 45 degrees on a grown step, at least
-   one `move plan: ... grew` that actually ends up where it was sent, `cut to` still stopping short of
-   refused ground, and new ground surveyed. Original SR47 criteria follow.
+   **SR48 is the re-run.** Grade SR48 on: `walk plan: <dir> N m in K hops` appearing, followed by
+   `hop 2/K`, `hop 3/K` … and ending in `all hops walked` rather than an abort; no `DRIFT:` line over
+   45 degrees on a grown step; `cut to` still stopping short of refused ground; and new ground
+   surveyed. A plan that always ends early is the thing to look at — the reason is logged verbatim
+   (`walk plan ended: ...`). Original SR47 criteria follow.
 3. **SR47 (superseded).** Grade it on: a `fits=false` line with `open` naming a real side; Maren emitting
    `refuse_cell` (she now has the doctrine — this is #85's pass criterion); no engine identity in the
    prompts (`prompt leak` warnings should be zero); and the survey covering new ground.
@@ -409,6 +411,10 @@ Features built WITHOUT tests to speed up code-done → live-testing. One line pe
 feature as it lands; the suite catches up here later. (Everything built before
 this banner on 2026-08-19 — #77/#78/#26/#79/#80 — already has tests.)
 
+- **#86 the walk plan** (2026-08-20) — `move_plan.leg_distances` is pure and trivial to cover
+  (exact multiples, a remainder, a remainder too small to be its own hop). `_pulse_walk` needs a fake
+  bridge and one case per abort path: drift off the line, something ahead, no ground made, someone
+  arriving, tick budget — all five were exercised by hand when built, none are pinned.
 - **#86 heading drift + #81 open-column strictness** (2026-08-20, after SR47) — `_open_columns` has
   the two SR47 shapes as obvious cases (a column blocked at body height is not a gap; `fits=False`
   with an unstruck raster names no side at all), and the `last_move.went` drift fact needs one case
@@ -3691,11 +3697,31 @@ building. That is the user's "went out, came back to the starting point": the tw
 detour east and a 50 m detour back west. At the old fixed 15 m the same detour was a wobble; at 45–90 m
 it eats the run. **The grow half was built on an assumption the engine does not honour.**
 
-**Fixed 2026-08-20:** `MAX_STEP_CM` 9000 → **3000** (one cell). Still double the old fixed step, still
-cheap over done ground, and a detour can no longer throw an APC out of the district it is standing in.
-**The real fix, not yet built:** a grown step should be walked *leg by leg* by `route_planner` — which
-already does exactly this for named places — so the engine is never handed a far target. Until then
-one cell is the ceiling, and the ceiling is a stopgap, not a design.
+**Fixed, then fixed properly (2026-08-20).** The stopgap was `MAX_STEP_CM` 9000 → 3000. The real fix
+landed the same day and the cap went back to **9000 (three cells, ~the user's "100 metres")**, because
+the distance was never the problem — **handing the engine a far target was**.
+
+**The walk plan (built).** A grown step is now cut into hops of one nominal step
+(`move_plan.leg_distances`) and only the first is ordered. `AgentManager._pulse_walk` walks the rest,
+one hop per tick, **bridge only — no perceive, no model call**, in a new tick phase beside the survey
+sweep. The engine is never given a target further than the fixed 15 m it always walked correctly, so
+the navmesh has almost no room to route around something and land somewhere else.
+
+This is also the cost answer the exit condition needs: a 90 m crossing of proven ground is **one paid
+decision and five free ticks**, where it used to be six paid decisions. Crossing ground the map has
+already proved is not a thing worth thinking about.
+
+**Five things end a plan and buy a full cognition tick** (`_end_walk_plan` sets `_force_next_decide`):
+something ahead the body must reckon with (does not fit / inside the standoff / can move on its own);
+drifting more than 7 m off the ordered line — the SR47 failure, now caught after **one hop** instead of
+fifty metres; anyone arriving or leaving within sighting range, so a plan can never walk an APC past
+someone it should have noticed; the hop making no ground for `_STUCK_TICKS` (a plan must never sit
+silent against a wall for its tick budget — that is exactly what #65 exists to make loud); and a hard
+ceiling of 12 ticks.
+
+`_last_order` is deliberately untouched while a plan runs, so the achieved-versus-ordered check (#59)
+and the new heading-drift fact measure the **whole** grown step against the one order the model gave.
+A survey outranks a walk; an operator pulse ends the plan, because "pulse" must still mean "think now".
 
 **Also fixed: the APC is now told when it did not go where it was sent.** `last_move.went` compares the
 heading ordered against the heading achieved and states the drift as a fact (`DRIFT:` in the log). SR47

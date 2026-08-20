@@ -153,6 +153,16 @@ _STEP_DISTANCE = 1500.0
 # in-memory patch list, with each cell looked up once. That is free.
 _SCAN_STEP_CM = 150.0
 
+# Walking a grown step (#86). The engine is never handed a target further than
+# one nominal step, so the navmesh has almost no room to route around something
+# and land somewhere else — SR47's 45 m orders arrived 50 m sideways. The hops
+# in between are walked with NO model call: crossing ground the map already
+# proved is not a thing worth thinking about, which is the whole reason the step
+# is allowed to grow.
+_LEG_ARRIVE_CM = 250.0        # close enough to this hop to order the next one
+_LEG_DRIFT_CM = 700.0         # off the straight line by this much: stop, think
+_WALK_PLAN_MAX_TICKS = 12     # a plan may never outlive this, whatever happens
+
 # A walk that ends more than this far off the heading it asked for did not go
 # where it was sent: the engine walked a navmesh PATH around something, not the
 # straight line the order named. Reported as a fact, never corrected for.
@@ -447,6 +457,7 @@ class AgentManager:
         self._travel: dict[str, dict] = {}          # agent_id -> last real heading travelled (#56)
         self._breadcrumbs: dict[str, list[dict]] = {}  # agent_id -> recent legs walked (#58)
         self._last_order: dict[str, dict] = {}      # agent_id -> last movement ordered, for the achieved-vs-ordered check (#59)
+        self._walk_plans: dict[str, dict] = {}      # agent_id -> grown step being walked hop by hop (#86)
         self._tried_here: dict[str, dict] = {}      # agent_id -> {at, tried: {heading: moved_cm}} while wedged on one spot (#60)
         self._stall_run: dict[str, int] = {}        # agent_id -> consecutive stalled orders (#65)
         self._no_progress: dict[str, int] = {}      # agent_id -> consecutive "moving but didn't advance" ticks
@@ -528,6 +539,7 @@ class AgentManager:
         self._travel.clear()
         self._breadcrumbs.clear()
         self._last_order.clear()
+        self._walk_plans.clear()
         self._tried_here.clear()
         self._stall_run.clear()
         self._no_progress.clear()
@@ -1383,13 +1395,19 @@ class AgentManager:
         # keep them out of the perceive/decide phases until the sweep finishes.
         sweeping = [a for a in ready if self._has_active_survey(a)]
         ready = [a for a in ready if not self._has_active_survey(a)]
+        # Agents part-way through a grown step (#86) walk the next hop the same
+        # way: bridge only, no perceive, no decide. A survey outranks a walk —
+        # an APC that has arrived somewhere worth surveying is done travelling.
+        walking = [a for a in ready if self._has_active_walk(a)]
+        ready = [a for a in ready if not self._has_active_walk(a)]
 
         # Account for every active agent this tick (#51). An APC dropped by the
         # ready filter — wedged is_busy, cooling down, holding an open chat —
         # otherwise disappears from the simulation with nothing in any log to
         # mark it: no decision entry, no skip line, no capture. Silence must not
         # be the same observation as "nothing was wrong".
-        running = {id(a) for a in ready} | {id(a) for a in sweeping}
+        running = ({id(a) for a in ready} | {id(a) for a in sweeping}
+                   | {id(a) for a in walking})
         excluded = [
             f"{a.agent_id} ({self._not_ready_reason(a)})"
             for a in sorted(self.agents.values(), key=lambda a: a.agent_id)
@@ -1403,6 +1421,11 @@ class AgentManager:
         for agent in sweeping:
             self._set_activity(agent, "sweeping")
             results.append(self._pulse_sweep(agent))
+
+        # Walk phase (sequential — same single bridge socket).
+        for agent in walking:
+            self._set_activity(agent, "walking")
+            results.append(self._pulse_walk(agent))
 
         # Phase 1: observe (sequential, bridge)
         observations: dict[str, dict | None] = {}
@@ -1462,6 +1485,7 @@ class AgentManager:
                     "error": "End or convert the open chat before pulsing this APC"}
         if self._has_active_survey(agent):
             return self._pulse_sweep(agent)
+        self._end_walk_plan(agent_id, "operator pulsed this APC")
         if self.mode == "explore":
             return self._pulse_explore(agent)
         self._set_activity(agent, "sampling")
@@ -4137,6 +4161,140 @@ class AgentManager:
                                        else min(previous, round(moved_cm, 1)))
         return dict(record["tried"])
 
+    def _open_walk_plan(self, agent_id: str, observation: dict, direction: str,
+                        legs: list[float], plan: dict) -> None:
+        """Remember a grown step so the hops after the first are walked for free."""
+        xyz = _loc_xyz(observation.get("location"))
+        yaw = self._direction_yaw(observation, direction)
+        if xyz is None or yaw is None:
+            return
+        self._walk_plans[agent_id] = {
+            "from": (xyz[0], xyz[1]), "z": xyz[2], "yaw": yaw,
+            "intent": direction, "legs": legs, "leg": 0, "ticks": 0,
+            "along": 0.0, "idle": 0,
+            "nearby": self._nearby_ids.get(agent_id),
+        }
+        logger.info(
+            "[%s] walk plan: %s %.1f m in %d hops of %.0f m",
+            agent_id, direction, plan["distance_cm"] / 100.0, len(legs),
+            _STEP_DISTANCE / 100.0)
+
+    def _has_active_walk(self, agent: Agent) -> bool:
+        """Whether this APC is part-way through a grown step (#86)."""
+        return agent.agent_id in self._walk_plans
+
+    def _end_walk_plan(self, agent_id: str, why: str) -> None:
+        """Drop the plan and buy the APC a full cognition tick to react."""
+        if self._walk_plans.pop(agent_id, None) is not None:
+            self._force_next_decide.add(agent_id)
+            logger.info("[%s] walk plan ended: %s", agent_id, why)
+
+    def _pulse_walk(self, agent: Agent) -> dict:
+        """One hop of a grown step — bridge only, no model call (#86).
+
+        The cheap state read and the forward probe are the whole cost. Anything
+        that makes the next hop a decision rather than a continuation ends the
+        plan and hands the tick back to cognition:
+
+        * something ahead the body must reckon with (it does not fit, it is
+          inside the standoff, or it can move on its own);
+        * the walk drifting off the straight line it was ordered along — which
+          is the navmesh routing around something, the SR47 failure, caught
+          after one hop instead of after fifty metres;
+        * anyone arriving or leaving nearby, so a plan can never walk an APC
+          past someone it should have noticed;
+        * the hops running out, or the plan simply going on too long.
+
+        ``_last_order`` is deliberately NOT touched here: the achieved-versus-
+        ordered check (#59) and the heading-drift fact then measure the WHOLE
+        grown step against the one order the model actually gave.
+        """
+        agent_id = agent.agent_id
+        plan = self._walk_plans.get(agent_id)
+        if plan is None:
+            return {"agent_id": agent_id, "action": "idle", "walk": True}
+        plan["ticks"] += 1
+
+        reader = getattr(self.bridge, "get_character_state", None)
+        state = reader(agent.bound_unreal_actor_name) if callable(reader) else {}
+        xyz = _loc_xyz((state or {}).get("location"))
+        if xyz is None:
+            self._end_walk_plan(agent_id, "no position")
+            agent.mark_ticked(self._agents_dir)
+            return {"agent_id": agent_id, "action": "idle", "walk": True}
+
+        if plan["ticks"] > _WALK_PLAN_MAX_TICKS:
+            self._end_walk_plan(agent_id, f"{plan['ticks']} ticks is long enough")
+            agent.mark_ticked(self._agents_dir)
+            return {"agent_id": agent_id, "action": "idle", "walk": True}
+
+        nearby = self._nearby_agent_ids(agent_id, xyz)
+        if plan["nearby"] is not None and nearby != plan["nearby"]:
+            self._end_walk_plan(agent_id, "someone came or went")
+            agent.mark_ticked(self._agents_dir)
+            return {"agent_id": agent_id, "action": "idle", "walk": True}
+
+        # How far along the ordered line are we, and how far off it?
+        fx, fy = plan["from"]
+        rad = math.radians(plan["yaw"])
+        ux, uy = math.cos(rad), math.sin(rad)
+        dx, dy = xyz[0] - fx, xyz[1] - fy
+        along = dx * ux + dy * uy
+        off = abs(-dx * uy + dy * ux)
+        if off > _LEG_DRIFT_CM:
+            self._end_walk_plan(
+                agent_id, f"walked {off / 100.0:.1f} m off the line it was sent along")
+            agent.mark_ticked(self._agents_dir)
+            return {"agent_id": agent_id, "action": "idle", "walk": True}
+
+        trace = self._probe_ahead(agent, _AHEAD_TRACE_CM)
+        if trace.get("hit"):
+            category = _classify_blocker(trace.get("actor_name", ""),
+                                         trace.get("actor_class", ""),
+                                         trace.get("signals"))
+            distance = float(trace.get("distance_cm", 0.0) or 0.0)
+            if (trace.get("fits") is False or distance <= _STANDOFF_CM
+                    or category in _MOBILE_BLOCKERS):
+                self._end_walk_plan(
+                    agent_id, f"{category} {distance:.0f} cm ahead")
+                agent.mark_ticked(self._agents_dir)
+                return {"agent_id": agent_id, "action": "idle", "walk": True}
+
+        # Still short of this hop? Let the body keep walking to it — unless it
+        # has stopped making ground, which is a wedge and belongs to cognition.
+        # Without this a plan could sit silent against a wall for its whole tick
+        # budget, which is the exact failure #65 exists to make loud.
+        target_cm = plan["legs"][plan["leg"]]
+        if target_cm - along > _LEG_ARRIVE_CM:
+            gained = along - plan.get("along", 0.0)
+            plan["along"] = along
+            plan["idle"] = plan.get("idle", 0) + 1 if gained < _STUCK_PROGRESS_CM else 0
+            if plan["idle"] >= _STUCK_TICKS:
+                self._end_walk_plan(agent_id, "stopped making ground on this hop")
+                agent.mark_ticked(self._agents_dir)
+                return {"agent_id": agent_id, "action": "idle", "walk": True}
+            agent.mark_ticked(self._agents_dir)
+            return {"agent_id": agent_id, "action": "walking", "walk": True,
+                    "leg": plan["leg"] + 1, "total": len(plan["legs"])}
+
+        plan["leg"] += 1
+        plan["idle"] = 0
+        plan["along"] = along
+        if plan["leg"] >= len(plan["legs"]):
+            self._end_walk_plan(agent_id, "all hops walked")
+            agent.mark_ticked(self._agents_dir)
+            return {"agent_id": agent_id, "action": "idle", "walk": True}
+
+        target = _offset_location(fx, fy, plan["z"], plan["yaw"],
+                                  plan["legs"][plan["leg"]])
+        result = self.bridge.execute_action(
+            agent.bound_unreal_actor_name, {"type": "walk_to", "location": target})
+        logger.info("[%s] walk plan: hop %d/%d %s", agent_id, plan["leg"] + 1,
+                    len(plan["legs"]), plan["intent"])
+        agent.mark_ticked(self._agents_dir)
+        return {"agent_id": agent_id, "action": "walk_to", "walk": True,
+                "leg": plan["leg"] + 1, "total": len(plan["legs"]), "result": result}
+
     def _note_movement_order(self, agent_id: str, action: dict, observation: dict) -> None:
         """Remember the movement we just ordered, so next tick can check it."""
         if action.get("type") not in _MOVEMENT_ACTIONS:
@@ -4414,6 +4572,7 @@ class AgentManager:
             # get right (#86).
             plan = self._plan_move(observation, direction, action)
             observation["_move_plan"] = plan
+            self._walk_plans.pop(agent.agent_id, None)
             if plan["distance_cm"] <= 0.0:
                 logger.info(f"[{agent.agent_id}] move plan: no step {direction} — "
                             f"{plan['why']}")
@@ -4426,8 +4585,15 @@ class AgentManager:
                     f"(wanted {plan['wanted_cm'] / 100:.1f} m"
                     + (f", capped by {plan['capped_by']}" if plan["capped_by"] else ", grew")
                     + ")")
-            target = self._direction_target(observation, direction,
-                                            plan["distance_cm"])
+            # A grown step is never handed over whole (#86). Cut it into hops of
+            # one nominal step and order only the first; `_pulse_walk` walks the
+            # rest with no model call. The engine only ever sees a distance the
+            # fixed 15 m step always walked correctly.
+            legs = move_plan.leg_distances(plan["distance_cm"], _STEP_DISTANCE)
+            if len(legs) > 1:
+                self._open_walk_plan(agent.agent_id, observation, direction,
+                                     legs, plan)
+            target = self._direction_target(observation, direction, legs[0])
             if target is None and t == "wander":
                 # No yaw available — legacy random step so wander never dead-ends.
                 import random
@@ -4790,6 +4956,7 @@ class AgentManager:
         self._travel.clear()
         self._breadcrumbs.clear()
         self._last_order.clear()
+        self._walk_plans.clear()
         self._tried_here.clear()
         self._stall_run.clear()
         self._no_progress.clear()
