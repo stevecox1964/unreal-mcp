@@ -4709,6 +4709,12 @@ class AgentManager:
             # Record where the direction word actually pointed, so the decision
             # log can show the heading it produced (#55).
             action["_resolved_target"] = target
+            # `action` here is a COPY (`_resolve_action_actor_refs`), so this key
+            # never reaches the caller and the movement trace has been silently
+            # falling back to `action["location"]` — which a direction walk does
+            # not have. The observation is not copied, so it is the honest place
+            # to leave it, and the trace reads it from there.
+            observation["_resolved_target"] = target
             result = self.bridge.execute_action(
                 agent.bound_unreal_actor_name, {"type": "walk_to", "location": target}
             )

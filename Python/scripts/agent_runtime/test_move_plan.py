@@ -285,6 +285,70 @@ def test_the_plan_probes_as_far_as_it_means_to_walk():
     check("which is far more than the travel probe", asked > 500.0)
 
 
+# ── #86: _scan_ahead, end to end from the shared map ─────────────────────────
+
+def test_the_scan_finds_a_refused_patch_and_stops_short_of_it():
+    tmp = tempfile.mkdtemp()
+    mgr = make_manager(tmp, "scan")
+    x, y = 16500.0, 16500.0
+    # Somebody refused a 9 m patch 10 m due east of where we stand.
+    mgr.place_db.refuse_patch("maren", x + 1000.0, y, "private yard", "Day 1, 09:00")
+
+    scan = mgr._scan_ahead((x, y, 100.0), 0.0, move_plan.MAX_STEP_CM)   # east
+    check("the scan finds the refusal", scan["stop_short_cm"] is not None)
+    check("and names it", "private yard" in scan["stop_reason"])
+    check("it stops short of the patch, not inside it",
+          0 < scan["stop_short_cm"] < 1000.0)
+
+    clear = mgr._scan_ahead((x, y, 100.0), 180.0, move_plan.MAX_STEP_CM)  # west
+    check("a heading with nothing on it reports nothing",
+          clear["stop_short_cm"] is None)
+
+
+def test_the_scan_finds_a_refused_cell():
+    tmp = tempfile.mkdtemp()
+    mgr = make_manager(tmp, "scancell")
+    x, y = 16500.0, 16500.0
+    east = mgr.world_grid.locate(x + 3000.0, y)
+    mgr.place_db.refuse_cell("dufus", east["col"], east["row"],
+                             "standing corn wall to wall", "Day 1, 09:00")
+
+    scan = mgr._scan_ahead((x, y, 100.0), 0.0, move_plan.MAX_STEP_CM)
+    check("a refused cell stops the scan", scan["stop_short_cm"] is not None)
+    check("and is named as a cell, not a patch",
+          scan["stop_reason"] == "refused cell")
+
+
+def test_only_ground_that_was_STOOD_on_counts_as_proven():
+    tmp = tempfile.mkdtemp()
+    mgr = make_manager(tmp, "proven")
+    x, y = 16500.0, 16500.0
+    bare = mgr._scan_ahead((x, y, 100.0), 0.0, 6000.0)
+    check("ground nobody has walked is not proven", bare["open_run_cm"] == 0.0)
+
+    for step in (1500.0, 4500.0):
+        cell = mgr.world_grid.locate(x + step, y)
+        mgr.place_db.record_ground("dufus", cell["col"], cell["row"], "pavement")
+    here = mgr.world_grid.locate(x, y)
+    mgr.place_db.record_ground("dufus", here["col"], here["row"], "pavement")
+    walked = mgr._scan_ahead((x, y, 100.0), 0.0, 6000.0)
+    check("ground somebody stood on is proven", walked["open_run_cm"] > 0.0)
+    check("the run never exceeds the ground it scanned",
+          walked["open_run_cm"] <= 6000.0)
+
+
+# ── #55: the heading a direction word produced reaches the log ───────────────
+
+def test_the_resolved_target_survives_the_action_copy():
+    from agent_runtime.memory_store import movement_trace
+    observation = {"location": {"x": 0.0, "y": 0.0, "z": 100.0},
+                   "_resolved_target": [1500.0, 0.0, 100.0]}
+    trace = movement_trace(observation, {"type": "walk_to", "direction": "east"})
+    check("a direction walk logs what it actually aimed at",
+          trace["move"]["target"] == [1500.0, 0.0])
+    check("and the heading it produced", trace["move"]["heading"] == "E")
+
+
 # ── #86: the walk plan's five exits ──────────────────────────────────────────
 
 def _walking(tmp, name, blocked=None):
@@ -402,6 +466,10 @@ if __name__ == "__main__":
     test_boxed_in_is_not_the_same_as_never_asked()
     test_a_probe_that_could_not_answer_returns_none()
     test_the_plan_probes_as_far_as_it_means_to_walk()
+    test_the_scan_finds_a_refused_patch_and_stops_short_of_it()
+    test_the_scan_finds_a_refused_cell()
+    test_only_ground_that_was_STOOD_on_counts_as_proven()
+    test_the_resolved_target_survives_the_action_copy()
     test_a_clean_plan_walks_every_hop_without_a_decision()
     test_drifting_off_the_line_ends_the_plan()
     test_something_ahead_ends_the_plan()

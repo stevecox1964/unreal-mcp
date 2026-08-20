@@ -192,8 +192,13 @@ def movement_trace(observation: dict, action: dict,
         move["intent"] = intent
     # A direction walk carries no coordinates until execution resolves it, so
     # the executor stashes what it actually aimed at — without it the heading a
-    # direction word produced is exactly the thing the log cannot show.
-    target = (_xy(action.get("_resolved_target")) or _xy(action.get("location"))
+    # direction word produced is exactly the thing the log cannot show. The
+    # executor works on a COPY of the action, so the stash rides on the
+    # observation; the action is still checked first for callers that pass a
+    # fully resolved action straight in.
+    target = (_xy(action.get("_resolved_target"))
+              or _xy(observation.get("_resolved_target"))
+              or _xy(action.get("location"))
               or _xy(action.get("target_location")))
     if target is not None:
         move["target"] = [round(target[0], 1), round(target[1], 1)]

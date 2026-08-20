@@ -415,7 +415,7 @@ this banner on 2026-08-19 — #77/#78/#26/#79/#80 — already has tests.)
 
 - *(the #86-#90 locomotion lane is now covered - see below)*
 
-**Paid off 2026-08-20:** `scripts/agent_runtime/test_move_plan.py`, **20 checks**, suite **65/65**.
+**Paid off 2026-08-20:** `scripts/agent_runtime/test_move_plan.py`, **24 tests / 67 checks**, suite **65/65**.
 Pins **#90** (the step is the measured reach; an unmeasured step is labelled a guess; the model may
 only ask for *less*; the known-ground sentence never outruns the step), **#86** (a refusal shortens but
 never cancels; no-room yields no shuffle; hops never hand the engine a far target; all five walk-plan
@@ -423,13 +423,18 @@ exits; the heading-drift fact), **#88** (a column blocked at body height is not 
 gaps become none; compass words nearest-turn-first; boxed-in stays distinguishable from never-asked)
 and **#89** (a probe that could not answer returns *not measured*, never *clear*).
 
-*Still unpinned in this lane:* `AgentManager._scan_ahead` against a PlaceDB fixture with a no-go patch
-and a refused cell - the refusal cap is covered at the `plan_step` level but not end-to-end from the DB.
+It also pins `_scan_ahead` end to end from a real `PlaceDB` (a refused patch stops the scan short of
+itself and is named; a refused cell is named as a cell; **only ground somebody STOOD on counts as
+proven**), and the #55 regression fixed alongside: `action["_resolved_target"]` never reached the
+movement trace, because `_execute_world_action` works on a copy of the action — so a direction walk's
+target and heading were missing from every decision-log entry that had no explicit `location`.
 
 
 ### Cleanup advisories (observed, not scheduled)
 
-- **`action["_resolved_target"]` never reaches the caller** (found while building #86).
+- ~~**`action["_resolved_target"]` never reaches the caller**~~ **FIXED 2026-08-20** — it now rides
+  on the observation (which is not copied) and `movement_trace` reads it from there; pinned by
+  `test_the_resolved_target_survives_the_action_copy`. Original finding:
   `_execute_world_action` starts with `action = self._resolve_action_actor_refs(action)`, which
   returns a **copy** — so the `_resolved_target` written at `agent_manager.py:4384` is discarded, and
   `memory_store.py:196`, the only reader, always falls back to `action["location"]`. Harmless today
