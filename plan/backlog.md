@@ -411,6 +411,9 @@ Features built WITHOUT tests to speed up code-done → live-testing. One line pe
 feature as it lands; the suite catches up here later. (Everything built before
 this banner on 2026-08-19 — #77/#78/#26/#79/#80 — already has tests.)
 
+- **#88 open headings** (2026-08-20) — `_open_headings` needs a fake bridge where straight ahead and
+  one side are blocked and the other side is clear: it must return compass words (not body-relative),
+  nearest-turn first, and an EMPTY list must stay distinguishable in the prompt from "never probed".
 - **#86 the walk plan** (2026-08-20) — `move_plan.leg_distances` is pure and trivial to cover
   (exact multiples, a remainder, a remainder too small to be its own hop). `_pulse_walk` needs a fake
   bridge and one case per abort path: drift off the line, something ahead, no ground made, someone
@@ -3765,11 +3768,10 @@ shoulders*, which can never answer "how do I get around this". Dufus was told `o
 pavement sat a metre either side. **This is a missing fact, not a reasoning failure** — exactly the
 [[feedback_facts_not_blocking]] case.
 
-**Next (recommended, no rebuild):** `get_character_forward_volume` already accepts `yaw_offset_deg`.
-When `fits=False`, probe at ±45° and give the APC `open_headings` — *"you do not fit ahead; you DO fit
-to your left."* Four extra bridge calls, only on blocked ticks, testable today. The cleaner fix is a
-`scan_width_cm` (~3× body radius) in C++, but that needs another editor rebuild — do the angled probe
-first and find out whether the fact is what ends the bounce.
+**Fixed the same day as #88 — no rebuild needed.** The probe is turned instead of the body: -90/-45/
++45/+90, capsule sweep and all, and the APC is told which headings its body actually fits down. See
+**#88** for why this beats widening the raster (which is still available later, but is no longer the
+blocker). **SR50 is the test.**
 
 **Also: Maren did nothing for the entire run.** 22 ticks, `moved 0.0`, 21 of them
 `idle(scene_unchanged)` / `settled routine sampled; VLM sleeping`. She woke believing the schedule's
@@ -3877,6 +3879,49 @@ failure mode to the exact loop the exit condition measures.
 **Relates to:** #86, #81, #77, #84, #61, [[architecture_lizard_brain_sensing]],
 [[feedback_lizard_brain_contract]], [[feedback_facts_not_blocking]],
 [[project_dufus_vlm_training_corpus]].
+
+---
+
+## 88. Turn the probe, not the body — "which way CAN I go", measured
+
+**Status:** **BUILT 2026-08-20, no rebuild needed — needs a test, needs SR50.** `AgentManager._open_headings`
+probes `get_character_forward_volume` at -90/-45/+45/+90 whenever the body does not fit straight ahead,
+and attaches `blocker.open_headings` (compass words, nearest-to-straight-ahead first, with the measured
+clearance). `llm_router._open_headings_text` renders it. **Source:** SR49 — Dufus bounced 30 m back and
+forth for fourteen ticks between a dumpster and a lantern, refusing ground and coming back, saying
+*"I've bounced here too many times"*.
+
+### Why the raster could never answer this
+
+`UnrealMCPCharacterCommands.cpp:346` offsets each raster column by `Right * (ColT * Radius)` with
+`Radius` read from the capsule — 34 cm. **The whole scan is exactly as wide as the body.** `far_left`
+means 34 cm left of centre. So `open_columns` can only ever report gaps *inside the APC's own
+shoulders*, and `open=none` is what a dumpster returns even with clear pavement a metre either side.
+The APC was not reasoning badly; the only fact it had said "nowhere", so the only move left was to turn
+around — and then the ground behind was fully surveyed, so it turned around again.
+
+### Why turning the PROBE beats widening the raster
+
+The C++ already reads `yaw_offset_deg` (`:224`) and builds `ProbeRotation` from it (`:258`) — and that
+rotation drives the **capsule sweep quaternion**, not just the rays. So an angled call is a genuine
+*"would my body fit if I walked that way"* test, which is the same question walking asks. A wider
+raster would answer something smaller ("the gap is 80 cm to your left") and needs an editor rebuild.
+**APCs steer by heading, not by raster column**, so the heading question is the one worth paying for.
+Widening the raster stays available later for fine aiming inside a step; it is no longer the blocker.
+
+**Cost:** four bridge calls, and only on a tick where the body is already blocked. Zero on a clean tick.
+
+**Facts, not blockers** ([[feedback_facts_not_blocking]]): the sense names every heading that was
+measured to fit and stops there. It never says which to take, and an APC with a reason to stay put
+ignores all of them. "None of them fit" is stated as its own fact — being boxed in is real, and it must
+stay distinguishable from never having asked.
+
+**Relates to:** #81 (whose raster width this works around), #86 (the walk plan aborts on `fits=False`
+and now hands cognition something to do about it), #26, #61, #65,
+[[architecture_lizard_brain_sensing]], [[feedback_lizard_brain_contract]].
+
+**Done when:** an APC blocked by a prop steps around it instead of retreating, and SR50 shows no
+NE↔SW bounce at the village square.
 
 ---
 

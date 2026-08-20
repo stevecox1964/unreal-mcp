@@ -919,7 +919,10 @@ def _sense_note(observation: dict) -> str:
         # cannot aim finer than a 9 m trap. Stated as measurement, never advice.
         if blocker.get("fits") is False:
             openings = [str(c).replace("_", " ") for c in (blocker.get("open_columns") or [])]
-            if blocker.get("raster_silent"):
+            openings_text = _open_headings_text(blocker)
+            if openings_text:
+                lines.append(openings_text)
+            elif blocker.get("raster_silent"):
                 lines.append(
                     f"Sense: your body DOES NOT FIT straight ahead — measured "
                     f"clearance {blocker.get('clearance_cm', 0.0) / 100.0:.1f} m — "
@@ -942,6 +945,30 @@ def _sense_note(observation: dict) -> str:
         if blocker.get("halted"):
             lines.append("Sense: your walk has been halted.")
     return ("\n" + "\n".join(lines) + "\n") if lines else ""
+
+
+def _open_headings_text(blocker: dict) -> str:
+    """Which way the body CAN go when it does not fit straight ahead (#88).
+
+    The measurement is a capsule sweep turned to each heading, so "you fit that
+    way" is the same question walking asks. Stated as fact and nothing more: it
+    names what was measured, never which one to take, and an APC with a reason
+    to stay put is free to ignore all of them.
+    """
+    headings = blocker.get("open_headings")
+    if not isinstance(headings, list):
+        return ""            # never probed — say nothing rather than imply "none"
+    clearance = blocker.get("clearance_cm", 0.0) / 100.0
+    if not headings:
+        return (f"Sense: your body DOES NOT FIT straight ahead (measured clearance "
+                f"{clearance:.1f} m), and it does not fit to either side or square "
+                f"left or right either. Every heading within a quarter turn of your "
+                f"facing was measured and your body fits down none of them.")
+    ways = ", ".join(f"{h['heading']} (clear {h['clearance_cm'] / 100:.1f} m)"
+                     for h in headings)
+    return (f"Sense: your body DOES NOT FIT straight ahead (measured clearance "
+            f"{clearance:.1f} m), but it DOES fit these ways: {ways}. Each one was "
+            f"measured with your own body, not guessed from the picture.")
 
 
 def _tried_here_text(last_move: dict | None) -> str:

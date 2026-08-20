@@ -153,6 +153,16 @@ _STEP_DISTANCE = 1500.0
 # in-memory patch list, with each cell looked up once. That is free.
 _SCAN_STEP_CM = 150.0
 
+# Where to aim the body-box probe when the body does not fit straight ahead
+# (#88). The raster cannot answer this: its columns are offset by the capsule
+# RADIUS, so the whole scan is exactly as wide as the body and "far left" means
+# 34 cm. SR49 had Dufus told `open=none` by a dumpster with clear pavement a
+# metre either side, and he bounced 30 m back and forth for fourteen ticks.
+# Turning the probe asks the question he actually needs answered — "would my
+# body fit if I went THAT way" — and the engine rotates the capsule sweep with
+# it, so the answer is a real fit test and not a guess from rays.
+_OPEN_HEADING_OFFSETS = (-90.0, -45.0, 45.0, 90.0)
+
 # Walking a grown step (#86). The engine is never handed a target further than
 # one nominal step, so the navmesh has almost no room to route around something
 # and land somewhere else — SR47's 45 m orders arrived 50 m sideways. The hops
@@ -1705,6 +1715,19 @@ class AgentManager:
                         trace.get("open_columns") or [])
                     observation["blocker"]["raster_silent"] = bool(
                         trace.get("raster_silent"))
+                if fits is False:
+                    # Blocked straight ahead is only half a fact. Without the
+                    # other half the only move left is to turn around, which is
+                    # what SR49's bounce was made of (#88).
+                    openings = self._open_headings(agent, observation, probe_cm)
+                    observation["blocker"]["open_headings"] = openings
+                    if openings:
+                        logger.info(
+                            "[%s] open headings: %s", agent_id,
+                            ", ".join(f"{h['heading']} ({h['clearance_cm'] / 100:.1f} m)"
+                                      for h in openings))
+                    else:
+                        logger.info("[%s] open headings: none — boxed in", agent_id)
                     observation["blocker"]["fully_blocked"] = bool(
                         trace.get("fully_blocked"))
                     observation["blocker"]["clearance_cm"] = float(
@@ -1927,6 +1950,44 @@ class AgentManager:
             "fully_blocked": False,
             "clearance_cm": float(trace.get("distance_cm", 0.0) or 0.0),
         }
+
+    def _open_headings(self, agent, observation: dict,
+                       distance_cm: float) -> list[dict]:
+        """Which way CAN this body go, when it does not fit straight ahead (#88).
+
+        Turns the body-box probe (#81) rather than the body: one call per offset,
+        each a genuine capsule sweep along that heading, so the answer is "my body
+        fits that way", not "a ray got through". Only the headings that fit are
+        returned, nearest-to-straight-ahead first, named in COMPASS words because
+        that is the vocabulary the APC steers with (#59) — a body-relative word
+        would change meaning the moment it turned.
+
+        Costs one bridge call per offset and runs only when the body is already
+        blocked, which is the one tick where it is worth paying for.
+        """
+        volume = getattr(self.bridge, "forward_volume", None)
+        facing = _yaw_of(observation.get("rotation"))
+        if not callable(volume) or facing is None or self._volume_probe_unavailable:
+            return []
+        out: list[dict] = []
+        for offset in _OPEN_HEADING_OFFSETS:
+            try:
+                result = volume(agent.bound_unreal_actor_name, distance_cm,
+                                yaw_offset_deg=offset) or {}
+            except Exception as e:
+                logger.warning("[%s] angled probe %+.0f failed: %s",
+                               agent.agent_id, offset, e)
+                continue
+            if not result.get("success") or result.get("fits") is not True:
+                continue
+            word = _COMPASS_LETTER_WORD.get(yaw_to_compass(facing + offset))
+            if not word:
+                continue
+            out.append({"heading": word,
+                        "clearance_cm": float(result.get("clearance_cm", 0.0) or 0.0),
+                        "turn_deg": abs(offset)})
+        out.sort(key=lambda h: (h["turn_deg"], -h["clearance_cm"]))
+        return out
 
     def _nearby_agent_ids(self, agent_id: str, xyz) -> frozenset[str]:
         """Nearby APC ids from cached transforms; no bridge or model work."""
