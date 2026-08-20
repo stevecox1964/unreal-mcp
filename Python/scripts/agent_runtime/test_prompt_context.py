@@ -185,10 +185,14 @@ def test_reaction_gate_template():
     # written for. Deleting them instead would quietly hand Dufus a reason to
     # stop surveying, which is the regression this half guards.
     # Markdown wraps mid-sentence, so collapse all whitespace before matching.
+    # Read the rules the AGENT actually gets, not the raw file: since #85 a
+    # rules.md pulls shared doctrine in with `@import`, so the file on disk is no
+    # longer the whole of what reaches the prompt.
     def _rules(agent_id):
-        text = (WORLDS / "MCP_World" / "agents" / agent_id / "rules.md").read_text(
-            encoding="utf-8")
-        return " ".join(text.split())
+        from agent_runtime.agent import resolve_rule_imports
+        world = WORLDS / "MCP_World"
+        text = (world / "agents" / agent_id / "rules.md").read_text(encoding="utf-8")
+        return " ".join(resolve_rule_imports(text, world, agent_id).split())
 
     dufus_rules = _rules("dufus")
     check("dufus still must not stop for strangers",

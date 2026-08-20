@@ -131,14 +131,51 @@ def test_person_beyond_standoff_is_a_fact_but_no_reflex_stop():
         check("no halted fact beyond the standoff", "halted" not in obs["blocker"])
 
 
-def test_structure_ahead_while_moving_stays_silent():
+def test_far_structure_is_a_fact_but_does_not_wake_cognition():
+    # #61 (changed 2026-08-20): a static hit used to be classified and then
+    # thrown away, so SR45 dropped fifteen of Dufus's hits including a parked
+    # car. Every hit is a fact now; only an *urgent* one buys a paid tick.
     with tempfile.TemporaryDirectory() as tmp:
+        distance = _STANDOFF_CM + 200.0
         bridge = TraceBridge(hit={"hit": True, "actor_name": "SM_Wall_14",
-                                  "actor_class": "StaticMeshActor", "distance_cm": 300.0})
+                                  "actor_class": "StaticMeshActor",
+                                  "distance_cm": distance})
         mgr, agent = _manager(tmp, bridge)
         obs = mgr._observe_agent(agent)
-        check("structure while traveling attaches no blocker", obs is None or "blocker" not in obs)
-        check("moving + unchanged scene still skips the LLM", obs is None)
+        check("moving + unchanged scene still skips the LLM for a far wall", obs is None)
+        check("the far wall was still traced", len(bridge.trace_calls) == 1)
+
+
+def test_near_structure_is_urgent_and_wakes_cognition():
+    with tempfile.TemporaryDirectory() as tmp:
+        bridge = TraceBridge(hit={"hit": True, "actor_name": "SM_Wall_14",
+                                  "actor_class": "StaticMeshActor",
+                                  "distance_cm": _STANDOFF_CM - 50.0})
+        mgr, agent = _manager(tmp, bridge)
+        obs = mgr._observe_agent(agent)
+        check("a wall inside the standoff wakes cognition", obs is not None)
+        check("structure blocker attached",
+              (obs.get("blocker") or {}).get("category") == "structure")
+        check("marked urgent", obs["blocker"]["urgent"] is True)
+        check("raw engine name carried for diagnosis",
+              obs["blocker"]["actor_name"] == "SM_Wall_14")
+        check("no reflex stop for a static blocker (mobile only)", bridge.actions == [])
+
+
+def test_sr45_real_actor_names_classify():
+    # Every one of these was hit live in SR45 and fell through to "obstacle".
+    from agent_runtime.agent_manager import _classify_blocker
+    for name, cls, want in [
+        ("veh_SportClassic_2", "SkeletalMeshActor", "vehicle"),
+        ("veh_VegetableTruck2", "SkeletalMeshActor", "vehicle"),
+        ("shopFront_01", "StaticMeshActor", "structure"),
+        ("shopFront_03a3", "StaticMeshActor", "structure"),
+        ("road_sign_11", "StaticMeshActor", "prop"),
+        ("pose_standing_24", "SkeletalMeshActor", "figure"),
+    ]:
+        check(f"{name} -> {want}", _classify_blocker(name, cls) == want)
+    check("a crowd figure is not a person (do not greet a mannequin)",
+          _classify_blocker("pose_standing_39", "SkeletalMeshActor") != "person")
 
 
 def test_idle_agent_never_traces():
@@ -231,7 +268,8 @@ def test_walk_to_character_already_close_does_not_close_in():
 
 def test_sense_note_renders_facts_only():
     note = llm_router._sense_note({"blocker": {"category": "person", "distance_cm": 210.0}})
-    check("blocker renders without stuck", "person 210 cm directly ahead" in note)
+    check("blocker renders without stuck", "person 2.1 m directly ahead" in note)
+    check("the navmesh disagreement is stated", "navmesh does not know" in note)
     check("no stuck line when not stuck", "not advanced" not in note)
     check("no halt line when not halted", "halted" not in note)
 
@@ -245,7 +283,7 @@ def test_sense_note_renders_facts_only():
     note = llm_router._sense_note(
         {"stuck": True, "blocker": {"category": "vehicle", "distance_cm": 90.0}})
     check("both senses render together",
-          "not advanced" in note and "vehicle 90 cm directly ahead" in note)
+          "not advanced" in note and "vehicle 0.9 m directly ahead" in note)
     check("sense lines are facts, not advice", "should" not in note and "go around" not in note)
 
     check("no senses -> empty note", llm_router._sense_note({}) == "")
@@ -280,7 +318,9 @@ def test_prompt_carries_sense_slot_and_doctrine():
 def main():
     test_person_ahead_while_moving_is_a_fact_and_forces_redecide()
     test_person_beyond_standoff_is_a_fact_but_no_reflex_stop()
-    test_structure_ahead_while_moving_stays_silent()
+    test_far_structure_is_a_fact_but_does_not_wake_cognition()
+    test_near_structure_is_urgent_and_wakes_cognition()
+    test_sr45_real_actor_names_classify()
     test_idle_agent_never_traces()
     test_stuck_still_reports_any_category()
     test_apc_child_bp_classifies_as_person()

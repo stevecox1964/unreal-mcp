@@ -11,6 +11,83 @@ from . import interruptions
 
 logger = logging.getLogger("AgentRuntime")
 
+# #85: shared doctrine. An agent's rules.md may pull in world-level rule files
+# with a line of exactly `@import doctrine/<file>.md`. Before this, every
+# navigation lesson from six weeks of live runs was typed into dufus/rules.md
+# (94 lines) while maren/rules.md stayed at 21 — in SR46 Maren reasoned "time to
+# refuse this ground" and could not, because her file never said `refuse_cell`
+# existed. Doctrine that is true for any body with legs is stored once.
+_IMPORT_KEYWORD = "@import"
+
+
+class RulesImportError(Exception):
+    """A rules.md import could not be resolved. Never swallowed (rule 12).
+
+    A typo must stop the run. Silently producing an APC that knows less than it
+    should is exactly how the Maren/Dufus drift went unnoticed for six weeks.
+    """
+
+
+def resolve_rule_imports(text: str, world_root: Path, agent_id: str,
+                         _nested: bool = False) -> str:
+    """Replace `@import <path>` lines in ``text`` with the file's contents.
+
+    Literal textual inclusion, deliberately dumb: no templating, no conditionals,
+    no nesting. Paths are relative to the world root and may not climb out of it.
+    Imports resolve in place, so an agent's own lines — written after its imports
+    — come later in the text and override doctrine they disagree with.
+    """
+    out: list[str] = []
+    loaded: list[str] = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        # Split on whitespace rather than matching "@import " with its trailing
+        # space: a bare "@import" (a half-typed line) would otherwise fail the
+        # prefix test and be pasted into the prompt as if it were a rule.
+        parts = stripped.split(None, 1)
+        if not parts or parts[0] != _IMPORT_KEYWORD:
+            out.append(line)
+            continue
+        rel = parts[1].strip().strip("\"'") if len(parts) > 1 else ""
+        if _nested:
+            raise RulesImportError(
+                f"[{agent_id}] doctrine files may not import other files: "
+                f"found '{stripped}' inside an imported file"
+            )
+        if not rel:
+            raise RulesImportError(
+                f"[{agent_id}] rules.md line {lineno}: '@import' with no path"
+            )
+        target = (world_root / rel).resolve()
+        if not str(target).startswith(str(world_root.resolve())):
+            raise RulesImportError(
+                f"[{agent_id}] rules.md line {lineno}: import '{rel}' escapes the world directory"
+            )
+        if not target.is_file():
+            raise RulesImportError(
+                f"[{agent_id}] rules.md line {lineno}: import '{rel}' not found at {target}"
+            )
+        body = target.read_text(encoding="utf-8")
+        # One level only — checked by re-running the resolver in nested mode,
+        # which raises rather than expanding.
+        resolve_rule_imports(body, world_root, agent_id, _nested=True)
+        out.append(body.rstrip("\n"))
+        loaded.append(rel)
+    if _nested:
+        # The nested pass exists only to reject `@import` inside a doctrine file.
+        # It reaches here having found none, so it has nothing to report.
+        return "\n".join(out)
+    if loaded:
+        logger.info(f"[{agent_id}] doctrine loaded: {', '.join(loaded)}")
+    else:
+        # Not an error — an agent may legitimately carry all its own rules — but
+        # it is the shape of the bug #85 exists to prevent, so it is never silent.
+        logger.warning(
+            f"[{agent_id}] rules.md imports no shared doctrine — it carries only "
+            f"its own rules. Intended?"
+        )
+    return "\n".join(out)
+
 
 class Agent:
     # Fields that change every run — persisted to a git-ignored runtime.json so
@@ -59,7 +136,11 @@ class Agent:
                 logger.warning(f"[{agent_id}] bad runtime.json — ignoring")
         character = (path / "character.md").read_text(encoding="utf-8")
         goals = (path / "goals.md").read_text(encoding="utf-8")
-        rules = (path / "rules.md").read_text(encoding="utf-8")
+        rules = resolve_rule_imports(
+            (path / "rules.md").read_text(encoding="utf-8"),
+            agents_dir.parent,          # the world root; doctrine/ lives beside agents/
+            agent_id,
+        )
         tools = json.loads((path / "tools.json").read_text(encoding="utf-8"))
         authored_agenda = None
         agenda_errors = []

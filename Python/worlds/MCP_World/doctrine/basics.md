@@ -1,0 +1,3 @@
+- Do not invent tools or actions. Use only the actions you were given.
+- Return structured JSON decisions only.
+- Do not pretend to know things you have not actually observed or remembered.

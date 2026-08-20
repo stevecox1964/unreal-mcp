@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Optional
 from dotenv import load_dotenv
 
 from . import agenda
+from . import prompt_payload
 from .place_db import yaw_to_compass
 
 if TYPE_CHECKING:
@@ -27,14 +28,14 @@ _COMPASS_WORD = {
 _ACTION_SCHEMAS: dict[str, str] = {
     "idle":             '{"type": "idle"}',
     "wander":           '{"type": "wander"}  -- keep moving: take one step (~15m) in the direction you are facing',
-    "walk_to":          '{"type": "walk_to", "target_location": "<place name>"} to travel to a named place you know (e.g. "village square", "home"), OR {"type": "walk_to", "target_actor": "<actor_label>"} to walk to a known character, OR {"type": "walk_to", "direction": "north|south|east|west|northeast|northwest|southeast|southwest"} to walk ~15m along that compass heading, OR {"type": "walk_to", "direction": "forward|forward-left|forward-right|left|right|back"} to walk ~15m relative to the way your body is currently facing',
+    "walk_to":          '{"type": "walk_to", "target_location": "<place name>"} to travel to a named place you know (e.g. "village square", "home"), OR {"type": "walk_to", "target_actor": "<character name>"} to walk to a known character, OR {"type": "walk_to", "direction": "north|south|east|west|northeast|northwest|southeast|southwest"} to walk ~15m along that compass heading, OR {"type": "walk_to", "direction": "forward|forward-left|forward-right|left|right|back"} to walk ~15m relative to the way your body is currently facing',
     "survey_here":      '{"type": "survey_here"} to survey the cell you are standing in — captures all four compass headings over the next few ticks and adds the cell to the shared map. Only works on a cell that has no current survey, and only for the cell underfoot',
     "refuse_cell":      '{"type": "refuse_cell", "direction": "north|south|east|west|northeast|northwest|southeast|southwest", "reason": "<what you can see that makes it not worth walking into>"} to record that the cell one step that way is not ground you will walk into. It stops being offered as somewhere to survey, for you and for every other APC, until someone withdraws it. Use it when you can SEE the reason — standing crops, water, a fence, someone\'s private yard. Omit "direction" to refuse the cell you are standing in. Add "scope": "spot" to refuse only the ~9m patch of ground one step that way instead of the whole 30m cell — use the patch for one bad yard, alley or doorway inside a cell that is otherwise worth surveying; use the whole cell for corn fields, water, and ground that is bad wall to wall',
     "allow_cell":       '{"type": "allow_cell", "direction": "<compass word, or omit for here>"} to withdraw a refusal you made earlier — the cell goes back to being ordinary ground. Add "scope": "spot" to withdraw a patch refusal instead',
-    "speak_to":         '{"type": "speak_to", "target": "<actor_label>", "message": "<text>"} -- say something out loud to someone. This is the ONLY action that produces speech: greeting, answering, asking, thanking, saying goodbye. If you intend to say anything at all this tick, the action is speak_to. "idle" and "observe" are silent',
-    "inspect_object":   '{"type": "inspect_object", "target": "<actor_name>"}',
-    "follow_character": '{"type": "follow_character", "target": "<actor_name>"}',
-    "attack":           '{"type": "attack", "target": "<actor_name>"}',
+    "speak_to":         '{"type": "speak_to", "target": "<character name>", "message": "<text>"} -- say something out loud to someone. This is the ONLY action that produces speech: greeting, answering, asking, thanking, saying goodbye. If you intend to say anything at all this tick, the action is speak_to. "idle" and "observe" are silent',
+    "inspect_object":   '{"type": "inspect_object", "target": "<character name>"}',
+    "follow_character": '{"type": "follow_character", "target": "<character name>"}',
+    "attack":           '{"type": "attack", "target": "<character name>"}',
     "flee":             '{"type": "flee"}',
     "observe":            '{"type": "observe"}',
     "remember":         '{"type": "remember", "text": "<what to remember>"}',
@@ -42,7 +43,7 @@ _ACTION_SCHEMAS: dict[str, str] = {
 
 # Static portion of the prompt; eligible for Anthropic prompt caching.
 _SYSTEM_TEMPLATE = """\
-You are controlling one NPC in an Unreal Engine RPG world.
+You are controlling one character in a living world.
 
 ## Character
 {character}
@@ -76,7 +77,7 @@ _USER_TEMPLATE_VISION = """\
 ## Characters You May Encounter
 {known_characters}
 
-## Nearby APCs (engine position fact; not proof of line of sight)
+## Nearby APCs (a position fact; not proof of line of sight)
 {nearby_character_lines}
 
 ## Your Location
@@ -485,6 +486,11 @@ class LLMRouter:
             z=loc.get("z", 0),
         )
 
+        # #84: the wake prompt is a separate path — it builds its own text and
+        # dispatches directly, so decide()'s boundary check never sees it. Every
+        # path that reaches a model gets the alarm, or the alarm means nothing.
+        prompt_payload.check_clean(user_text, agent.agent_id, "wake prompt")
+
         try:
             if provider == "ollama":
                 raw = self._decide_ollama(model, self._system_text(agent), user_text)
@@ -560,7 +566,11 @@ class LLMRouter:
                 episode_lines=_episode_lines(observation.get("recent_episodes")),
             )
         else:
-            obs_for_text = {k: v for k, v in observation.items() if k != "image_path"}
+            # #84: the declared payload, not the raw dict. This line used to be
+            # a deny-list of exactly one key, so every engine field the runtime
+            # had ever attached went to the model and every NEW key leaked by
+            # default. Now a field is sent only if the contract names it.
+            obs_for_text = prompt_payload.project(observation)
             user_text = _USER_TEMPLATE.format(
                 agent_id=agent.agent_id,
                 memories=mem_lines,
@@ -571,6 +581,13 @@ class LLMRouter:
                 heard_note=_heard_note(observation),
                 agenda_context=agenda.prompt_text(observation.get("agenda")),
             )
+
+        # #84: the boundary alarm. The allow-list above is what PREVENTS a leak;
+        # this is what makes one visible if a renderer reintroduces it. It reports
+        # and never rewrites — a prompt quietly altered on its way out is harder
+        # to debug than one that is wrong and says so (rule 12).
+        prompt_payload.check_clean(user_text, agent.agent_id, "decision prompt")
+        prompt_payload.check_clean(system_text, agent.agent_id, "system prompt")
 
         # Travel ticks may carry a rendered route map (#6b/WP5) — attach it so
         # the multimodal decision call literally sees the terrain between here
@@ -623,6 +640,10 @@ class LLMRouter:
             logger.error("%s API key not set - cannot ask()", provider)
             return None
         system = "You are a careful planning assistant. Follow the instructions exactly and return only what is requested."
+        # The planner builds this prompt itself (#84). Guarded like every other
+        # path that reaches a model — a schedule prompt naming an actor label
+        # would teach the model engine vocabulary just as surely as a tick does.
+        prompt_payload.check_clean(prompt, agent.agent_id, "ask prompt")
         try:
             if provider == "ollama":
                 return self._decide_ollama(model, system, prompt)
@@ -649,7 +670,7 @@ class LLMRouter:
             logger.error("%s API key not set - cannot chat()", provider)
             return None
 
-        system = f"""You are {agent.display_name}, a character in an Unreal Engine world.
+        system = f"""You are {agent.display_name}, a character in a living world.
 
 Character:
 {agent.character_text.strip()}
@@ -676,6 +697,9 @@ performed an action. Do not output JSON or markdown."""
             lines.append(f"{role}: {str(message.get('text') or '').strip()}")
         lines.append(f"Reply as {agent.display_name}:")
         prompt = "\n".join(lines)
+        # The operator-chat path builds its own prompt too (#84).
+        prompt_payload.check_clean(prompt, agent.agent_id, "chat prompt")
+        prompt_payload.check_clean(system, agent.agent_id, "chat system prompt")
         try:
             if provider == "ollama":
                 return self._decide_ollama(model, system, prompt)
@@ -869,10 +893,36 @@ def _sense_note(observation: dict) -> str:
         lines.append("Sense: you have not advanced for several ticks while moving.")
     blocker = observation.get("blocker")
     if blocker:
+        # #61: the navmesh is baked once and knows nothing about a truck parked on
+        # it, so "navmesh clear" and "path physically blocked" disagree exactly
+        # here. Metres, not centimetres, and the distance is stated plainly — the
+        # standoff is named as a fact so the model can judge it, never as an order.
+        metres = blocker['distance_cm'] / 100.0
         lines.append(
-            f"Sense: there is a {blocker['category']} "
-            f"{blocker['distance_cm']:.0f} cm directly ahead of you."
+            f"Sense: your forward probe struck a {blocker['category']} "
+            f"{metres:.1f} m directly ahead of you. The navmesh does not know it "
+            f"is there. Walking straight ahead runs into it."
         )
+        # #81: the body-box facts. A thin ray could say "something ahead" but
+        # never "the gap is on your left" — and in SR46 Dufus refused three
+        # patches accurately and still kept landing in them, because a 15 m step
+        # cannot aim finer than a 9 m trap. Stated as measurement, never advice.
+        if blocker.get("fits") is False:
+            openings = [str(c).replace("_", " ") for c in (blocker.get("open_columns") or [])]
+            if blocker.get("fully_blocked") or not openings:
+                lines.append(
+                    "Sense: your body DOES NOT FIT ahead and NO side is open — "
+                    "you are completely blocked in this direction. This was "
+                    "measured, not guessed.")
+            else:
+                lines.append(
+                    f"Sense: your body DOES NOT FIT straight ahead. Measured "
+                    f"clearance {blocker.get('clearance_cm', 0.0) / 100.0:.1f} m. "
+                    f"The gap is on your: {', '.join(openings)}.")
+        elif blocker.get("fits") is True:
+            lines.append(
+                "Sense: your body DOES fit past it — the way ahead is passable, "
+                "though something is beside your path.")
         if blocker.get("halted"):
             lines.append("Sense: your walk has been halted.")
     return ("\n" + "\n".join(lines) + "\n") if lines else ""

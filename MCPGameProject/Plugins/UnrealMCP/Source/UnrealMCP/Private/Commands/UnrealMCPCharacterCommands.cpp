@@ -11,6 +11,9 @@
 #include "Animation/AnimInstance.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
+#include "Components/CapsuleComponent.h"
+#include "PhysicalMaterials/PhysicalMaterial.h"
+#include "GameFramework/Pawn.h"
 
 FUnrealMCPCharacterCommands::FUnrealMCPCharacterCommands()
 {
@@ -24,6 +27,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommand(const FString
 {
     // Info / Query
     if (CommandType == TEXT("get_character_forward_trace"))   return HandleGetCharacterForwardTrace(Params);
+    if (CommandType == TEXT("get_character_forward_volume"))  return HandleGetCharacterForwardVolume(Params);
     if (CommandType == TEXT("get_character_status"))          return HandleGetCharacterStatus(Params);
     if (CommandType == TEXT("get_character_location"))        return HandleGetCharacterLocation(Params);
     if (CommandType == TEXT("get_character_health"))          return HandleGetCharacterHealth(Params);
@@ -136,6 +140,277 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterForwardTr
     {
         Result->SetBoolField(TEXT("hit"), false);
     }
+    return Result;
+}
+
+// ---------------------------------------------------------------------------
+// #81 — the body-box probe. "Can I fit", not "can a line pass".
+//
+// HandleGetCharacterForwardTrace above is one infinitely thin ray, at hip
+// height, on ECC_Visibility. It has no width (a post 30 cm off-centre is struck
+// by the shoulder and never by the ray), no height (a kerb at 30 cm and an awning
+// at 210 cm are both invisible), and it asks the wrong question — Visibility
+// answers "what can I see", while movement is stopped by ECC_Pawn, which is
+// exactly where blocking volumes and invisible prop collision live.
+//
+// This handler answers the two questions the user actually asked, in one round
+// trip because the bridge is a single socket:
+//
+//   1. "Can I fit?"      — a capsule sweep using the character's OWN capsule.
+//                          If the swept body contacts nothing, it fits, by
+//                          construction. Also yields the honest clearance.
+//   2. "Where's the gap?" — a coarse ray raster across the body's frontal
+//                          rectangle (columns x rows), which is the left-to-right
+//                          / top-to-bottom scan. The sweep gives one yes/no; only
+//                          the raster can say "clear left, blocked right".
+//
+// Every hit also reports engine-side identity signals (physical material,
+// component class, actor tags) so Python can classify without reading the level
+// author's file names — see backlog #83.
+// ---------------------------------------------------------------------------
+
+// Identity signals for one hit, gathered engine-side so the Python classifier is
+// not reduced to substring-matching whatever the level author called the asset.
+static void FillHitIdentity(const FHitResult& Hit, const TSharedPtr<FJsonObject>& Out)
+{
+    AActor* HitActor = Hit.GetActor();
+    Out->SetStringField(TEXT("actor_name"),  HitActor ? HitActor->GetActorLabel() : TEXT("unknown"));
+    Out->SetStringField(TEXT("actor_class"), HitActor ? HitActor->GetClass()->GetName() : TEXT("unknown"));
+    Out->SetNumberField(TEXT("distance_cm"), (double)Hit.Distance);
+
+    // Physical material is set by the art pipeline, not by whoever typed the
+    // actor label, so it survives renaming and marketplace packs (#83).
+    if (Hit.PhysMaterial.IsValid())
+    {
+        Out->SetStringField(TEXT("physical_material"), Hit.PhysMaterial->GetName());
+    }
+    if (Hit.GetComponent())
+    {
+        Out->SetStringField(TEXT("component_class"), Hit.GetComponent()->GetClass()->GetName());
+        Out->SetStringField(TEXT("collision_profile"),
+                            Hit.GetComponent()->GetCollisionProfileName().ToString());
+        Out->SetBoolField(TEXT("is_movable"),
+                          Hit.GetComponent()->Mobility == EComponentMobility::Movable);
+    }
+    // Tags are the author's deliberate semantic statement — unlike the asset
+    // name, which is just a file name.
+    if (HitActor && HitActor->Tags.Num() > 0)
+    {
+        TArray<TSharedPtr<FJsonValue>> TagValues;
+        for (const FName& Tag : HitActor->Tags)
+        {
+            TagValues.Add(MakeShared<FJsonValueString>(Tag.ToString()));
+        }
+        Out->SetArrayField(TEXT("tags"), TagValues);
+    }
+    Out->SetBoolField(TEXT("is_pawn"), HitActor && HitActor->IsA(APawn::StaticClass()));
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterForwardVolume(const TSharedPtr<FJsonObject>& Params)
+{
+    FString Error;
+    AActor* Actor = ResolveCharacter(Params, Error);
+    if (!Actor) return FUnrealMCPCommonUtils::CreateErrorResponse(Error);
+
+    UWorld* World = Actor->GetWorld();
+    if (!World) return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("No world"));
+
+    double DistanceCm = 500.0;
+    Params->TryGetNumberField(TEXT("distance_cm"), DistanceCm);
+
+    // The probe may be aimed off the body's facing so one call can ask about
+    // "forward-left" without turning the character first.
+    double YawOffsetDeg = 0.0;
+    Params->TryGetNumberField(TEXT("yaw_offset_deg"), YawOffsetDeg);
+
+    int32 Columns = 5;
+    int32 Rows = 3;
+    { int32 V = 0; if (Params->TryGetNumberField(TEXT("columns"), V) && V > 0 && V <= 15) Columns = V; }
+    { int32 V = 0; if (Params->TryGetNumberField(TEXT("rows"),    V) && V > 0 && V <= 15) Rows    = V; }
+
+    // Read the real capsule rather than hard-coding a body size; log it once so a
+    // mismatch is visible instead of silently wrong.
+    float Radius = 34.0f;
+    float HalfHeight = 88.0f;
+    bool bCapsuleFromEngine = false;
+    if (ACharacter* AsCharacter = Cast<ACharacter>(Actor))
+    {
+        if (UCapsuleComponent* Capsule = AsCharacter->GetCapsuleComponent())
+        {
+            Radius = Capsule->GetScaledCapsuleRadius();
+            HalfHeight = Capsule->GetScaledCapsuleHalfHeight();
+            bCapsuleFromEngine = true;
+        }
+    }
+
+    // A forward sweep at full body height calls every kerb a wall. Lift the probe
+    // by the character's own step height so ground it can simply walk up is not
+    // reported as a blockage.
+    float StepUpCm = 45.0f;
+    if (ACharacter* AsCharacter = Cast<ACharacter>(Actor))
+    {
+        if (UCharacterMovementComponent* Move = AsCharacter->GetCharacterMovement())
+        {
+            StepUpCm = Move->MaxStepHeight;
+        }
+    }
+
+    const FRotator ProbeRotation = Actor->GetActorRotation() + FRotator(0.0f, (float)YawOffsetDeg, 0.0f);
+    const FVector Forward = ProbeRotation.Vector().GetSafeNormal();
+    const FVector Right   = FRotationMatrix(ProbeRotation).GetScaledAxis(EAxis::Y);
+    const FVector Up      = FVector::UpVector;
+
+    // Sweep from a start lifted by the step height, with the swept capsule
+    // shortened by the same amount so its bottom sits at the top of a step the
+    // character could climb anyway.
+    const float SweepHalfHeight = FMath::Max(HalfHeight - StepUpCm * 0.5f, Radius + 1.0f);
+    const FVector Base  = Actor->GetActorLocation();
+    const FVector Start = Base + Up * (StepUpCm * 0.5f);
+    const FVector End   = Start + Forward * (float)DistanceCm;
+
+    FCollisionQueryParams QueryParams(TEXT("ForwardVolume"), /*bTraceComplex=*/false, Actor);
+    QueryParams.bReturnPhysicalMaterial = true;
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("success"), true);
+    Result->SetNumberField(TEXT("body_radius_cm"), (double)Radius);
+    Result->SetNumberField(TEXT("body_half_height_cm"), (double)HalfHeight);
+    Result->SetBoolField(TEXT("capsule_from_engine"), bCapsuleFromEngine);
+    Result->SetNumberField(TEXT("step_up_cm"), (double)StepUpCm);
+    Result->SetNumberField(TEXT("distance_cm"), DistanceCm);
+    Result->SetNumberField(TEXT("yaw_offset_deg"), YawOffsetDeg);
+    Result->SetNumberField(TEXT("columns"), Columns);
+    Result->SetNumberField(TEXT("rows"), Rows);
+
+    // ---- 1. Can the body fit? ----------------------------------------------
+    // ECC_Pawn is the honest movement question: it is what actually stops this
+    // body, including blocking volumes that ECC_Visibility cannot see.
+    FHitResult SweepHit;
+    const bool bSweepBlocked = World->SweepSingleByChannel(
+        SweepHit, Start, End, ProbeRotation.Quaternion(), ECC_Pawn,
+        FCollisionShape::MakeCapsule(Radius, SweepHalfHeight), QueryParams);
+
+    Result->SetBoolField(TEXT("fits"), !bSweepBlocked);
+    Result->SetNumberField(TEXT("clearance_cm"),
+                           bSweepBlocked ? (double)SweepHit.Distance : DistanceCm);
+    if (bSweepBlocked)
+    {
+        TSharedPtr<FJsonObject> Contact = MakeShared<FJsonObject>();
+        FillHitIdentity(SweepHit, Contact);
+        Result->SetObjectField(TEXT("contact"), Contact);
+    }
+
+    // ---- 2. Where is the gap? ----------------------------------------------
+    // A coarse raster across the body's frontal rectangle: left-to-right by
+    // column, bottom-to-top by row. Columns are reported in body-relative terms
+    // so Python never has to reason about world axes.
+    TArray<TSharedPtr<FJsonValue>> OpenColumns;
+    TArray<TSharedPtr<FJsonValue>> BlockedColumns;
+    TArray<TSharedPtr<FJsonValue>> OpenRows;
+    TArray<TSharedPtr<FJsonValue>> CellRows;
+    int32 BlockedCells = 0;
+    int32 TotalCells = Columns * Rows;
+    float NearestCm = (float)DistanceCm;
+
+    // Column labels for a 5-wide raster; generated positionally for other widths.
+    auto ColumnLabel = [Columns](int32 Index) -> FString
+    {
+        if (Columns == 5)
+        {
+            static const TCHAR* Names[5] = { TEXT("far_left"), TEXT("left"), TEXT("centre"),
+                                             TEXT("right"), TEXT("far_right") };
+            return FString(Names[Index]);
+        }
+        if (Columns == 3)
+        {
+            static const TCHAR* Names[3] = { TEXT("left"), TEXT("centre"), TEXT("right") };
+            return FString(Names[Index]);
+        }
+        return FString::Printf(TEXT("col_%d"), Index);
+    };
+    auto RowLabel = [Rows](int32 Index) -> FString
+    {
+        if (Rows == 3)
+        {
+            static const TCHAR* Names[3] = { TEXT("low"), TEXT("mid"), TEXT("high") };
+            return FString(Names[Index]);
+        }
+        return FString::Printf(TEXT("row_%d"), Index);
+    };
+
+    for (int32 Col = 0; Col < Columns; ++Col)
+    {
+        // Spread sample points across the full body width, edge to edge.
+        const float ColT = (Columns == 1) ? 0.0f
+                         : ((float)Col / (float)(Columns - 1)) * 2.0f - 1.0f;   // -1 .. +1
+        const FVector ColOffset = Right * (ColT * Radius);
+
+        bool bColumnOpen = false;
+        for (int32 Row = 0; Row < Rows; ++Row)
+        {
+            // Bottom sample sits at the top of a climbable step, top sample at
+            // the crown of the head — the band a body actually occupies.
+            const float RowT = (Rows == 1) ? 0.5f : (float)Row / (float)(Rows - 1);
+            const float ZLow = StepUpCm;
+            const float ZHigh = HalfHeight * 2.0f - 10.0f;
+            const FVector RowOffset = Up * (ZLow + (ZHigh - ZLow) * RowT - HalfHeight);
+
+            const FVector RayStart = Base + ColOffset + RowOffset;
+            const FVector RayEnd = RayStart + Forward * (float)DistanceCm;
+
+            FHitResult RayHit;
+            const bool bRayBlocked = World->LineTraceSingleByChannel(
+                RayHit, RayStart, RayEnd, ECC_Pawn, QueryParams);
+
+            TSharedPtr<FJsonObject> Cell = MakeShared<FJsonObject>();
+            Cell->SetStringField(TEXT("column"), ColumnLabel(Col));
+            Cell->SetStringField(TEXT("row"), RowLabel(Row));
+            Cell->SetBoolField(TEXT("blocked"), bRayBlocked);
+            if (bRayBlocked)
+            {
+                ++BlockedCells;
+                NearestCm = FMath::Min(NearestCm, RayHit.Distance);
+                FillHitIdentity(RayHit, Cell);
+            }
+            else
+            {
+                bColumnOpen = true;
+            }
+            CellRows.Add(MakeShared<FJsonValueObject>(Cell));
+        }
+
+        if (bColumnOpen) OpenColumns.Add(MakeShared<FJsonValueString>(ColumnLabel(Col)));
+        else             BlockedColumns.Add(MakeShared<FJsonValueString>(ColumnLabel(Col)));
+    }
+
+    for (int32 Row = 0; Row < Rows; ++Row)
+    {
+        bool bRowOpen = false;
+        for (int32 Col = 0; Col < Columns; ++Col)
+        {
+            const TSharedPtr<FJsonObject>* Cell;
+            if (CellRows[Col * Rows + Row]->TryGetObject(Cell))
+            {
+                bool bBlocked = true;
+                (*Cell)->TryGetBoolField(TEXT("blocked"), bBlocked);
+                if (!bBlocked) { bRowOpen = true; break; }
+            }
+        }
+        if (bRowOpen) OpenRows.Add(MakeShared<FJsonValueString>(RowLabel(Row)));
+    }
+
+    Result->SetArrayField(TEXT("open_columns"), OpenColumns);
+    Result->SetArrayField(TEXT("blocked_columns"), BlockedColumns);
+    Result->SetArrayField(TEXT("open_rows"), OpenRows);
+    Result->SetArrayField(TEXT("cells"), CellRows);
+    Result->SetNumberField(TEXT("blocked_fraction"),
+                           TotalCells > 0 ? (double)BlockedCells / (double)TotalCells : 0.0);
+    Result->SetNumberField(TEXT("nearest_cm"), (double)NearestCm);
+    // "Completely blocked" is the raster's verdict, not the sweep's: the sweep can
+    // clip one shoulder while a real gap remains.
+    Result->SetBoolField(TEXT("fully_blocked"), BlockedCells == TotalCells);
+    Result->SetBoolField(TEXT("hit"), bSweepBlocked || BlockedCells > 0);
+
     return Result;
 }
 

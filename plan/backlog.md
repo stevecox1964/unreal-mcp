@@ -3,7 +3,7 @@
 Rolling list of outstanding work — add items as they come up, check off or
 delete them as they land. Not session-scoped; this is the durable home for
 approved scope and priority. Handoffs are chronological session state.
-Newest grooming: **2026-08-19**.
+Newest grooming: **2026-08-20** — see *THE EXIT CONDITION* below; Phase B is blocked.
 
 ## Active view — groomed 2026-08-19
 
@@ -47,6 +47,41 @@ a strip 7 wide and 2 tall, because every navigation fact it had was one cell wid
 truck sits astride a cell boundary and was recorded as two owned rows 134 cm apart, so her prompt
 listed it twice and the resolver named a cell she was not standing in. Maren's day is still untested
 past 09:17 sim time.
+
+### THE EXIT CONDITION (user, 2026-08-20) — Phase B is BLOCKED until the survey is a product
+
+**Source:** user, 2026-08-20: *"I don't think we are out of the woods yet with regards to getting
+Dufus to survey correctly. He is getting better. This perception behavior will be used by other APCs
+that don't 'survey' but consume the same locomotion/nav logic. When Dufus can run a survey over night
+and fill the world up with grid/place data that other APCs can just use, and where we can get a VLM
+built out of all this data, then we are done."*
+
+This replaces the old, softer exit condition ("the lane's exit condition is met once SR45 is clean").
+SR45 being clean is **not** the finish line — it was one bug-fix confirmation. The finish line is
+three things, all measurable:
+
+1. **Unattended overnight survey.** Dufus runs a multi-hour survey with nobody watching: no wedge that
+   ends the run, no repeated ground, no stall, no crash. Measured on a real overnight run, not a
+   12-minute SR.
+2. **The world fills with reusable grid/place data.** The output is `world_places.db` grid cells and
+   place rows that **another APC can consume without surveying anything itself** — coverage that grows
+   run over run, not the same strip re-walked.
+3. **The corpus is big and clean enough to train a VLM.** `perception_log.jsonl` plus the place images
+   are the training set (#79, [[project_dufus_vlm_training_corpus]]). Dense, varied, correctly filed.
+
+**Consequence — Phase B is BLOCKED.** #66 reaction gate, #67 APC↔APC conversation, #68 work that
+leaves a mark: all three stay unbuilt until the three criteria above are met. Walking around and
+talking is not the next lane. Do not start it, and do not re-argue the ordering from the
+2026-08-12 direction reset — the user has re-decided on top of it.
+
+**Why perception/locomotion is not "Dufus work".** The perception and navigation behaviour built in
+#77/#78/#26/#61 is **shared runtime**, not survey code. Other APCs never survey, but they walk on the
+same locomotion and nav logic, so every fix here is a fix for every APC that will ever exist. This is
+why the lane is worth grinding past "good enough for Dufus".
+
+**Grading rule for every live run from here:** grade the run on survey throughput and cleanliness —
+new cells covered, repeats, stalls, wedges, corpus lines written — **not** on whether something social
+happened. The 2026-08-12 reframe (grade on social) is suspended until the exit condition is met.
 
 ### Now (groomed 2026-08-19) — perception-guided exploration, bounded, then Phase B
 
@@ -182,19 +217,79 @@ eating the sessions that should be spent there.
 
 ### The plan, in order (2026-08-19, after SR44)
 
-1. **SR45 — confirm the three fixes.** No new code first: one run answers whether the patch
-   loop is gone, whether the post-survey stall is gone, and whether Dufus now pushes to
-   *unsurveyed* ground instead of re-shooting. Also confirms `perception_log.jsonl` fills (#79).
-2. **#61 forward blocker trace** — the one unbuilt half of the perception lane. Gate unchanged:
-   prove the trace hits anything at all before building standoff on top of it. Vehicles and
-   props are its job, not the VLM's.
-3. **#76 center-out exploration** — the last unbuilt item of the original three. Wait for SR45:
+1. ~~**SR45 — confirm the three fixes.**~~ **DONE 2026-08-19 (commit `1dc73c5`): 56 ticks,
+   0 errors. Patch loop gone (2 refusals, both new ground). Post-survey stall gone (3
+   `sweep_done` ticks, each followed by `walk_to`). Re-survey gone (3 surveys, all on cells with
+   no composite: 10,5 / 10,4 / 11,5). `perception_log.jsonl` filling — 84 lines.**
+2. ~~**#61 forward blocker trace**~~ **reflex half BUILT 2026-08-20 (offline 61/61), and
+   immediately superseded in scope by #81.** The gate is cleared: SR45's log proves the trace hits
+   (42 hits in one run). It also proved 15 of them were classified and thrown away — see #61 for
+   both fixes. **SR46 verifies what was built.** But what was built still stands on **one thin ray
+   at hip height on the wrong collision channel**; see #81.
+   The data half of #61 (dense capture along the leg) is still open and feeds the corpus criterion.
+
+3. **#85 shared APC doctrine — do this FIRST of the new items; it is the cheapest large win.**
+   SR46 measured it: `dufus/rules.md` is 94 lines, `maren/rules.md` is 21, and Maren reasoned
+   *"time to refuse this ground"* then could not, because her file never mentions `refuse_cell`.
+   Six weeks of navigation doctrine lives in one character's file. `rules.md` needs imports.
+4. **#81 body-box probe — the highest-value navigation item.** SR46 is the argument: Dufus spent
+   4½ minutes bouncing between a van and a baseball field, refused three patches accurately, and
+   kept landing in them, because a 9-m refusal cannot be obeyed with a 15-m step and a thin ray
+   never says *where the gap is*. Capsule sweep + coarse raster → "I fit" / "the gap is on my left".
+5. **#83 real object identity / #84 the prompt payload contract (absorbs #82).** #83: substring
+   matching the level author's file names is not object detection — SR46's one unclassified actor
+   (`receptionCounter_7`) proves the fail-loud log works and that the table is a treadmill.
+   #84: one declared payload, one code path, allow-list by construction. **#84 must not start while
+   a live-run lane is open** — it touches every prompt.
+6. **#76 center-out exploration** — the last unbuilt item of the original three. Wait for SR45:
    if rings now grow on their own from the frontier facts plus refusals, #76 may need nothing.
-4. **Then Phase B — the destination.** #66 reaction gate → #67 APC↔APC conversation → #68 work
-   that leaves a mark. The lane's exit condition is met once SR45 is clean; exploration goes
-   back to being a background service.
-5. **Catch-up lane (away-time work):** the "Needs tests (speed mode)" ledger, then the remaining
+7. **Phase B — BLOCKED (user, 2026-08-20).** #66 reaction gate → #67 APC↔APC conversation →
+   #68 work that leaves a mark are **not startable** until "THE EXIT CONDITION" above is met:
+   an unattended overnight survey, reusable grid/place data other APCs consume, and a
+   VLM-grade corpus. Exploration is NOT yet a background service; it is still the headline.
+8. **Catch-up lane (away-time work):** the "Needs tests (speed mode)" ledger, then the remaining
    cleanup advisories (bridge reconnect noise, `agent_manager.py` / `web_ui/main.py` splits).
+
+- **SR46 (2026-08-20) — 30 ticks, 616.8 s, 2 APCs, clean stop, ZERO errors. The #61 blocker fix is
+  verified live; the run also exposed the doctrine-distribution bug (#85) and made the case for #81.**
+
+  - **#61 reflex half VERIFIED.** 17 `blocker:` lines, 2 reflex stops, and — the point of the fix —
+    **`veh_Van_6` was reported at 400 cm, 37 cm and 36 cm.** Under the pre-2026-08-20 code that name
+    matched no keyword, classified as `"obstacle"`, and was **dropped**: Dufus would have been told
+    nothing at all while standing 36 cm from a van. `veh_VegetableTruck2` reported 13 times.
+  - **The fail-loud classifier earned its keep on the first run.** Exactly one unmatched actor:
+    `blocker classifier: no keyword matched actor 'receptionCounter_7' (class 'StaticMeshActor')` —
+    the office lobby Dufus walked into at 11:37:47. Silent degradation is now visible degradation.
+    Do **not** just add "counter" to the table; that is #83's whole point.
+  - **Dufus: 4½ minutes trapped in cell (7,7), oscillating between a van and a baseball field**
+    (11:41:53 → 11:46:28), which is what the user reported watching. Footing cycled
+    pavement → grass → other → grass → water → pavement → grass → water → grass → pavement →
+    `cultivated_field` (the baseball infield in 8,7). He refused **three** 9-m patches with accurate
+    reasons ("baseball diamond infield dirt and outfield grass", "shallow water basin edge, dead end
+    with boats moored", "grassy field with earthen mounds") — and **kept landing back in them**.
+    - **Why the refusals did not help, and it is not a refusal bug.** A patch is 9 m across; a step is
+      **~15 m**. He cannot aim finer than the trap is wide, so "do not go there" is unactionable — the
+      step lands where it lands. His own words at 11:44:27: *"Standing on refused grassy pocket for
+      the third time."* He knew. He had no move that respected the knowledge.
+    - **This is the argument for #81.** A thin ray at hip height told him "vehicle 36 cm ahead" and
+      nothing about **where the gap was**. With `open_columns` the fact becomes "your body does not
+      fit ahead; it fits to your left" and a sidestep is a measured 2 m, not a blind 15 m. Consider a
+      short-step action as part of #81's follow-on: refusals smaller than the step length cannot be
+      obeyed.
+  - **Maren: 20 of her decisions moved her 0.0 cm**, then one finally executed and flung her ~28 m
+    into the cornfield in cell (6,6) (11:44:45 → 11:46:29). Two causes, and only the first is known:
+    1. **#75's truck-row split, still parked.** Every prompt told her she was at her post *and* that
+       she had to walk to her post. Twenty stalled `walk_to place:vegetable truck` orders followed.
+       The contradiction reaching the model in one prompt is #84's example case.
+    2. **NEW — she does not have the doctrine (#85).** `maren/rules.md` is **21 lines**;
+       `dufus/rules.md` is **94**. She has no look-before-you-step, no refusal doctrine, no
+       breadcrumbs, no bounce fact, no tried-headings rule. **At 11:45:58 she decided *"I keep
+       looping through this cornfield pocket; time to refuse this ground"* — and emitted `walk_to`,**
+       because nothing in her file tells her `refuse_cell` exists. All three refusals in SR46 were
+       Dufus's. Six weeks of navigation lessons were written into one character's file.
+  - **Carried forward:** #81 (body-box probe) is now the highest-value navigation item; #85 is the
+    cheapest large win in the run; #84 owns the contradiction Maren was shown.
+
 
 - **SR42 (2026-08-19) — first run of the #76/#77 lane. 53 ticks, 12.4 min, clean stop; the CLI
   session driving it crashed, but the runner shut down properly and all data persisted.**
@@ -282,6 +377,17 @@ grounding, **#42** bounded action-error diagnostics. Three new test files landed
 request (`test_apc_agenda_ui.py`, `test_survey_grounding.py`, `test_action_errors.py`); the full offline
 suite passes at **54/54**, with no regression in the previously green 51. All three still await their live
 verification, which folds into the #36/#37 live session.
+
+### The plan, right now (2026-08-20, after SR46)
+
+1. **Rebuild the UnrealMCP plugin in the editor.** #81's `get_character_forward_volume` is C++ and
+   does nothing until it is compiled. Until then every APC silently uses the old single ray — the
+   runtime warns once per run when that happens, so check the log for
+   `body-box probe (#81) unavailable`.
+2. **SR47.** Grade it on: a `fits=false` line with `open` naming a real side; Maren emitting
+   `refuse_cell` (she now has the doctrine — this is #85's pass criterion); no engine identity in the
+   prompts (`prompt leak` warnings should be zero); and the survey covering new ground.
+3. **Then the exit condition** — the overnight run. Everything above is in service of it.
 
 ### Needs tests (speed mode — user, 2026-08-19)
 
@@ -2428,7 +2534,7 @@ line in the next run before trusting it.
 
 ## 61. Intra-cell perception — see the world along the leg, not just at the cell
 
-**Status:** **OPEN 2026-08-12, design — not building yet** · **Source:** user, this session: *"we need to
+**Status:** **reflex half (a) BUILT 2026-08-20, offline 61/61, needs SR46** · data half (b) still open · **Source:** user, 2026-08-12: *"we need to
 work on intra grid observations at a regular interval so that the APCs can see what happening as they are
 moving along... before Dufus or any APC gets ready to run into something, a plan is generated to avoid
 moving into that situation. This will give us a finer grained visual guide and not just a survey to go
@@ -2500,10 +2606,38 @@ than an architecture rewrite.
   is single-socket — a per-frame Python probe is not viable. Likely wants to live in the APC Blueprint and
   report *events* to Python, which is a different shape from everything else here.
 
-**Do first, cheaply:** confirm the forward trace actually hits things. SR40 logged `blocker: 0` across
-eight wedged ticks, but the gate was shut (fixed in #60), so we have **no evidence the trace works at
-all** — and a low mailbox may sit under a chest-height ray. One live run showing a `blocker` line is the
-prerequisite for the whole reflex half of this item.
+**Do first, cheaply:** ~~confirm the forward trace actually hits things.~~ **GATE CLEARED
+2026-08-20 from SR45's log — and it exposed a worse bug than the one it was testing for.**
+
+The trace works and always did. SR45 fired it 88 times and got **42 hits**: Dufus 15, Maren 27.
+Real actors, real distances — `veh_SportClassic_2`, `shopFront_01`, `shopFront_03a3`,
+`road_sign_11`, three `pose_standing_*` crowd figures, `veh_VegetableTruck2` at 345.7 cm.
+
+**The bug: 15 of those hits were classified and then silently thrown away.** Two causes, both fixed
+2026-08-20 (offline 61/61):
+
+1. **The keyword table never matched the level's actual naming.** It knew `"truck"` (so Maren's
+   `veh_VegetableTruck2` survived) but not `veh_` (a parked sports car → `"obstacle"`), not
+   `shopFront` (→ `"obstacle"`), not `pose_standing` (→ `"obstacle"`). Table rebuilt from the
+   engine's real names: `veh_` → vehicle, `shopFront`/`storefront`/`house`/`porch` → structure,
+   a new `prop` category for signs/poles/mailboxes/bins, and a new **`figure`** category for
+   `pose_standing_*` SkeletalMeshActor crowd props — deliberately *not* `"person"`, so an APC is
+   never invited to greet a mannequin. An unmatched name is now **logged with its raw actor name**
+   instead of degrading silently (rule 12).
+2. **`if stuck or stalled or category in _MOBILE_BLOCKERS:` dropped every static hit.** A parked
+   vehicle on clear navmesh is *static by definition* — the exact case the user asked for was the
+   one the gate excluded. Now **every hit becomes `observation["blocker"]`**, carrying
+   `category`, `distance_cm`, the raw `actor_name`, and `urgent`. Only `urgent`
+   (stuck / stalled / mobile / inside the 300 cm standoff) may **wake** cognition, so a wall passed
+   at 4 m is a line in the prompt and does not buy a paid tick. The reflex halt is unchanged and
+   still mobile-only. The prompt line now states the disagreement plainly: *"your forward probe
+   struck a vehicle 3.5 m directly ahead of you. The navmesh does not know it is there."*
+
+**Still open on this item** (the data half, (b) above): dense capture along the leg. Unchanged.
+
+**Needs live verification (SR46):** a `blocker:` line for a static object in `sim_runner.log`, at
+least one `blocker classifier: no keyword matched` line telling us what else to name, and no cost
+blow-up from the widened fact (urgent-only waking should hold ticks roughly flat).
 
 **Relates to:** #53 (navmesh-vs-semantic disagreement as training signal — the approach frames are where
 that disagreement is visible), #49 (capture pose metadata), #19/#27, #60.
@@ -2700,7 +2834,7 @@ not become the session.
 
 ## 66. The reaction gate (`should_react`)
 
-**Status:** **OPEN 2026-08-12, design small** · **Phase B** · MASTER_PLAN §14, never built
+**Status:** **OPEN 2026-08-12, design small** · **Phase B** · MASTER_PLAN §14, never built · **BLOCKED 2026-08-20** until the overnight-survey exit condition is met (see *THE EXIT CONDITION*)
 
 The piece that makes a routine interruptible, and the source of emergence. Cheap heuristic for tier
 2/3, LLM for tier 1. **Every input already exists:** `observation["heard"]`, `observation["recognized"]`,
@@ -2715,7 +2849,7 @@ carry it.
 
 ## 67. APC↔APC conversation, summarized into both streams
 
-**Status:** **OPEN 2026-08-12** · **Phase B** · MASTER_PLAN Milestone 4 + success criterion #2
+**Status:** **OPEN 2026-08-12** · **Phase B** · MASTER_PLAN Milestone 4 + success criterion #2 · **BLOCKED 2026-08-20** until the overnight-survey exit condition is met (see *THE EXIT CONDITION*)
 
 The **transport is done**: `_record_utterance` → earshot → `_attach_heard_speech`. What is missing is
 turn-taking, a close condition, and the exchange being summarized into **both** agents' memory. That
@@ -2730,7 +2864,7 @@ from **both** `episodes.jsonl` files the next day.
 
 ## 68. Work that leaves a mark
 
-**Status:** **OPEN 2026-08-12, needs one design call** · **Phase B**
+**Status:** **OPEN 2026-08-12, needs one design call** · **Phase B** · **BLOCKED 2026-08-20** until the overnight-survey exit condition is met (see *THE EXIT CONDITION*)
 
 "Tend the vegetables and greet customers" is currently **pantomime**: nothing in the world changes, so
 no one can observe it, remember it, or react to it. Until an APC's work alters shared state, "virtual
@@ -2997,6 +3131,421 @@ different clock rates, kept apart on purpose.
 ground ahead as the reason for turning, with the APC never entering it — and zero
 `cultivated_field`-class footings for the run. The retreat count going to zero *because entries went to
 zero* is the whole point.
+
+---
+
+## 81. The body-box probe — "can I fit", not "can a line pass"
+
+**Status:** **BUILT 2026-08-20, offline 64/64 — NEEDS AN UNREAL PLUGIN REBUILD, then SR47.**
+`get_character_forward_volume` is new C++: a capsule sweep on `ECC_Pawn` using the character's own
+`UCapsuleComponent`, lifted by its `MaxStepHeight` so a kerb is not called a wall, plus a 5x3 ray
+raster returning `open_columns` / `open_rows` / `blocked_fraction`. Python calls it through
+`AgentManager._probe_ahead`, which **falls back to the old single ray and says so once per run** if
+the engine does not know the command — so nothing breaks before the rebuild, and `fits` is `None`
+(never `False`) when nothing was measured. Decisions taken: capsule read from the engine, `ECC_Pawn`
+not a custom channel, step-height allowance for kerbs, navmesh pairing deferred to #53.
+The prompt fact reads *"your body DOES NOT FIT straight ahead. Measured clearance 0.4 m. The gap is
+on your: far left, left."* Original spec follows. · **Source:** user,
+2026-08-20: *"We need to make sure any ray casting in Unreal to detect things is done in a way that
+scans a beam from left to right and top to bottom so that a virtual 'BOX' the size of an APC is built
+and used so we can say 'I can fit' or 'I am completely blocked'. Not just one 'ray' from the APC's
+viewpoint."*
+
+### What the probe actually is today
+
+`HandleGetCharacterForwardTrace`
+(`MCPGameProject/Plugins/UnrealMCP/Source/UnrealMCP/Private/Commands/UnrealMCPCharacterCommands.cpp:105`)
+is **one** `LineTraceSingleByChannel`. Start is `ActorLocation + (0,0,60)`, end is start plus the forward
+vector times the distance. One infinitely thin line, at one height, dead centre. Three independent
+failures follow, and they are not degrees of the same problem:
+
+1. **It has no width.** An APC capsule is roughly 34 cm in radius — about 68 cm of body. The probe
+   samples 0 cm of it. A post 30 cm off-centre is struck by the shoulder and never by the ray. This is
+   why "clear ahead" and "wedged" coexist happily today.
+2. **It has no height.** At Z+60 it rides hip height. A kerb, a step, a low wall, a bin at 30 cm are all
+   invisible — and so is an awning, a low branch or a doorway lintel at 210 cm. `road_sign_11` was hit
+   in SR45 at exactly the height its post crosses Z+60; the same sign one metre taller reports nothing.
+3. **It asks the wrong channel.** `ECC_Visibility` answers *"what can I see?"*. Movement is blocked by
+   `ECC_Pawn`. The two disagree precisely on the actors that cause wedges: a `BlockingVolume`, a nav
+   modifier, invisible collision around a prop — all block a pawn and are transparent to Visibility.
+   **The probe cannot see the thing most likely to stop the body.**
+
+A per-heading version of this ray is also what `_direction_places` / #77 leans on, so the same three
+holes are present in look-before-step.
+
+### The two questions, and why one call cannot be one shape
+
+The user's phrasing contains two different questions, and they need two different engine primitives:
+
+- **"Can I fit?"** — a **capsule sweep**. `SweepSingleByChannel` with the APC's *own* capsule
+  (radius and half-height read from its `UCapsuleComponent`, never hard-coded) against `ECC_Pawn`, from
+  the current location forward. One engine call, cheap, and it answers the fit question *exactly*: if
+  the swept body contacts nothing, the body fits, by construction. It also yields **`clearance_cm`** —
+  how far the body may advance before contact — which is the honest replacement for today's
+  `distance_cm`.
+- **"Where is the gap?"** — a **coarse ray raster**, which is the left-to-right / top-to-bottom scan the
+  user described. The sweep returns a single yes/no plus a first contact; it cannot say *clear on the
+  left, blocked on the right* or *blocked at knee height, open above*. A grid of rays across the
+  capsule's frontal rectangle can. Suggested resolution **5 columns × 3 rows = 15 rays** — enough to
+  name a side and a band, cheap enough to run every tick, and coarse enough that it never pretends to be
+  a depth camera.
+
+**Recommendation: build both, return both, in ONE bridge command.** The bridge is a single socket
+([[architecture_engine_agnostic_navigation]] and #61's own note) — fifteen round trips per tick is not
+viable, and fifteen rays inside one C++ handler cost nothing. Proposed command
+`get_character_forward_volume`, returning something in the shape of:
+
+- `fits` (bool) — the capsule sweep result
+- `clearance_cm` (float) — free travel before first contact
+- `blocked_fraction` (float) — of the 15 raster cells, how many are struck
+- `open_columns` / `open_rows` — which side and which height band are clear
+- `contact` — the first-contact facts (category, distance), classified per #83
+
+### Why this replaces the current probe rather than sitting beside it
+
+Two probes with different answers is rule 7 territory — pick one and say which. The volume probe
+strictly dominates the ray: it answers everything the ray answered and three things it could not.
+The single ray should be **deleted**, not kept as a fast path.
+
+### The prize: "step around" stops being a guess
+
+Today, when the LLM is told something is ahead, its only options are to re-issue the same walk or pick a
+direction blind, which is exactly the SR40 east/southeast ping-pong. With `open_columns`, the fact
+becomes *"your body does not fit straight ahead; it fits to your left"* — a fact, not advice, and the
+model still chooses ([[feedback_lizard_brain_contract]]). Running the same volume probe on
+forward-left and forward-right makes sidestepping a measured option rather than a coin flip. That is
+the mechanism most likely to end the wedge loops that have shaped the last six weeks.
+
+### Open questions (none decided — do not guess these)
+
+- **Capsule source.** Read the real `UCapsuleComponent` extents, or accept a size in the params? Reading
+  is correct and author-independent; a param is testable offline. Probably read, and *log* the size once
+  per run so a mismatch is visible.
+- **Channel.** `ECC_Pawn` is the honest movement question. But a custom `APC_Probe` trace channel would
+  let the level author mark "APCs must not path here" without physical collision — cheap to add, and it
+  is the engine-side half of a refusal. Decide before building; do not add both.
+- **Ground handling.** A forward sweep at body height cannot tell a 15 cm kerb (steppable) from a 60 cm
+  wall (not). Needs either a downward component or a step-height allowance in the sweep start. Without
+  it the probe will call every kerb a blockage and the APC will stop in the street.
+- **Navmesh disagreement.** Should the same call also report whether the destination point is on the
+  navmesh? That pairing — physics says blocked, navmesh says clear — is exactly #53's training signal
+  and is nearly free here.
+- **Cadence stays as it is.** This item changes the probe's *shape*, not its *rate*. Dense sampling
+  along the leg is #61(b) and must not be smuggled in here.
+
+**Blocks:** the honest version of #61's reflex half.
+**Relates to:** #61 (which currently stands on the thin ray), #77 (same holes per heading), #53
+(navmesh-vs-physics disagreement), #83 (what the contact *is*), #26.
+
+**Done when:** a live run logs a `fits: false` with `open_columns` naming a clear side, the APC
+sidesteps on the model's own decision, and no wedge in that run was preceded by a `hit: false`.
+
+---
+
+## 82. Engine identity must never reach the model
+
+**Status:** **OPEN 2026-08-20 — ABSORBED into #84 as its engine-names clause (user asked for the whole prompt interface, not just this leak). Kept for the four documented leak channels.** · **Source:** user, 2026-08-20: *"I would
+prefer Unreal engine actor names and things don't bleed into the LLM's thinking."*
+
+This is the standing contract, not a new preference: [[architecture_lizard_brain_sensing]] puts the
+abstraction boundary **at output** — the lizard brain may use any engine primitive it likes, and the LLM
+receives generic semantic labels only. The boundary is currently porous. Four confirmed channels, found
+2026-08-20 by reading the prompt builder, not by guessing:
+
+1. **The structural one — the whole observation dict is serialized.** `llm_router.py:563`:
+   `obs_for_text = {k: v for k, v in observation.items() if k != "image_path"}`, then
+   `json.dumps(obs_for_text, indent=2)` straight into the user prompt. This is the no-image fallback
+   path (capture failed / Unreal offline), and it is a **deny-list of exactly one key**. Every engine
+   field the runtime has ever attached to an observation goes to the model verbatim, and **every new key
+   leaks by default** — including `blocker.actor_name`, added 2026-08-20 for diagnosis. The rendered
+   path is clean (`_sense_note` prints category and distance only); the fallback path undoes that.
+2. **The model is asked to *emit* engine labels.** `_ACTION_SCHEMAS` (`llm_router.py:28`, `:33`, `:35`,
+   `:36`, `:37`): `walk_to {"target_actor": "<actor_label>"}`, `speak_to {"target": "<actor_label>"}`,
+   and `inspect_object` / `follow_character` / `attack` with `"<actor_name>"`. For these to work at all
+   the model must have been told engine labels — so channel 2 forces channel 1 open.
+3. **The engine is named in the prompt.** `llm_router.py:45` *"You are controlling one NPC in an Unreal
+   Engine RPG world"*; `:652` *"a character in an Unreal Engine world"*; `:79` a section headed
+   *"Nearby APCs (engine position fact…)"*.
+4. **Category names that are engine artefacts.** The 2026-08-20 classifier reports `figure` for
+   `pose_standing_*` — correct — but the table matches on `veh_`, `shopFront`, `pose_standing`. Those
+   substrings are the level author's private vocabulary, which is #83's problem; here the point is only
+   that the *outputs* must stay generic even as the *inputs* stay engine-shaped.
+
+### Direction (not decided — the shape is the open question)
+
+- **Allow-list, not deny-list.** The prompt should be built from an explicit projection of the
+  observation — a named set of fields with generic names — and the raw dict must never be serialized.
+  A new runtime key should be invisible to the model until someone deliberately exposes it. This
+  inverts today's default and is the only fix that stays fixed.
+- **Identity by display name, resolved in code.** The model refers to `Maren`, never to
+  `APC_Maren_BP_C_1`; the router maps display name → actor label on the way out. Names it invents that
+  do not resolve fail loud (rule 12) instead of reaching the bridge.
+- **Drop the engine from the persona.** "an Unreal Engine RPG world" → "the world". This is not
+  cosmetic: it is the same abstraction that lets a second engine drop in behind the runtime
+  ([[architecture_engine_agnostic_navigation]], [[project_why_worlds_for_ai]]), and it removes a
+  standing invitation for the model to reason about engine mechanics instead of about the world.
+- **A test that can fail.** One offline check that builds a prompt from an observation seeded with
+  engine-shaped junk (`APC_Dufus_BP_C_1`, `SkeletalMeshActor`, `veh_SportClassic_2`, `BP_`, `_C_1`)
+  and asserts none of it appears in the rendered text — on **both** the image and the no-image path.
+  Per rule 9, this is the test that catches the regression the deny-list guarantees.
+
+**Note the cost.** Channel 2 is real functionality: `speak_to`, `follow_character` and
+`walk_to target_actor` all address a character today. Closing this properly means the display-name
+resolver, not just deleting fields — do not half-do it and silently break speech.
+
+**Relates to:** #83, #61, [[architecture_lizard_brain_sensing]], [[feedback_lizard_brain_contract]].
+
+**Done when:** the leak test passes on both prompt paths, and a live run's prompts contain no string
+matching `BP_`, `_C_[0-9]`, `Actor`, or `Unreal`.
+
+---
+
+## 83. Object identity without depending on the level author's naming
+
+**Status:** **BUILT 2026-08-20, offline 64/64 — needs the plugin rebuild to carry signals.**
+`_classify_blocker` now resolves in order: actor **tags** (the author saying what a thing is) →
+**pawn-ness** (the engine knowing it is a body) → **physical material** (set by the art pipeline,
+survives renaming) → component/collision hints → the keyword table, last. An immovable
+`SkeletalMeshComponent` reads as `figure`, never `person`, so no APC greets a mannequin. Nothing
+matched still returns a generic obstacle and logs everything known about the contact. Path 3 (join
+the VLM caption from #79) remains open. Original spec follows. · **Source:** user, 2026-08-20: *"Sounds
+like we don't have good enough object detection, do we?"*
+
+**Correct, and the 2026-08-20 classifier fix does not change it.** What we call "detection" is
+`_classify_blocker`: substring matching against `GetActorLabel()` and the UClass name. That is not
+object detection; it is reading the level author's file names and hoping. SR45 is the proof — three
+whole name families (`veh_*`, `shopFront*`, `pose_standing_*`) fell through to `"obstacle"` at once, and
+the fix was to type those three families into a table. **The next art pack breaks it again**, and it
+breaks *silently* except for the fail-loud log line added the same day.
+
+### The split that removes most of the pressure
+
+The reflex and the reasoning need different things, and conflating them is why the classifier looks
+load-bearing:
+
+- **The reflex does not need to know what it is.** "My body does not fit; something solid fills the
+  left half at 2.1 m" is a complete input for stopping and sidestepping. That is pure geometry — #81
+  delivers it with no classifier in the loop at all. Every millisecond-scale decision can be made
+  without identity.
+- **The reasoning does need identity** — *"a parked vehicle"* vs *"a person"* changes whether you
+  sidestep, wait, or speak. But that decision already costs 8–10 s of model time, so identity may
+  arrive on the slow path where a VLM call is affordable.
+
+Splitting them means a wrong or missing label degrades the *conversation*, never the *collision*.
+
+### Sources of identity, most robust first
+
+1. **Engine-side, author-independent:** gameplay tags, component class, collision profile, physical
+   material. A `PhysicalMaterial` of "flesh" vs "metal" vs "foliage" is set by the art pipeline, not by
+   whoever typed the actor label. Deterministic, free, and survives renaming — but needs the level's
+   assets to actually carry it, which is unverified. **Check this before designing anything else.**
+2. **The VLM caption we already pay for.** #79 records a caption per perceived frame; the thing 3 m
+   ahead is *in that image*. This is real detection, it is already funded, and it is 8–10 s late —
+   exactly the slow path above. Joining the probe's `contact` to the caption is the interesting work.
+3. **The keyword table, demoted to last resort.** Keep it, keep the fail-loud log, stop treating it as
+   the answer.
+
+### Open questions
+
+- Do this level's meshes carry usable physical materials or tags at all? One inspection answers it and
+  decides whether path 1 exists.
+- Does identity belong in the probe response (one round trip, engine does the work) or joined in Python
+  from the perception log (engine stays dumb)? The lizard-brain contract permits either; the
+  engine-agnostic goal prefers the second.
+- `figure` (crowd mannequin) vs `person` (a real APC) must survive whatever replaces the table — an APC
+  greeting a mannequin is the visible failure to test for.
+
+**Relates to:** #81 (geometry without identity), #61, #79 (the caption corpus), #53, #82 (whatever the
+answer is, it leaves as a generic label).
+
+**Done when:** an actor with a name matching no keyword is still classified correctly, and the crowd
+mannequins are never addressed as people.
+
+---
+
+## 84. The prompt payload contract — one clean interface for everything sent to the model
+
+**Status:** **BUILT 2026-08-20, offline 64/64.** New `agent_runtime/prompt_payload.py`:
+`ALLOWED_FIELDS` is a declared allow-list grouped into self / place / senses / people / task;
+`project()` sends a field only if the contract names it, so a new runtime key is invisible by
+default instead of shipping automatically; `NESTED_STRIPS` drops `blocker.actor_name/actor_class/
+signals` at the boundary while keeping them in the log for diagnosis; `check_clean()` is the alarm
+that reports (never rewrites) engine identity in a rendered prompt, and runs on both prompts every
+decision. All four #82 channels are closed — the raw-dict dump is gone, the templates no longer name
+the engine, and the action schemas ask for `<character name>` (the display-name resolver
+`_resolve_action_actor_refs` already existed, so speech and follow still work). **Coverage audit 2026-08-20 (user asked whether #83's engine vocabulary is fully contained):**
+`decide()` was guarded but **three other prompt paths were not** — `orient()` (wake), `chat()`
+(operator chat) and `ask()` (the planner) each build and dispatch their own text. All four are now
+guarded, and `test_every_prompt_path_is_guarded` enumerates the methods rather than trusting one
+call site, so a fifth path added later fails the test instead of leaking quietly.
+The audit also confirmed #83 itself is clean: the engine identity block (physical material,
+component class, collision profile, tags) is an **input** to `_classify_blocker` and never enters
+the observation — only the generic category does, and `_sense_note` reads no engine field.
+Two renderers (`_seen_text`, `_nearby_character_lines`) *would* leak if fed engine strings, but
+their real sources are clean by construction: `nearby_characters` uses `display_name`, and landmark
+labels are parsed (`Landmark_maren_home` → `"home"`) before storage. The alarm now covers them.
+**Still open:** the two render paths were not merged into one, and there is no golden-prompt diff
+test yet — the allow-list and the alarm were the load-bearing half. Original spec follows. ·
+**Source:** user, 2026-08-20: *"Add a backlog to clean up what gets sent to the model. We can figure
+this out later but would like a cleaner interface."*
+
+**#82 is absorbed into this item as its engine-names clause.** #82 asked a narrow question (stop
+leaking Unreal actor labels); the user's ask is the general one: *what is the defined set of things an
+APC's mind receives, and who decides?* Today the answer is "whatever accumulated", and that is the
+actual defect — the leak was only a symptom.
+
+### What the interface looks like today
+
+There is no interface. There are two divergent code paths in `llm_router.py` and a pile of ad-hoc
+renderers:
+
+- **The vision path** (`llm_router.py:530`) formats **23 separate keyword arguments** into
+  `_USER_TEMPLATE_VISION`, each produced by its own private function: `_grid_text`, `_place_text`,
+  `_facing_text`, `_travel_note`, `_direction_lines`, `_frontier_note`, `_seen_text`,
+  `_active_interrupt_note`, `_cell_survey_note`, `_heard_note`, `_sense_note`, `_schedule_note`,
+  `_route_map_note`, `_acquaintance_lines`, `_known_place_lines`, `_episode_lines`,
+  `_nearby_character_lines`, `_memory_lines`, plus raw `x` / `y` / `z` and `agenda.prompt_text`.
+  Every new fact added over the last six weeks bolted on one more argument and one more renderer.
+- **The no-vision path** (`llm_router.py:562`) ignores all of that and dumps the raw observation dict
+  as JSON, minus one key.
+
+So the same runtime state produces two completely different prompts depending on whether a screenshot
+landed, and neither is a stated contract. Nobody can answer "what does an APC know?" without reading
+600 lines.
+
+### Why it matters beyond tidiness
+
+- **Facts, not blockers is the whole strategy** ([[feedback_facts_not_blocking]]). Every fix for
+  six weeks has been "add a louder fact". That strategy scales only as far as the prompt stays
+  legible — and the prompt is now the product. An unstructured prompt is an unmeasurable one.
+- **Cost.** Every fact is tokens on every tick, forever. Nobody currently knows which facts earn
+  their place. A defined payload can be measured and pruned; a pile cannot.
+- **Contradiction risk.** Two renderers can state opposite things about the same state and nothing
+  catches it (rule 7). SR46 has a live example: Maren was told she was at her post *and* told to walk
+  to her post, in the same prompt, twenty times.
+- **Engine leakage** (#82's four channels) is a consequence of the missing allow-list, not a
+  separate bug.
+- **Portability.** A defined payload is what a second engine, or a second model, plugs into
+  ([[architecture_engine_agnostic_navigation]], [[project_why_worlds_for_ai]]).
+
+### Direction (shape not decided — that is the work)
+
+- **One projection, one path.** Build a single explicit "what the mind receives" structure from the
+  observation, and render *that*. No screenshot must not mean a different prompt — it should mean
+  the same payload with the vision section empty.
+- **Allow-list by construction.** A field reaches the model only if it is named in the projection.
+  New runtime keys are invisible by default; today they are visible by default.
+- **Sections with owners and a budget.** Each block (self, place, senses, map, people, memory,
+  schedule) states what it is for. A rough token budget per section makes the pruning conversation
+  possible at all.
+- **Generic vocabulary at the boundary** — #82's rule: no `BP_`, no `_C_1`, no `Actor`, no "Unreal".
+  Characters are referred to by display name and resolved back to actor labels in code.
+- **A golden-prompt test.** Freeze a rendered prompt for a fixed observation and diff it. Per rule 9
+  this is what makes a silent prompt regression fail loudly instead of showing up as odd behaviour
+  three runs later.
+
+**Do not start this while a live-run lane is open** — it touches every prompt and would confound
+whatever run is being graded. It is the natural companion to the "Needs tests (speed mode)" catch-up
+lane.
+
+**Absorbs:** #82. **Relates to:** #61, #81, #83, #85.
+
+**Done when:** one code path builds one declared payload; a field not on the list cannot reach the
+model; the golden-prompt test exists and fails when a renderer changes.
+
+---
+
+## 85. Shared APC doctrine — rules.md needs imports, because Maren does not know what Dufus knows
+
+**Status:** **BUILT 2026-08-20, offline 64/64.** `worlds/MCP_World/doctrine/` holds `basics.md`,
+`ground.md`, `movement.md`, `obstacles.md`, `survey.md` (+ a README stating the split rule).
+`resolve_rule_imports` in `agent_runtime/agent.py` expands `@import doctrine/<file>.md` at load:
+literal inclusion, one level, no nesting, no path escape, and **every failure raises** —
+missing file, empty path, nested import. Imports resolve before the character's own lines, so
+character overrides doctrine. **Maren went from 21 lines to 100** and now carries refuse_cell,
+allow_cell, look-before-you-step, breadcrumbs, tried-headings and the bounce rule; she is still not
+told how to survey. Decisions taken: doctrine lives per world, character wins on conflict, an agent
+with no imports loads but is warned. Original spec follows. · **Source:** user, 2026-08-20, after
+SR46: *"Maren ended up walking into the cornfield... which makes me think the rules md or wherever
+you save movement behavior is not synced with Dufus. We need a way to share these types of things
+between APCs maybe by importing mds."*
+
+**Confirmed by measurement, not inference. `dufus/rules.md` is 94 lines. `maren/rules.md` is 21.**
+
+`Agent.load` (`Python/agent_runtime/agent.py:62`) does exactly one thing:
+`rules = (path / "rules.md").read_text(...)`. One flat file per agent, no include, no shared base.
+So every navigation lesson learned since 2026-07 — six weeks of live-run fixes — was written into
+**Dufus's file only**, and Maren has never received any of it.
+
+### What Maren is missing, and what it cost in SR46
+
+Present in Dufus, absent in Maren:
+
+| Doctrine (Dufus rules.md line) | What it prevents |
+|---|---|
+| Look before you step; your eyes outrank the navmesh (`:44`) | walking into visible corn |
+| Behind buildings / indoors is never ground to cross (`:50`) | lobby and back-yard wedges |
+| Refuse bad ground, whole cell or `scope: spot` (`:31`, `:53`) | re-entering the same trap |
+| Refuse a piece of ground ONCE (`:58`) | the SR44 refusal loop |
+| You have bounced in and out of this cell N times (`:62`) | pocket ping-pong |
+| Read BREADCRUMBS; do not reverse blindly one leg at a time (`:72`, `:78`) | retracing into the trap |
+| Which headings you already tried from this spot (`:82`) | the east/southeast loop |
+| A person in your way is not a wall (`:91`) | freezing on a passer-by |
+
+Maren has only the reactive footing rule (*"if FOOTING is grass/cultivated_field/water, turn back"*)
+— which fires **after** she is already in the corn.
+
+**The smoking gun, SR46 11:45:58:** Maren decided *"I keep looping through this cornfield pocket;
+**time to refuse this ground** and head straight for..."* — and then emitted `walk_to`. She reasoned
+her way to exactly the right action and could not take it, because nothing in her 21 lines tells her
+`refuse_cell` exists or how it works. All three `refuse_cell` calls in SR46 were Dufus's.
+
+This is not a Maren bug. It is a **distribution** bug: doctrine that is true for every body that
+walks has been stored per-character. Any third APC starts at zero again — and per
+[[project_why_worlds_for_ai]] and the drag-and-drop goal ([[feedback_drag_and_drop]]), APCs are
+supposed to be cheap to add.
+
+### Direction — the user's "importing mds", concretely
+
+Split `rules.md` into two kinds of content and let a character file pull in shared ones:
+
+- **`doctrine/` — shared, world-level, about having a body.** Movement, footing, refusal,
+  breadcrumbs, stall recovery, obstacles, people-in-the-way. Written once. Suggested split:
+  `doctrine/movement.md`, `doctrine/ground.md`, `doctrine/obstacles.md`, `doctrine/social.md`.
+- **`agents/<id>/rules.md` — the character.** Who they are, what their job is, what they refuse to
+  do. Maren's *"stay at the post, you are not an explorer"* and Dufus's *"your one job is to survey"*
+  are genuinely per-agent and must stay per-agent.
+
+An import line in `rules.md` — e.g. `@import doctrine/movement.md` — resolved at load time in
+`Agent.load`. Keep it dumb: literal textual inclusion, no templating, no conditionals.
+
+### The rule that decides where a line goes
+
+**If the rule would be true for any body with legs, it is doctrine. If it is only true because of who
+this character is, it is character.** #64 already moved *social* clauses the other way (out of the
+shared prompt into per-agent rules) — that was right, and this is not a reversal of it: social
+posture is character, locomotion is physics.
+
+### Open questions (do not guess)
+
+- **Resolution order and precedence.** If a character contradicts doctrine, who wins? Per rule 7,
+  pick one and state it — probably character wins, and the override is *logged* so it is visible.
+- **Fail loud on a missing import** (rule 12): a typo'd import must abort the run at preflight (#63's
+  pattern), never silently produce a 21-line APC — which is exactly how this went unnoticed for six
+  weeks.
+- **Where does `doctrine/` live?** Per world (`worlds/<level>/doctrine/`) or per install? Footing
+  vocabulary is world-specific; "do not walk into a person" is not.
+- **Token cost.** Maren's prompt grows by ~70 lines on every tick, forever. That is real money and
+  it argues for splitting doctrine into files an agent can decline, not one blob.
+- **Does the survey doctrine come along?** Maren should know how to *avoid* bad ground; she should
+  not be told how to survey. Suggests `ground.md` (everyone) separate from `survey.md` (surveyors).
+
+**Relates to:** #84 (the same "what does the mind receive" question, one layer up), #64 (the mirror
+decision), #63 (fail-loud preflight), #81, [[feedback_drag_and_drop]].
+
+**Done when:** a new APC created by `/create-npc` inherits the full movement doctrine with no
+copy-paste, Maren emits `refuse_cell` when she reasons her way to it, and a bad import stops the run
+at preflight.
 
 ---
 

@@ -106,6 +106,25 @@ class UnrealBridge:
             "distance_cm": distance_cm,
         })
 
+    def forward_volume(self, actor_name: str, distance_cm: float = 500.0,
+                       yaw_offset_deg: float = 0.0) -> dict:
+        """Sweep the character's own body forward and raster its frontal area (#81).
+
+        Answers two questions the single ray could not: whether the BODY fits
+        (capsule sweep on ECC_Pawn, the channel that actually stops movement) and
+        WHERE the gap is (a 5x3 ray raster, left-to-right and bottom-to-top).
+        Raw engine data only — semantic classification belongs in the caller.
+
+        Result: {'fits', 'clearance_cm', 'open_columns', 'blocked_columns',
+                 'open_rows', 'cells', 'blocked_fraction', 'nearest_cm',
+                 'fully_blocked', 'hit', 'contact': {...}}
+        """
+        return self._send("get_character_forward_volume", {
+            "character_name": actor_name,
+            "distance_cm": distance_cm,
+            "yaw_offset_deg": yaw_offset_deg,
+        })
+
     def get_character_transform(self, actor_name: str) -> dict:
         """Return {'location': {x,y,z}, 'rotation': {x:pitch, y:yaw, z:roll}} or empty values."""
         result = self._send("get_character_location", {"character_name": actor_name})

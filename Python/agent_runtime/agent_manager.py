@@ -204,19 +204,115 @@ _PLACE_ROAM_MARGIN_CM = 100.0
 # Semantic classifier for forward-trace hits.
 # Maps engine actor names/classes → generic categories the LLM can reason about.
 # The lizard brain translates engine noise; it does NOT infer meaning or advise action.
+# SR45 evidence (2026-08-19, #61): the trace fires and hits — 42 hits in one run —
+# but the level's real actor names never matched this table. `veh_SportClassic_2`
+# is a parked car and fell through to "obstacle"; so did `shopFront_01`,
+# `road_sign_11`, and three `pose_standing_*` crowd figures. The engine's naming,
+# not a guess: `veh_` prefixes vehicles, `shopFront` fronts buildings,
+# `pose_standing_*` are SkeletalMeshActor crowd props (a real APC is `APC_<id>_BP_C_n`).
 _BLOCKER_KEYWORDS: list[tuple[set[str], str]] = [
-    ({"van", "car", "truck", "vehicle", "bus", "taxi", "auto"}, "vehicle"),
-    ({"npc", "apc", "character", "person", "human", "pedestrian", "civilian", "thirdperson"}, "person"),
+    ({"van", "car", "truck", "vehicle", "veh_", "bus", "taxi", "auto",
+      "tractor", "trailer", "motorcycle", "bike"}, "vehicle"),
+    ({"apc_", "npc", "character", "pedestrian", "civilian", "thirdperson",
+      "person", "human"}, "person"),
+    # Person-shaped scenery that will never move or answer. Its own category on
+    # purpose: calling it "person" would invite the APC to greet a mannequin.
+    ({"pose_standing", "pose_sitting", "mannequin", "crowd", "statue"}, "figure"),
     ({"dog", "cat", "animal", "bird", "creature", "pet"}, "animal"),
-    ({"wall", "building", "fence", "barrier", "door", "gate", "pillar", "column"}, "structure"),
-    ({"corn", "cornfield", "crop", "wheat", "foliage", "bush", "hedge", "shrub", "vegetation"}, "foliage"),
+    ({"wall", "building", "shopfront", "storefront", "house", "fence", "barrier",
+      "door", "gate", "pillar", "column", "porch", "stair", "roof"}, "structure"),
+    ({"sign", "post", "pole", "mailbox", "hydrant", "bench", "crate", "barrel",
+      "bin", "trash", "planter", "rock", "boulder"}, "prop"),
+    ({"corn", "cornfield", "crop", "wheat", "foliage", "bush", "hedge", "shrub",
+      "tree", "vegetation"}, "foliage"),
 ]
 
-def _classify_blocker(actor_name: str, actor_class: str) -> str:
+# #83: engine-side identity, ordered most-deliberate first. A tag is the level
+# author SAYING what a thing is; an asset name is just a file name they typed.
+_TAG_CATEGORIES: dict[str, str] = {
+    "vehicle": "vehicle", "car": "vehicle", "truck": "vehicle",
+    "person": "person", "npc": "person", "apc": "person", "character": "person",
+    "figure": "figure", "mannequin": "figure", "crowd": "figure",
+    "animal": "animal",
+    "structure": "structure", "building": "structure", "wall": "structure",
+    "prop": "prop", "clutter": "prop", "streetfurniture": "prop",
+    "foliage": "foliage", "vegetation": "foliage", "crop": "foliage",
+}
+
+# Physical materials are set by the art pipeline, not by whoever named the asset,
+# so they survive a rename and a marketplace pack.
+_PHYS_MATERIAL_CATEGORIES: list[tuple[set[str], str]] = [
+    ({"flesh", "skin", "body"}, "person"),
+    ({"foliage", "grass", "leaf", "crop", "corn", "wheat"}, "foliage"),
+    ({"cartire", "carbody", "vehicle", "chassis"}, "vehicle"),
+    ({"brick", "concrete", "plaster", "drywall", "stucco"}, "structure"),
+]
+
+def _classify_blocker(actor_name: str, actor_class: str, signals: dict | None = None) -> str:
+    """Generic category for a probe contact — engine signals first, names last (#83).
+
+    Substring-matching ``GetActorLabel()`` is not object detection; it is reading
+    the level author's file names and hoping. SR45 proved it: three whole name
+    families (``veh_*``, ``shopFront*``, ``pose_standing_*``) fell through at once.
+    So the order is deliberate — an author's *deliberate* statement outranks an
+    author's *incidental* one:
+
+      1. explicit actor tags        — the author saying what a thing IS
+      2. pawn-ness                  — the engine knowing this thing is a body
+      3. physical material          — set by the art pipeline, survives renaming
+      4. component / collision hints
+      5. the keyword table          — last resort, and it says so when it fires
+
+    ``signals`` is the identity block from ``forward_volume`` (physical_material,
+    component_class, collision_profile, tags, is_pawn, is_movable). Absent, this
+    degrades to the pre-#83 name matching, which is what the old single-ray probe
+    still supplies.
+    """
+    signals = signals or {}
+
+    # 1. Tags — the only channel where the author states meaning rather than
+    #    incidentally encoding it in a file name.
+    for tag in signals.get("tags") or []:
+        category = _TAG_CATEGORIES.get(str(tag).strip().lower())
+        if category:
+            return category
+
+    # 2. The engine knows a pawn from a prop. A real body is never scenery.
+    if signals.get("is_pawn"):
+        return "person"
+
+    # 3. Physical material, set by the art pipeline.
+    phys = str(signals.get("physical_material") or "").lower()
+    if phys:
+        for keywords, category in _PHYS_MATERIAL_CATEGORIES:
+            if any(kw in phys for kw in keywords):
+                return category
+
+    # 4. Component and collision hints. A SkeletalMesh that cannot move is
+    #    person-shaped scenery — the crowd mannequins — and must NOT read as a
+    #    person, or an APC will try to greet one.
+    component = str(signals.get("component_class") or "").lower()
+    profile = str(signals.get("collision_profile") or "").lower()
+    if "vehicle" in profile:
+        return "vehicle"
+    if "skeletalmesh" in component and signals.get("is_movable") is False:
+        return "figure"
+
+    # 5. Last resort: the level author's file names.
     text = (actor_name + " " + actor_class).lower()
     for keywords, category in _BLOCKER_KEYWORDS:
         if any(kw in text for kw in keywords):
             return category
+
+    # Fail loud (rule 12): an unclassified contact is still reported as a generic
+    # obstacle — never dropped — but everything known about it is logged so the
+    # gap is visible instead of silently degrading.
+    logger.info(
+        f"blocker classifier: nothing matched actor '{actor_name}' "
+        f"(class '{actor_class}', material '{phys or '?'}', component "
+        f"'{component or '?'}', profile '{profile or '?'}', "
+        f"tags {list(signals.get('tags') or [])}) — reported as generic obstacle"
+    )
     return "obstacle"
 
 
@@ -292,6 +388,9 @@ class AgentManager:
         self._frontier_failures: dict[str, dict[str, int]] = {}  # agent_id -> cell key -> consecutive failed walks
         self._scene_skips: dict[str, int] = {}      # agent_id -> consecutive scene-unchanged skips (gate liveness)
         self._nearby_ids: dict[str, frozenset[str]] = {}  # agent_id -> nearby APC ids on prior cheap sample
+        # #81: set once if the engine cannot answer the body-box probe, so the
+        # fallback warning is loud but printed once rather than every tick.
+        self._volume_probe_unavailable = False
         self._last_pos: dict[str, tuple] = {}       # agent_id -> last (x, y), for stuck detection
         self._travel_from: dict[str, tuple] = {}    # agent_id -> (x, y) at the previous observation
         self._travel: dict[str, dict] = {}          # agent_id -> last real heading travelled (#56)
@@ -372,6 +471,7 @@ class AgentManager:
         self._frontier_failures.clear()
         self._scene_skips.clear()
         self._nearby_ids.clear()
+        self._volume_probe_unavailable = False
         self._last_pos.clear()
         self._travel_from.clear()
         self._travel.clear()
@@ -1487,32 +1587,73 @@ class AgentManager:
         # trace switched off (#60). Facts only — the decision stays with the LLM.
         stalled = bool((observation.get("last_move") or {}).get("stalled"))
         if moving or stuck or stalled:
-            trace = self.bridge.line_trace_forward(
-                agent.bound_unreal_actor_name,
-                _STUCK_TRACE_CM if (stuck or stalled) else _AHEAD_TRACE_CM,
-            )
+            probe_cm = _STUCK_TRACE_CM if (stuck or stalled) else _AHEAD_TRACE_CM
+            trace = self._probe_ahead(agent, probe_cm)
             if trace.get("hit"):
                 category = _classify_blocker(
-                    trace.get("actor_name", ""), trace.get("actor_class", "")
+                    trace.get("actor_name", ""),
+                    trace.get("actor_class", ""),
+                    trace.get("signals"),
                 )
-                if stuck or stalled or category in _MOBILE_BLOCKERS:
-                    observation["blocker"] = {
-                        "category": category,
-                        "distance_cm": trace.get("distance_cm", 0.0),
-                    }
-                    # Personal space (B7b): inside the standoff, halt the walk
-                    # NOW — waiting for the LLM means walking into their face.
-                    if (moving and category in _MOBILE_BLOCKERS
-                            and observation["blocker"]["distance_cm"] <= _STANDOFF_CM):
-                        self.bridge.execute_action(
-                            agent.bound_unreal_actor_name, {"type": "stop"}
-                        )
-                        observation["blocker"]["halted"] = True
-                        logger.info(
-                            f"[{agent_id}] reflex stop: {category} "
-                            f"{observation['blocker']['distance_cm']:.0f} cm ahead "
-                            f"(standoff {_STANDOFF_CM:.0f} cm)"
-                        )
+                distance_cm = float(trace.get("distance_cm", 0.0) or 0.0)
+                # #61: EVERY hit is a fact now. The old code only kept the hit when
+                # the APC was already stuck/stalled or the thing could move, so in
+                # SR45 fifteen of Dufus's hits — a parked car, two shop fronts, a
+                # road sign, three crowd figures — were classified and then dropped.
+                # A parked vehicle on clear navmesh is exactly the case the user
+                # asked for, and it is static by definition. Facts, not blockers
+                # ([[feedback_facts_not_blocking]]): the fact always reaches the
+                # prompt; what changes with urgency is only whether it is allowed to
+                # WAKE cognition, so a wall passed at 4 m does not buy a paid tick.
+                fits = trace.get("fits")
+                urgent = bool(
+                    stuck
+                    or stalled
+                    or category in _MOBILE_BLOCKERS
+                    or distance_cm <= _STANDOFF_CM
+                    or fits is False          # #81: the body does not fit — always a decision
+                )
+                observation["blocker"] = {
+                    "category": category,
+                    "distance_cm": distance_cm,
+                    "actor_name": trace.get("actor_name", ""),
+                    "urgent": urgent,
+                }
+                # #81: the body-box facts, present only when the volume probe ran.
+                # A thin ray can say "something ahead" but never "the gap is on
+                # your left", which is the fact that ends a wedge loop. SR46:
+                # Dufus refused three 9-m patches accurately and kept landing in
+                # them, because a 15-m step cannot aim finer than the trap is wide.
+                if fits is not None:
+                    observation["blocker"]["fits"] = bool(fits)
+                    observation["blocker"]["open_columns"] = list(
+                        trace.get("open_columns") or [])
+                    observation["blocker"]["fully_blocked"] = bool(
+                        trace.get("fully_blocked"))
+                    observation["blocker"]["clearance_cm"] = float(
+                        trace.get("clearance_cm", distance_cm) or 0.0)
+                # Personal space (B7b): inside the standoff, halt the walk
+                # NOW — waiting for the LLM means walking into their face.
+                if (moving and category in _MOBILE_BLOCKERS
+                        and distance_cm <= _STANDOFF_CM):
+                    self.bridge.execute_action(
+                        agent.bound_unreal_actor_name, {"type": "stop"}
+                    )
+                    observation["blocker"]["halted"] = True
+                    logger.info(
+                        f"[{agent_id}] reflex stop: {category} "
+                        f"{distance_cm:.0f} cm ahead "
+                        f"(standoff {_STANDOFF_CM:.0f} cm)"
+                    )
+                fit_note = ""
+                if fits is not None:
+                    gap = ", ".join(observation["blocker"]["open_columns"]) or "none"
+                    fit_note = f" [fits={bool(fits)} open={gap}]"
+                logger.info(
+                    f"[{agent_id}] blocker: {category} {distance_cm:.0f} cm ahead "
+                    f"('{trace.get('actor_name', '')}'){fit_note}"
+                    f"{'' if urgent else ' — noted, not waking cognition'}"
+                )
 
         # A completed place survey is durable visual context. While the APC is
         # intentionally settled there, routine pixel changes do not trigger
@@ -1549,8 +1690,9 @@ class AgentManager:
             isinstance(active_interrupt, dict) and active_interrupt.get("kind") != "survey"
         )
         mapped_event = force_cognition or nearby_changed or mapped_schedule_event or active_non_survey
+        urgent_blocker = bool((observation.get("blocker") or {}).get("urgent"))
         if (mapped_visual and mapped_settled and not stuck
-                and "blocker" not in observation and not mapped_event):
+                and not urgent_blocker and not mapped_event):
             agent.mark_ticked(self._agents_dir)
             logger.info(
                 f"[{agent_id}] place visual {mapped_visual['place_image_id']} supplies context — "
@@ -1583,7 +1725,7 @@ class AgentManager:
             # it has already walked through them.
             skips = self._scene_skips.get(agent_id, 0) + 1
             self._scene_skips[agent_id] = skips
-            blocked = "blocker" in observation
+            blocked = urgent_blocker
             try:
                 schedule = self._existing_schedule_directive(agent, observation)
             except Exception as e:
@@ -1644,6 +1786,67 @@ class AgentManager:
 
         self._scene_skips[agent_id] = 0
         return observation
+
+    def _probe_ahead(self, agent, distance_cm: float) -> dict:
+        """One forward probe, normalised — the body-box if available, else the ray.
+
+        #81 replaced the single hip-height ray with a capsule sweep plus a coarse
+        raster, but that lives in C++ and only exists once the plugin is rebuilt.
+        Until then the old ray still answers, so this returns one shape either way:
+
+            {'hit', 'distance_cm', 'actor_name', 'actor_class', 'signals',
+             'fits', 'open_columns', 'fully_blocked', 'clearance_cm'}
+
+        ``fits`` is None when only the ray ran — callers use that to tell "the body
+        does not fit" from "we never measured", and must never read None as False.
+        The fallback is announced once per run (rule 12): running blind on the old
+        probe is a real degradation and must not look like normal operation.
+        """
+        actor = agent.bound_unreal_actor_name
+        volume = getattr(self.bridge, "forward_volume", None)
+        if callable(volume) and not self._volume_probe_unavailable:
+            try:
+                result = volume(actor, distance_cm) or {}
+            except Exception as e:
+                result = {"error": str(e)}
+            if result.get("success") and "fits" in result:
+                contact = result.get("contact") or {}
+                # With no sweep contact the nearest raster cell is the honest
+                # distance; with neither, nothing was struck at all.
+                distance = contact.get("distance_cm")
+                if distance is None:
+                    distance = result.get("nearest_cm", distance_cm)
+                return {
+                    "hit": bool(result.get("hit")),
+                    "distance_cm": float(distance or 0.0),
+                    "actor_name": contact.get("actor_name", ""),
+                    "actor_class": contact.get("actor_class", ""),
+                    "signals": contact,
+                    "fits": bool(result.get("fits")),
+                    "open_columns": result.get("open_columns") or [],
+                    "fully_blocked": bool(result.get("fully_blocked")),
+                    "clearance_cm": float(result.get("clearance_cm", 0.0) or 0.0),
+                }
+            self._volume_probe_unavailable = True
+            logger.warning(
+                "body-box probe (#81) unavailable — falling back to the single "
+                f"forward ray for the rest of this run. Engine said: "
+                f"{result.get('error') or result}. Rebuild the UnrealMCP plugin to "
+                "get 'can I fit' and 'where is the gap'."
+            )
+
+        trace = self.bridge.line_trace_forward(actor, distance_cm) or {}
+        return {
+            "hit": bool(trace.get("hit")),
+            "distance_cm": float(trace.get("distance_cm", 0.0) or 0.0),
+            "actor_name": trace.get("actor_name", ""),
+            "actor_class": trace.get("actor_class", ""),
+            "signals": None,
+            "fits": None,          # never measured — not the same as "does not fit"
+            "open_columns": [],
+            "fully_blocked": False,
+            "clearance_cm": float(trace.get("distance_cm", 0.0) or 0.0),
+        }
 
     def _nearby_agent_ids(self, agent_id: str, xyz) -> frozenset[str]:
         """Nearby APC ids from cached transforms; no bridge or model work."""
@@ -4358,6 +4561,7 @@ class AgentManager:
         self._frontier_failures.clear()
         self._scene_skips.clear()
         self._nearby_ids.clear()
+        self._volume_probe_unavailable = False
         self._last_pos.clear()
         self._travel_from.clear()
         self._travel.clear()

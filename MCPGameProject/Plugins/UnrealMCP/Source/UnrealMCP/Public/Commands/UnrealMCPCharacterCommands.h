@@ -24,6 +24,7 @@ private:
     TSharedPtr<FJsonObject> HandleGetCharacterStatus(const TSharedPtr<FJsonObject>& Params);
     TSharedPtr<FJsonObject> HandleGetCharacterLocation(const TSharedPtr<FJsonObject>& Params);
     TSharedPtr<FJsonObject> HandleGetCharacterForwardTrace(const TSharedPtr<FJsonObject>& Params);
+    TSharedPtr<FJsonObject> HandleGetCharacterForwardVolume(const TSharedPtr<FJsonObject>& Params);
     TSharedPtr<FJsonObject> HandleGetCharacterHealth(const TSharedPtr<FJsonObject>& Params);
     TSharedPtr<FJsonObject> HandleGetCharacterInventory(const TSharedPtr<FJsonObject>& Params);
     TSharedPtr<FJsonObject> HandleGetCharacterCurrentAction(const TSharedPtr<FJsonObject>& Params);
