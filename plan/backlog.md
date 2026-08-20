@@ -384,10 +384,16 @@ verification, which folds into the #36/#37 live session.
    does nothing until it is compiled. Until then every APC silently uses the old single ray — the
    runtime warns once per run when that happens, so check the log for
    `body-box probe (#81) unavailable`.
-2. **SR47.** Grade it on: a `fits=false` line with `open` naming a real side; Maren emitting
+2. **SR47 ran and was killed at 5 ticks (2026-08-20).** See the SR47 section under #86: the shrink
+   half worked, the grow half was wrong (a 45 m order is walked as a navmesh path and arrived 50 m
+   sideways), and #81's `open_columns` was naming gaps that were not gaps. All three are fixed;
+   **SR48 is the re-run.** Grade SR48 on: no `DRIFT:` lines over 45 degrees on a grown step, at least
+   one `move plan: ... grew` that actually ends up where it was sent, `cut to` still stopping short of
+   refused ground, and new ground surveyed. Original SR47 criteria follow.
+3. **SR47 (superseded).** Grade it on: a `fits=false` line with `open` naming a real side; Maren emitting
    `refuse_cell` (she now has the doctrine — this is #85's pass criterion); no engine identity in the
    prompts (`prompt leak` warnings should be zero); and the survey covering new ground.
-3. **Then the exit condition** — the overnight run. Everything above is in service of it.
+4. **Then the exit condition** — the overnight run. Everything above is in service of it.
 
 4. **#86 adaptive step length** (new, user 2026-08-20) — every move is a fixed 15 m, so a target 4 m
    away can only be overshot and then overshot back: **the action vocabulary cannot express "a bit
@@ -403,6 +409,10 @@ Features built WITHOUT tests to speed up code-done → live-testing. One line pe
 feature as it lands; the suite catches up here later. (Everything built before
 this banner on 2026-08-19 — #77/#78/#26/#79/#80 — already has tests.)
 
+- **#86 heading drift + #81 open-column strictness** (2026-08-20, after SR47) — `_open_columns` has
+  the two SR47 shapes as obvious cases (a column blocked at body height is not a gap; `fits=False`
+  with an unstruck raster names no side at all), and the `last_move.went` drift fact needs one case
+  where the achieved heading is 90 degrees off the ordered one.
 - **#86 adaptive step length** (2026-08-20) — `move_plan.plan_step` is a pure function and is the
   obvious unit test: shrink caps, the grow case, "no room" at zero, and that an unmeasured input
   (`None`) never reads as clear. `AgentManager._scan_ahead` needs a PlaceDB fixture with one no-go
@@ -3653,6 +3663,55 @@ Nothing here needs a plugin rebuild. The step length is computable from data the
 
 **Relates to:** #81 (supplies the clearance), #77 (shares the constant), #65 (most wedges are a step with
 nowhere to go), #26, #61, #20 (movement pacing), #87.
+
+### SR47 (2026-08-20) — the run was killed after 5 ticks. Both halves fired; the grow half was wrong.
+
+**Killed by the user:** *"If the APCs act erratic and don't conform, no sense in keep running... Dufus
+looked like he was doing the right thing, then came back to starting point and went into motor home and
+stopped."* 5 ticks, 117 s, 2 APCs, zero engine errors.
+
+**What worked.** Both mechanisms fired live on the first run: `move plan: east 90.0 m (wanted 90.0 m,
+grew)` and `move plan: north 3.5 m (wanted 15.0 m, capped by refused ground)`. The `distance` word
+reached the model unprompted — Dufus asked for `"distance": "far"` twice and `"close"` once, and the
+close step moved him 2.0 m. The body-box probe (#81) ran for the first time; no `unavailable` warning.
+
+**Why it was erratic — the step is a straight line, the engine walks a PATH.** `plan_step` names a
+point `distance_cm` along a heading and hands it to the bridge, which is a navmesh `MoveTo`. The
+navmesh routes *around* obstacles, so the further away the named point is, the more freedom the route
+has to go somewhere else entirely:
+
+| tick | ordered | achieved |
+|---|---|---|
+| 1 | north, `far` (45 m) | **52 m east**, 5.8 m north |
+| 2 | north, `far` (45 m) | **48 m west**, 11 m north |
+
+The engine confirmed the order was taken (`current_action: moving_to [-4691, -5884, 91]` is exactly
+45 m due north of where he stood), so this is not a lost command — it is the path going round a
+building. That is the user's "went out, came back to the starting point": the two legs are a 50 m
+detour east and a 50 m detour back west. At the old fixed 15 m the same detour was a wobble; at 45–90 m
+it eats the run. **The grow half was built on an assumption the engine does not honour.**
+
+**Fixed 2026-08-20:** `MAX_STEP_CM` 9000 → **3000** (one cell). Still double the old fixed step, still
+cheap over done ground, and a detour can no longer throw an APC out of the district it is standing in.
+**The real fix, not yet built:** a grown step should be walked *leg by leg* by `route_planner` — which
+already does exactly this for named places — so the engine is never handed a far target. Until then
+one cell is the ceiling, and the ceiling is a stopgap, not a design.
+
+**Also fixed: the APC is now told when it did not go where it was sent.** `last_move.went` compares the
+heading ordered against the heading achieved and states the drift as a fact (`DRIFT:` in the log). SR47
+had Dufus ordering north twice and travelling east then west, with nothing anywhere saying so — the
+prompt only ever reported the *distance* moved. Facts, not blockers: nothing corrects the heading.
+
+**Also found — #81's `open_columns` names gaps that are not gaps.** The engine counts a column open when
+**any** of its three rows is clear. In SR47 a sedan sat 17 cm into Dufus's `far_right` column at body
+height, the row above it was clear, and the prompt told him *"the gap is on your: left, centre, right,
+far right"*. Worse, `paint_set_10` produced `fits=False` with **all five columns open** — the capsule
+struck something every ray missed, and the prompt claimed five gaps that did not exist. Dufus stepped
+"left" into a gap he had been promised and ended up on a wooden dock over water.
+**Fixed in Python, no rebuild needed** (`_open_columns` in `agent_manager.py`): a column is a gap only
+when NOTHING in it is struck, and when the capsule says "does not fit" while no ray was struck at all,
+the scan reports that it **cannot name a side** instead of naming five. The C++ `open_columns` is left
+as it is and no longer read.
 
 ### The step must grow as well as shrink (user, 2026-08-20)
 

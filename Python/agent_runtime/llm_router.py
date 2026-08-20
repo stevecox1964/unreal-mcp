@@ -864,6 +864,13 @@ def _sense_note(observation: dict) -> str:
             lines.append(
                 f"Sense: your last order (\"{last_move['intent']}\") moved you "
                 f"{round(last_move['moved_cm'] / 100, 1)} m.")
+        went = last_move.get("went")
+        if isinstance(went, dict) and went.get("heading"):
+            lines.append(
+                f"Sense: you ordered \"{last_move['intent']}\" and ended up "
+                f"{went['heading']} of where you started. The ground you were "
+                f"walked over is not the straight line you asked for — something "
+                f"between you and that point sent you round.")
         plan = last_move.get("plan")
         if isinstance(plan, dict) and plan.get("why"):
             lines.append(f"Sense: {plan['why']}.")
@@ -912,7 +919,13 @@ def _sense_note(observation: dict) -> str:
         # cannot aim finer than a 9 m trap. Stated as measurement, never advice.
         if blocker.get("fits") is False:
             openings = [str(c).replace("_", " ") for c in (blocker.get("open_columns") or [])]
-            if blocker.get("fully_blocked") or not openings:
+            if blocker.get("raster_silent"):
+                lines.append(
+                    f"Sense: your body DOES NOT FIT straight ahead — measured "
+                    f"clearance {blocker.get('clearance_cm', 0.0) / 100.0:.1f} m — "
+                    f"and the scan could NOT tell which side the gap is on. "
+                    f"Whatever stopped you passed between the scan lines.")
+            elif blocker.get("fully_blocked") or not openings:
                 lines.append(
                     "Sense: your body DOES NOT FIT ahead and NO side is open — "
                     "you are completely blocked in this direction. This was "

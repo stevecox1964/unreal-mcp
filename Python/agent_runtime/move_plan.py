@@ -35,10 +35,22 @@ NOMINAL_STEP_CM = 1500.0
 # so out loud rather than ordering a move that cannot help.
 MIN_STEP_CM = 200.0
 
-# The longest single order, however open the ground looks. Three 30 m cells:
-# far enough that crossing done ground is cheap, short enough that the APC
-# still re-decides several times inside a district.
-MAX_STEP_CM = 9000.0
+# The longest single order, however open the ground looks. ONE 30 m cell.
+#
+# SR47 set this to three cells and the run was unusable. The step is a straight
+# line on the map, but the engine walks a NAVMESH PATH to the point it names —
+# and the further away that point is, the more freedom the path has to go
+# somewhere else entirely. Dufus asked for 45 m north and arrived 48 m WEST,
+# having been routed around a building; the user watched him strike out, come
+# back to his starting point and walk into a trailer house. Every one of those
+# legs was a correct order badly executed.
+#
+# A long step is therefore only safe when the runtime walks it leg by leg
+# itself (route_planner already does this for named places). Until a grown step
+# is routed that way, one cell is the ceiling: still double the old fixed step,
+# still cheap over done ground, and a detour can no longer throw the APC further
+# than the district it is standing in.
+MAX_STEP_CM = 3000.0
 
 # What the model's coarse distance word is worth. A word is a judgement it can
 # make from a picture; a number in centimetres is not.

@@ -153,6 +153,12 @@ _STEP_DISTANCE = 1500.0
 # in-memory patch list, with each cell looked up once. That is free.
 _SCAN_STEP_CM = 150.0
 
+# A walk that ends more than this far off the heading it asked for did not go
+# where it was sent: the engine walked a navmesh PATH around something, not the
+# straight line the order named. Reported as a fact, never corrected for.
+_HEADING_DRIFT_DEG = 45.0
+_HEADING_DRIFT_MIN_CM = 300.0   # below this the direction of travel is noise
+
 # The body-box probe (#81) traces along the avatar's FACING. Its clearance may
 # only cap a step heading within this much of that facing — a clearance measured
 # east says nothing about walking north, and applying it anyway would shorten
@@ -350,6 +356,33 @@ def _yaw_of(rotation) -> float | None:
     if isinstance(rotation, (list, tuple)) and len(rotation) >= 2:
         return float(rotation[1])
     return None
+
+
+def _open_columns(volume: dict) -> tuple[list[str], bool]:
+    """Which columns of the body-box raster are a gap the body could use (#81).
+
+    The engine's own ``open_columns`` counts a column open when ANY of its three
+    rows is clear. SR47 shows why that is the wrong test: a sedan sat 17 cm into
+    Dufus's ``far_right`` column at body height, the row above it was clear, and
+    the prompt told him the gap was on his far right. A column is a gap only when
+    NOTHING in it is struck.
+
+    The second return value is the honest "we do not know". When the capsule says
+    the body does not fit and no raster cell was struck at all, the obstacle
+    passed between the rays — the scan cannot name a side, and claiming all five
+    are open (which is what SR47 printed for ``paint_set_10``) is worse than
+    admitting it saw nothing.
+    """
+    cells = volume.get("cells") or []
+    if not cells:
+        return list(volume.get("open_columns") or []), False
+    blocked = {c.get("column") for c in cells if c.get("blocked")}
+    order = ["far_left", "left", "centre", "right", "far_right"]
+    seen = [c.get("column") for c in cells]
+    columns = [c for c in order if c in seen]
+    openings = [c for c in columns if c not in blocked]
+    silent = bool(volume.get("fits") is False and not blocked)
+    return (([] if silent else openings), silent)
 
 
 def _offset_location(x: float, y: float, z: float, yaw_deg: float, distance: float) -> list[float]:
@@ -1646,6 +1679,8 @@ class AgentManager:
                     observation["blocker"]["fits"] = bool(fits)
                     observation["blocker"]["open_columns"] = list(
                         trace.get("open_columns") or [])
+                    observation["blocker"]["raster_silent"] = bool(
+                        trace.get("raster_silent"))
                     observation["blocker"]["fully_blocked"] = bool(
                         trace.get("fully_blocked"))
                     observation["blocker"]["clearance_cm"] = float(
@@ -1829,6 +1864,7 @@ class AgentManager:
                 result = {"error": str(e)}
             if result.get("success") and "fits" in result:
                 contact = result.get("contact") or {}
+                openings, silent = _open_columns(result)
                 # With no sweep contact the nearest raster cell is the honest
                 # distance; with neither, nothing was struck at all.
                 distance = contact.get("distance_cm")
@@ -1841,7 +1877,8 @@ class AgentManager:
                     "actor_class": contact.get("actor_class", ""),
                     "signals": contact,
                     "fits": bool(result.get("fits")),
-                    "open_columns": result.get("open_columns") or [],
+                    "open_columns": openings,
+                    "raster_silent": silent,
                     "fully_blocked": bool(result.get("fully_blocked")),
                     "clearance_cm": float(result.get("clearance_cm", 0.0) or 0.0),
                 }
@@ -1862,6 +1899,7 @@ class AgentManager:
             "signals": None,
             "fits": None,          # never measured — not the same as "does not fit"
             "open_columns": [],
+            "raster_silent": False,
             "fully_blocked": False,
             "clearance_cm": float(trace.get("distance_cm", 0.0) or 0.0),
         }
@@ -3894,6 +3932,18 @@ class AgentManager:
         moved = math.hypot(xyz[0] - order["from"][0], xyz[1] - order["from"][1])
         fact = {"intent": order.get("intent"), "moved_cm": round(moved, 1),
                 "stalled": moved < _MOVEMENT_START_CM}
+        want_yaw = order.get("heading_yaw")
+        if want_yaw is not None and moved >= _HEADING_DRIFT_MIN_CM:
+            went = math.degrees(math.atan2(xyz[1] - order["from"][1],
+                                           xyz[0] - order["from"][0]))
+            drift = abs((went - want_yaw + 180.0) % 360.0 - 180.0)
+            if drift > _HEADING_DRIFT_DEG:
+                word = _COMPASS_LETTER_WORD.get(yaw_to_compass(went))
+                fact["went"] = {"heading": word, "drift_deg": round(drift)}
+                logger.info(
+                    "[%s] DRIFT: ordered %s, ended up %s (%.0f deg off, %.1f m) — "
+                    "the engine walked a path, not a line", agent_id,
+                    order.get("intent"), word, drift, moved / 100.0)
         plan = order.get("plan")
         held = isinstance(plan, dict) and not plan.get("distance_cm")
         if fact["stalled"] and held:
@@ -4099,6 +4149,8 @@ class AgentManager:
             "intent": intent,
             "from": (xyz[0], xyz[1]) if xyz else None,
             "plan": observation.get("_move_plan"),
+            "heading_yaw": (self._direction_yaw(observation, action["direction"])
+                            if action.get("direction") else None),
         }
 
     def _drop_crumb(self, agent_id: str, grid: dict | None,
