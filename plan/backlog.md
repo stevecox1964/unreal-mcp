@@ -389,6 +389,14 @@ verification, which folds into the #36/#37 live session.
    prompts (`prompt leak` warnings should be zero); and the survey covering new ground.
 3. **Then the exit condition** — the overnight run. Everything above is in service of it.
 
+4. **#86 adaptive step length** (new, user 2026-08-20) — every move is a fixed 15 m, so a target 4 m
+   away can only be overshot and then overshot back: **the action vocabulary cannot express "a bit
+   closer", so the loop rings instead of converging.** Deterministic, no engine rebuild, and it is
+   shared locomotion — squarely inside the exit-condition lane. **While SR47 runs, count reverse legs
+   and wedge runs per 100 ticks**; that is the baseline #86 must beat. **#87** (make the lizard brain an
+   LLM) is **analysis only** and is explicitly parked behind the overnight run — it doubles per-tick
+   cost, and most of the gap it would close is closed by #86 + #81 + #77 for free.
+
 ### Needs tests (speed mode — user, 2026-08-19)
 
 Features built WITHOUT tests to speed up code-done → live-testing. One line per
@@ -3546,6 +3554,165 @@ decision), #63 (fail-loud preflight), #81, [[feedback_drag_and_drop]].
 **Done when:** a new APC created by `/create-npc` inherits the full movement doctrine with no
 copy-paste, Maren emits `refuse_cell` when she reasons her way to it, and a bad import stops the run
 at preflight.
+
+---
+
+## 86. Adaptive step length — how far to walk is world evidence, not a constant
+
+**Status:** SPEC ONLY, not built. **Needs a test.** **Source:** user, 2026-08-20: *"Steps needs to be
+adaptive. We seem to be running into bugs where 15 cm steps over shoots targets and we get into
+oscillations. The steps need to be computed based on world evidence and not just blindly goto here."*
+
+*(The constant is 15 **metres**, not 15 cm — `_STEP_DISTANCE = 1500.0` at `agent_manager.py:142`. The
+failure described is real; only the decimal place is off, and 15 m makes it worse, not better.)*
+
+### What is wrong
+
+Every direction-relative move in the runtime is **exactly the same length**, forever, regardless of what
+is in front of the body or how far the goal is. `_STEP_DISTANCE` is consumed by `_direction_target`
+(`agent_manager.py:4098`), `wander` (`:4176`), the sweep view targets (`:1186`) and — the same constant —
+the look-before-step neighbour lookup (`:3698`). Four consequences, and they compound:
+
+1. **Overshoot, then oscillation.** A doorway 4 m away is reached by a 15 m step that ends 11 m past it.
+   The only correction available is another 15 m step, back the other way, which ends 11 m short on the
+   far side. **The action vocabulary cannot express "a bit closer", so the loop cannot converge** — it
+   can only ring. This is the bug the user is reporting.
+2. **It cannot aim finer than a trap is wide.** The code already admits this in a comment at `:1626`.
+3. **A 15 m move is validated by one sample at its far end.** Look-before-step (#77) probes the point one
+   step out; the fourteen metres of ground travelled to get there are never examined. The body commits to
+   a distance the senses never measured.
+4. **The prompt tells the model the truth and then gives it no lever.** `llm_router.py:30` describes
+   `wander` as *"one step (~15m)"*. The model can pick a **direction** and nothing else. Every locomotion
+   problem is therefore forced through the only free variable it has — heading — which is why heading
+   thrash looks like indecision when it is actually a missing degree of freedom.
+
+### The evidence is already in hand — every tick, no new engine work
+
+- **`clearance_cm` and `fits`** from the #81 body-box probe: free travel before contact. This is
+  *literally* "how far may I walk", already measured.
+- **`_AHEAD_TRACE_CM`** (500) forward trace and its blocker distance.
+- **`_STANDOFF_CM`** (300) personal space — the distance a walk must already stop short by.
+- **Distance to the sweep target centre**, plus `arrive_tolerance` (`cell_size / 4`).
+- **`PLACE_EXTENT_CM`** (900): a place is 9 m across, so a 15 m step **cannot deliberately land inside
+  one**. The step is larger than the target it is aiming at.
+- **Route distance-to-goal** and `_PROGRESS_NOISE_CM` (200).
+- Footing underfoot, and the breadcrumb trail of legs actually walked.
+
+Nothing here needs a plugin rebuild. The step length is computable from data the tick already collected.
+
+### Proposed rule — deterministic, no LLM
+
+`step = clamp(min(nominal, remaining_to_goal, clearance_cm − _STANDOFF_CM), floor, nominal)`
+
+1. **Never step past the goal.** When the move has a target — a sweep centre, a place, a resolved name —
+   cap the step at the remaining distance. **Overshoot dies here.** If only one thing on this list gets
+   built, build this one; it is a handful of lines and it closes the reported bug.
+2. **Never step into contact.** Cap at `clearance_cm − _STANDOFF_CM` when #81 reports contact. Below a
+   floor (~100 cm) it is not a step, it is a wedge — fire the wedge fact (#65) instead of a token shuffle
+   that burns a tick and proves nothing.
+3. **Give the model three words, not fifteen metres.** Add `"distance": "close|normal|far"` to `walk_to`
+   (~3 m / 15 m / 30 m), still capped by (1) and (2). A coarse word is a judgement a model can make from a
+   picture; a number in centimetres is not. Consistent with [[feedback_facts_not_blocking]] — the cap is
+   physics, the choice stays the model's.
+4. **Report the length actually taken.** *"You asked for 15 m and moved 4 m; the doorway was the cap."*
+   Without this the model cannot tell a short step from a stall, and a silently-shortened move is exactly
+   the class of bug global rule 12 forbids. **Fail loud.**
+5. **Decouple look from move.** `_direction_places` naming the cell one nominal step away is a *map*
+   question and should stay at 15 m. The move length is a *body* question. One constant serving both is a
+   coincidence, not a design.
+
+### Open decisions
+
+- **Does a shortened step cost a full LLM tick?** At ~9 s/tick, four 3 m steps spend 36 s of sim time and
+  four decisions on one doorway. **Recommendation:** a shortened step continues **deterministically**
+  (the pattern the sweep already uses — bridge-only, no LLM) until the goal is reached, a blocker appears,
+  or the budget runs out. Fine motor control must not be priced at one decision per metre.
+- **Does the neighbour-cell naming follow the shortened step?** Recommend **no** — see (5).
+
+**Relates to:** #81 (supplies the clearance), #77 (shares the constant), #65 (most wedges are a step with
+nowhere to go), #26, #61, #20 (movement pacing), #87.
+
+**Done when:** an APC told to reach something 4 m away arrives at it without a reverse leg, and the
+movement log states the requested and actual length whenever they differ.
+
+---
+
+## 87. Should the lizard brain be an LLM? — analysis, parked behind the overnight run
+
+**Status:** ANALYSIS ONLY — deliberately not scheduled. **Source:** user, 2026-08-20: *"I'm starting to
+think lizard brain needs to be more than a bunch of functions, but an LLM itself. Not sure it needs to be
+integrated with a VLM, but maybe. This way the persona LLM living in the abstract world has a backstop
+more tightly coupled to world brain."*
+
+### The lizard brain already has two halves, and they answer differently
+
+- **Senses** — `_probe_ahead` (#81), `_look_ahead` / `_direction_places` (#77), footing, grid `locate`,
+  hearing, sighting. Pure measurement. **A VLM already lives inside this half**: perception turns the
+  camera frame into labels.
+- **Reflexes** — the standoff halt, the stuck detector, the wedge budget, deterministic sweep
+  continuation. Code that *acts* without asking the persona.
+
+**Making the senses an LLM is wrong and should never be done.** Raycasts, distances and cell arithmetic
+are deterministic; a model there would be slower, cost more per tick, and could **hallucinate a
+clearance** — a measurement that is confidently wrong is worse than no measurement. Global rule 5: if
+code can answer, code answers.
+
+**Making the reflexes a model is arguable**, and it is what the request is actually reaching for.
+
+### The real gap — and it is real
+
+**Nothing sits between the decision and the engine.** The persona emits `walk_to forward` and it executes
+verbatim. The only cross-check is a fact printed in the *next* prompt, one tick (~9 s) later. That is
+precisely the failing loop: wrong move → executed → observed → corrected → overshoot → repeat. An inner
+motor loop running on raw measurements at engine cadence would close that inside the tick. The
+architecture instinct — **fast inner loop on measurements, slow outer loop on meaning** — is right.
+
+### But most of that gap closes without a model
+
+#86's caps close overshoot. #81 closes "is it solid". #77 closes "what is over there". **Build those,
+instrument the residual, then look.** If what is left is genuinely a judgement — *"the probe says the gap
+is on my far left; is that gap a doorway or a hedge?"* — then it is a **visual** question, so the answer
+is a **VLM**, not a text LLM. That resolves the "not sure it needs a VLM" doubt: if a model turns out to
+be needed here at all, it is needed *because* the residual questions are ones only the picture can answer.
+
+### Costs and conflicts, stated plainly
+
+- **Per-tick cost.** A second model call per tick roughly doubles decision cost and adds latency, and the
+  exit condition is an **unattended overnight run** — cost is the binding constraint (see the
+  hybrid-provider note in the tail of this file). Any motor layer must be local or Haiku-class **and must
+  be skipped entirely on clean ticks**.
+- **It conflicts with [[feedback_facts_not_blocking]].** The standing rule is: when the model keeps doing
+  X wrong, add louder facts and rules — not a code-side blocker. **An LLM veto is still a blocker, just a
+  more expensive one.** Surfacing the conflict rather than averaging it (global rule 7).
+  **Recommendation: a motor layer may SHAPE a move — shorten it, nudge the heading — but never REFUSE
+  one.** Shaping is physics and belongs to the body; refusing is doctrine and belongs to the persona.
+- **It amends [[feedback_lizard_brain_contract]].** Today's contract is *facts only, never advises*. A
+  layer that shapes a move does act. If this is ever built, that contract changes on purpose and in
+  writing — it does not drift.
+- **Two brains that disagree need an arbiter, and there is no third.** Shaping-only avoids ever needing
+  one; a veto layer does not.
+
+### The shape it would take, if built
+
+- **Where:** after the persona decides, before the bridge call — the seam #84's payload contract creates.
+- **Input:** the requested action plus this tick's raw measurements. **No persona, no memory, no
+  schedule.** It must not be able to reason about the character.
+- **Output:** the same action with a length and heading, or `hold` plus a stated fact. Never a new action.
+- **Model:** Haiku-class or local, sub-second, or it eats the tick.
+- **Gate:** invoked **only** when a measurement contradicts the request (contact, standoff breach, goal
+  nearer than one step). Clean ticks pass straight through in code and cost nothing.
+- **Pass criterion:** fewer reverse legs and fewer wedge runs per 100 ticks than the #86-only build.
+  **If it does not beat plain #86, it does not ship.**
+
+### Recommendation
+
+**Build #86 first**, and instrument *reverse legs per 100 ticks* and *wedge runs per 100 ticks* so there
+is a baseline to beat. **Do not build #87 before the overnight run** — it adds per-tick cost and a second
+failure mode to the exact loop the exit condition measures.
+
+**Relates to:** #86, #81, #77, #84, #61, [[architecture_lizard_brain_sensing]],
+[[feedback_lizard_brain_contract]], [[feedback_facts_not_blocking]],
+[[project_dufus_vlm_training_corpus]].
 
 ---
 
