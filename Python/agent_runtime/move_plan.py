@@ -63,71 +63,75 @@ STOP_SHORT_MARGIN_CM = 100.0
 
 
 def plan_step(prefer: str | None = None,
-              open_run_cm: float = 0.0,
+              reach_cm: float | None = None,
               stop_short_cm: float | None = None,
-              clearance_cm: float | None = None,
-              fits: bool | None = None,
+              open_run_cm: float = 0.0,
               standoff_cm: float = 300.0,
               nominal_cm: float = NOMINAL_STEP_CM,
               min_cm: float = MIN_STEP_CM,
               max_cm: float = MAX_STEP_CM) -> dict:
-    """Decide how far this step travels.
+    """Decide how far this step travels. **The engine's answer IS the step.**
 
-    ``prefer`` is the model's coarse word ("close"/"normal"/"far") or None.
-    ``open_run_cm`` is how far the shared map says the ground ahead has already
-    been walked with good footing — the reason to grow. ``stop_short_cm`` is the
-    distance to the first ground that must not be entered (a no-go patch, a
-    refused cell), ``clearance_cm``/``fits`` are the body-box probe (#81) — the
-    reasons to shrink. ``None`` means *not measured*, which is never treated as
-    *clear*: an unmeasured cap simply does not apply.
+    ``reach_cm`` is what the engine said when asked *how far can this body travel
+    along this heading* — a sweep of the APC's own capsule, so it measures the
+    actual line of travel rather than estimating it. It is the SOURCE of the
+    distance, not a limit on a constant. A step is *as far as the ground allows*,
+    standoff subtracted; ``nominal_cm`` is only the fallback for when nothing
+    could be measured at all, and a step taken that way is labelled a guess.
 
-    Returns ``{"distance_cm", "wanted_cm", "capped_by", "grew", "why"}``.
-    ``distance_cm == 0.0`` means there is no room to step at all — the caller
-    reports that as a fact instead of ordering a move.
+    ``stop_short_cm`` is the first ground somebody REFUSED — a no-go patch, a
+    refused cell. The engine cannot know about that: it is a social fact, not a
+    physical one, so it caps the engine's answer.
+
+    ``prefer`` is the model's coarse word, and it is only ever a **ceiling**. The
+    model may ask to stop sooner than the ground requires ("close" — I can see the
+    thing I mean to stop at); it may never ask to travel further than it allows.
+
+    ``open_run_cm`` is how far the shared map says this ground has been walked
+    before. It decides nothing now. It is carried so the APC can be told whether
+    the ground it is about to cross is known or new.
+
+    Returns ``{"distance_cm", "wanted_cm", "capped_by", "grew", "measured",
+    "why"}``. ``distance_cm == 0.0`` means there is no room to step at all.
     """
-    wanted = PREFERRED_CM.get(str(prefer or "").strip().lower(), nominal_cm)
+    asked = PREFERRED_CM.get(str(prefer or "").strip().lower())
 
-    # Grow across proven ground. Only a run LONGER than the step we already
-    # wanted is a reason to change anything — a single open cell ahead is the
-    # ordinary case, not an invitation to sprint.
-    #
-    # "close" is a CEILING, never a floor. It is the model saying "I can see the
-    # thing I want to stop at"; open ground beyond it is not a reason to sail
-    # past. Growing over an explicit "close" would be the overshoot this whole
-    # item exists to end, re-introduced by the half meant to cure crawling.
-    grew = False
-    asked_close = str(prefer or "").strip().lower() == "close"
-    if open_run_cm and open_run_cm > wanted and not asked_close:
-        wanted = open_run_cm
-        grew = True
+    if reach_cm is None:
+        wanted = asked if asked is not None else nominal_cm
+        measured = False
+    else:
+        wanted = max(float(reach_cm) - standoff_cm, 0.0)
+        measured = True
+        if asked is not None:
+            wanted = min(wanted, asked)
     wanted = min(wanted, max_cm)
 
-    # Shrink for anything ahead. Every cap is a distance the body may travel.
-    caps: list[tuple[str, float]] = []
-    if stop_short_cm is not None:
-        caps.append(("refused ground", stop_short_cm - STOP_SHORT_MARGIN_CM))
-    if clearance_cm is not None:
-        caps.append(("something in the way", clearance_cm - standoff_cm))
+    # Remember whether the model's word, rather than the ground, set the length.
+    asked_shorter = (measured and asked is not None
+                     and asked < max(float(reach_cm or 0.0) - standoff_cm, 0.0))
 
     distance = wanted
     capped_by = None
-    for name, limit in caps:
+    if stop_short_cm is not None:
+        limit = stop_short_cm - STOP_SHORT_MARGIN_CM
         if limit < distance:
             distance = limit
-            capped_by = name
-    if capped_by:
-        grew = False  # a capped step never grew, whatever the map said
+            capped_by = "refused ground"
 
     if distance < min_cm:
         return {"distance_cm": 0.0, "wanted_cm": round(wanted, 1),
-                "capped_by": capped_by or ("no fit" if fits is False else "no room"),
-                "grew": False,
-                "why": _why_none(capped_by, fits)}
+                "capped_by": capped_by or "no room", "grew": False,
+                "measured": measured,
+                "why": (f"there was no room to step: {capped_by} is directly ahead"
+                        if capped_by else
+                        "there was no room to step: the ground ahead is blocked "
+                        "within your own body's length")}
 
-    distance = min(distance, max_cm)
     return {"distance_cm": round(distance, 1), "wanted_cm": round(wanted, 1),
-            "capped_by": capped_by, "grew": grew,
-            "why": _why(distance, wanted, capped_by, grew, open_run_cm)}
+            "capped_by": capped_by, "grew": distance > nominal_cm,
+            "measured": measured,
+            "why": _why(distance, capped_by, measured, open_run_cm,
+                        asked_shorter, reach_cm, standoff_cm)}
 
 
 def leg_distances(distance_cm: float,
@@ -136,8 +140,8 @@ def leg_distances(distance_cm: float,
 
     The engine gets one hop at a time. A hop is a distance the fixed 15 m step
     always walked correctly, so the navmesh has almost no room to route around
-    something and end up somewhere else — which is the whole reason a long step
-    was unusable in SR47.
+    something and end up somewhere else — which is why SR47's 45 m orders arrived
+    fifty metres sideways and this one does not.
 
     Returns cumulative distances ending exactly on ``distance_cm``. A final
     remainder shorter than ``MIN_STEP_CM`` is absorbed into the hop before it
@@ -160,21 +164,35 @@ def _m(cm: float) -> str:
     return f"{round(cm / 100.0, 1)} m"
 
 
-def _why(distance: float, wanted: float, capped_by: str | None,
-         grew: bool, open_run_cm: float) -> str:
-    """One plain line of fact for the prompt and the log. No advice."""
-    if capped_by:
-        return (f"your step was cut to {_m(distance)} — {capped_by} "
-                f"stopped it short of the {_m(wanted)} it would have covered")
-    if grew:
-        return (f"your step was {_m(distance)}: the map says the ground that far "
-                f"ahead has already been walked, so crossing it took one order")
-    return ""
+def _why(distance: float, capped_by: str | None, measured: bool,
+         open_run_cm: float, asked_shorter: bool = False,
+         reach_cm: float | None = None, standoff_cm: float = 300.0) -> str:
+    """One plain line of fact for the prompt and the log. No advice.
 
-
-def _why_none(capped_by: str | None, fits: bool | None) -> str:
-    if fits is False:
-        return "there was no room to step: your body does not fit that way"
+    A step is as far as the ground allowed, so the honest sentence names the
+    ground, not the step. When the map has been there before, say so — crossing
+    known ground and crossing new ground are different acts, and the APC should
+    be able to tell them apart without having to infer it.
+    """
     if capped_by:
-        return f"there was no room to step: {capped_by} is directly ahead"
-    return "there was no room to step"
+        return (f"your step was {_m(distance)}, stopped short of the clear ground "
+                f"because {capped_by} lies ahead")
+    if not measured:
+        return (f"your step was the default {_m(distance)} — nothing ahead of you "
+                f"could be measured, so that distance is a guess, not a fact")
+    if asked_shorter:
+        clear = max(float(reach_cm or 0.0) - standoff_cm, 0.0)
+        return (f"your step was {_m(distance)} because you asked to stop close; "
+                f"the ground ahead measured clear for {_m(clear)}")
+    # Only ever describe THIS step. A 90 m open run behind a wall 9 m away is
+    # true and useless: the sentence must be about the ground being crossed.
+    known_cm = min(open_run_cm, distance)
+    if known_cm >= distance:
+        known = " All of it is ground APCs have walked before."
+    elif known_cm > 0:
+        known = (f" The first {_m(known_cm)} of it is ground APCs have walked "
+                 f"before; the rest is new.")
+    else:
+        known = " None of it has been walked before."
+    return (f"your step was {_m(distance)}: that is how far the ground ahead "
+            f"measured clear for your body.{known}")

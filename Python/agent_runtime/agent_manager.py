@@ -153,15 +153,18 @@ _STEP_DISTANCE = 1500.0
 # in-memory patch list, with each cell looked up once. That is free.
 _SCAN_STEP_CM = 150.0
 
-# How far the move plan looks before committing to a step (#89). The travel
-# probe (`_AHEAD_TRACE_CM`, 5 m) answers a different question — "is something
-# about to stop me", which is why it is short and why a hit inside it may wake
-# cognition. Sizing a step is the other question: an APC was deciding to walk
-# 15 m, and on a grown step 90 m, having measured only the first 5 m. The step
-# became adaptive and the eyes did not. So the plan runs its OWN probe, as far as
-# it means to travel, capped here — one bridge call per movement decision, and
-# nothing about the urgency of the travel sense changes.
-_PLAN_PROBE_MAX_CM = 3000.0
+# How far the move plan ASKS along a heading before sizing a step (#89/#90).
+#
+# The travel probe (`_AHEAD_TRACE_CM`, 5 m) answers a different question — "is
+# something about to stop me" — which is why it is short and why a hit inside it
+# may WAKE cognition. Lengthening it would wake a paid decision for every wall
+# down a corridor. Two questions, two probes.
+#
+# This one asks the whole question: *how far can this body travel that way*. It
+# is deliberately the largest step we would ever take, because the answer is the
+# STEP — not a limit on a constant. In a town the sweep almost always strikes
+# something well inside it, and that distance is what the APC then walks.
+_PLAN_PROBE_MAX_CM = 9000.0
 
 # Where to aim the body-box probe when the body does not fit straight ahead
 # (#88). The raster cannot answer this: its columns are offset by the capsule
@@ -4318,7 +4321,9 @@ class AgentManager:
             agent.mark_ticked(self._agents_dir)
             return {"agent_id": agent_id, "action": "idle", "walk": True}
 
-        trace = self._probe_ahead(agent, _AHEAD_TRACE_CM)
+        # Probe the rest of THIS hop, not a fixed 5 m of it (#90).
+        remaining = max(plan["legs"][plan["leg"]] - along, _AHEAD_TRACE_CM)
+        trace = self._probe_ahead(agent, min(remaining, _PLAN_PROBE_MAX_CM))
         if trace.get("hit"):
             category = _classify_blocker(trace.get("actor_name", ""),
                                          trace.get("actor_class", ""),
@@ -4527,45 +4532,41 @@ class AgentManager:
                     "capped_by": None, "grew": False, "why": "", "stop_reason": ""}
         scan = self._scan_ahead(xyz, yaw, move_plan.MAX_STEP_CM)
 
-        # Look as far as we mean to walk (#89). The travel probe only reaches 5 m,
-        # so reusing it sized a 15 m — or a grown 90 m — step on 5 m of sight.
-        want = max(scan["open_run_cm"],
-                   move_plan.PREFERRED_CM.get(
-                       str(action.get("distance") or "").strip().lower(),
-                       _STEP_DISTANCE))
-        look = min(max(want, _AHEAD_TRACE_CM), _PLAN_PROBE_MAX_CM)
-        clearance, fits = self._look_along(agent, observation, yaw, look)
+        # Ask the engine how far this body can travel that way, and make the
+        # answer the step (#90). Not a constant capped by a measurement — the
+        # measurement itself. `_STEP_DISTANCE` survives only as the fallback for
+        # when nothing could be measured, and a step taken that way says so.
+        reach = self._look_along(agent, observation, yaw, _PLAN_PROBE_MAX_CM)
 
         plan = move_plan.plan_step(
             prefer=action.get("distance"),
-            open_run_cm=scan["open_run_cm"],
+            reach_cm=reach,
             stop_short_cm=scan["stop_short_cm"],
-            clearance_cm=clearance,
-            fits=fits,
+            open_run_cm=scan["open_run_cm"],
             standoff_cm=_STANDOFF_CM,
             nominal_cm=_STEP_DISTANCE,
         )
         plan["stop_reason"] = scan["stop_reason"]
-        plan["looked_cm"] = look
+        plan["reach_cm"] = reach
         return plan
 
     def _look_along(self, agent, observation: dict, yaw: float,
-                    distance_cm: float) -> tuple[float | None, bool | None]:
-        """Measure free travel along one heading, turning the probe to face it (#89).
+                    distance_cm: float) -> float | None:
+        """Ask the engine how far this body can travel along one heading (#90).
 
-        Returns ``(clearance_cm, fits)``, and ``(None, None)`` when nothing was
-        measured — which the plan treats as "no cap", never as "clear".
+        Turns the probe to the heading rather than turning the character, and the
+        engine sweeps the APC's own capsule along that rotation — so the answer is
+        a measurement of the actual line of travel, not an estimate from rays.
 
-        The engine sweeps the character's own capsule along the probe's rotation,
-        so this is a real body-fit test down that heading rather than the forward
-        one reused at an angle. A miss is honest silence: the plan then rests on
-        the shared map alone, which is the same position it was in before the
-        body-box probe existed at all.
+        Returns free travel in cm: the sweep's ``clearance_cm`` when something was
+        struck, the full ``distance_cm`` when nothing was. ``None`` means **not
+        measured** — never "clear" — and the plan falls back to the fixed step and
+        labels it a guess. Silence and open ground must never look the same.
         """
         volume = getattr(self.bridge, "forward_volume", None)
         facing = _yaw_of(observation.get("rotation"))
         if not callable(volume) or facing is None or self._volume_probe_unavailable:
-            return (None, None)
+            return None
         offset = (yaw - facing + 180.0) % 360.0 - 180.0
         try:
             result = volume(agent.bound_unreal_actor_name, distance_cm,
@@ -4573,12 +4574,12 @@ class AgentManager:
         except Exception as e:
             logger.warning("[%s] plan probe %+.0f failed: %s",
                            agent.agent_id, offset, e)
-            return (None, None)
+            return None
         if not result.get("success") or "fits" not in result:
-            return (None, None)
+            return None
         if result.get("fits") is True:
-            return (None, True)      # nothing struck within the look: no cap
-        return (float(result.get("clearance_cm", 0.0) or 0.0), False)
+            return float(distance_cm)
+        return float(result.get("clearance_cm", 0.0) or 0.0)
 
     def _execute_routed_walk(self, agent: Agent, action: dict, observation: dict) -> dict:
         """Execute a walk_to-by-name as the current leg of a grid-first route

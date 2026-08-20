@@ -395,7 +395,9 @@ verification, which folds into the #36/#37 live session.
 3. **SR47 (superseded).** Grade it on: a `fits=false` line with `open` naming a real side; Maren emitting
    `refuse_cell` (she now has the doctrine — this is #85's pass criterion); no engine identity in the
    prompts (`prompt leak` warnings should be zero); and the survey covering new ground.
-4. **Then the exit condition** — the overnight run. Everything above is in service of it.
+4. **#88/#89/#90 landed after SR49 and are untested live.** SR50 grades all three at once — see the
+   #88 and #90 write-ups for what good looks like. Offline the lane is now pinned at **65/65**.
+5. **Then the exit condition** — the overnight run. Everything above is in service of it.
 
 4. **#86 adaptive step length** (new, user 2026-08-20) — every move is a fixed 15 m, so a target 4 m
    away can only be overshot and then overshot back: **the action vocabulary cannot express "a bit
@@ -411,23 +413,19 @@ Features built WITHOUT tests to speed up code-done → live-testing. One line pe
 feature as it lands; the suite catches up here later. (Everything built before
 this banner on 2026-08-19 — #77/#78/#26/#79/#80 — already has tests.)
 
-- **#89 look as far as you walk** (2026-08-20) — `_look_along` must return `(None, None)` on a probe
-  miss (no cap, never "clear"), and `plan_step` must not grow past an explicit `"close"`.
-- **#88 open headings** (2026-08-20) — `_open_headings` needs a fake bridge where straight ahead and
-  one side are blocked and the other side is clear: it must return compass words (not body-relative),
-  nearest-turn first, and an EMPTY list must stay distinguishable in the prompt from "never probed".
-- **#86 the walk plan** (2026-08-20) — `move_plan.leg_distances` is pure and trivial to cover
-  (exact multiples, a remainder, a remainder too small to be its own hop). `_pulse_walk` needs a fake
-  bridge and one case per abort path: drift off the line, something ahead, no ground made, someone
-  arriving, tick budget — all five were exercised by hand when built, none are pinned.
-- **#86 heading drift + #81 open-column strictness** (2026-08-20, after SR47) — `_open_columns` has
-  the two SR47 shapes as obvious cases (a column blocked at body height is not a gap; `fits=False`
-  with an unstruck raster names no side at all), and the `last_move.went` drift fact needs one case
-  where the achieved heading is 90 degrees off the ordered one.
-- **#86 adaptive step length** (2026-08-20) — `move_plan.plan_step` is a pure function and is the
-  obvious unit test: shrink caps, the grow case, "no room" at zero, and that an unmeasured input
-  (`None`) never reads as clear. `AgentManager._scan_ahead` needs a PlaceDB fixture with one no-go
-  patch and one refused cell.
+- *(the #86-#90 locomotion lane is now covered - see below)*
+
+**Paid off 2026-08-20:** `scripts/agent_runtime/test_move_plan.py`, **20 checks**, suite **65/65**.
+Pins **#90** (the step is the measured reach; an unmeasured step is labelled a guess; the model may
+only ask for *less*; the known-ground sentence never outruns the step), **#86** (a refusal shortens but
+never cancels; no-room yields no shuffle; hops never hand the engine a far target; all five walk-plan
+exits; the heading-drift fact), **#88** (a column blocked at body height is not a gap; five invented
+gaps become none; compass words nearest-turn-first; boxed-in stays distinguishable from never-asked)
+and **#89** (a probe that could not answer returns *not measured*, never *clear*).
+
+*Still unpinned in this lane:* `AgentManager._scan_ahead` against a PlaceDB fixture with a no-go patch
+and a refused cell - the refusal cap is covered at the `plan_step` level but not end-to-end from the DB.
+
 
 ### Cleanup advisories (observed, not scheduled)
 
@@ -3971,6 +3969,57 @@ would have made a wall 15 m down a corridor wake a paid decision every tick. Two
 
 **Done when:** the step the plan commits to is never longer than the ground it measured, and SR50 shows
 no arrival at an obstacle that was inside the planned step but outside the old 5 m probe.
+
+---
+
+## 90. Ask the engine how far you can go — the step IS the answer
+
+**Status:** **BUILT + TESTED 2026-08-20, offline 65/65 — needs SR50.** No rebuild. **Source:** user,
+2026-08-20: *"We should have code that 'ASKS' how many units in dir. 'One step' | 15 m is wrong, it's
+ask the engine how many Ms can I move. Did you not implement that?"*
+
+**No — #89 only half did it, and the user caught it.** #89 made the probe reach as far as the step
+meant to travel, but the measurement was still applied as a **cap on a 15 m constant**. The constant was
+still the source. The whole idea of a fixed "step" was still there, just fenced.
+
+### What changed
+
+`move_plan.plan_step` now takes **`reach_cm`** — what the engine answered when asked *how far can this
+body travel along this heading* — and **that is the distance**:
+
+```
+step = reach_cm − standoff          (capped by refused ground, and by the model's word)
+```
+
+`AgentManager._look_along` asks it: one capsule sweep of the APC's **own body**, turned to the heading
+being planned, out to `_PLAN_PROBE_MAX_CM` (90 m — deliberately the largest step we would ever take,
+because the answer *is* the step). It returns `clearance_cm` when something was struck, the full
+distance when nothing was, and **`None` when nothing could be measured** — never confusable with
+"clear".
+
+**`_STEP_DISTANCE` survives in exactly two roles, both honest:** the fallback when nothing could be
+measured (and such a step *says* it is a guess — `"that distance is a guess, not a fact"`), and the
+**hop length** for walking a long step, because 15 m is the distance SR47 proved the navmesh honours.
+
+### What the other inputs do now
+
+- **The refusal cap stays.** The engine cannot know a cell was refused — that is a social fact, not a
+  physical one — so `stop_short_cm` still shortens the engine's answer.
+- **`prefer` is a ceiling and only a ceiling.** The model may ask to stop **sooner** than the ground
+  requires ("close" — *I can see the thing I mean to stop at*); it may never ask for more than the
+  ground allows. Growing past an explicit `close` would have re-introduced the exact overshoot #86
+  exists to end, from the half meant to cure crawling.
+- **`open_run_cm` decides nothing any more.** The map's "this has been walked before" is now *context*,
+  not the growth source, and it is clipped to the step being taken — a 90 m open run behind a wall 9 m
+  away is true and useless. The APC is told which: *"All of it is ground APCs have walked before"* /
+  *"the first N m … the rest is new"* / *"None of it has been walked before."*
+- **A hop probes its own length.** `_pulse_walk` was still checking a fixed 5 m of a 15 m hop; it now
+  probes the remainder of the hop it is actually walking.
+
+**Relates to:** #86, #88, #89, #81, #61.
+
+**Done when:** SR50 shows `move plan` distances that differ tick to tick with the ground, no two
+identical 15 m steps in a row on varied terrain, and no step longer than the ground measured.
 
 ---
 
