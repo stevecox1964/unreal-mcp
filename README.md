@@ -14,9 +14,9 @@
 
 > This is a fork of [chongdashu/unreal-mcp](https://github.com/chongdashu/unreal-mcp). Original work by [@chongdashu](https://www.x.com/chongdashu). This fork extends the base project with additional features â€” see [Changes from Upstream](#changes-from-upstream) below.
 
-This project is an **AI agent simulation** built in Unreal Engine: LLM-driven NPCs that perceive the world through their in-game cameras (a vision model), decide what to do (a decision LLM), remember what they have seen and who they have met, and navigate to named places — running live in PIE or as a standalone process. It began as a fork of an Unreal *MCP* (editor-authoring) project; that history still shows in parts of this README, but the focus is now the sim, not editor authoring (see the note under Overview).
+This project is an **AI agent simulation** built to interact with Unreal Engine: LLM-driven APCs (AI NPCS) that can perceive the 3D game world through their in-game cameras (soon to be vision model), and decide what to do (via decision LLM), remember what they have seen and who they have met, and navigate to named places running live in PIE or as a standalone process. It began as a fork of an Unreal *MCP* (editor-authoring) project; MCP has been removed and direct calls to python->Unreal C++ are being made.
 
-## âš ï¸ Experimental Status
+## Experimental Status
 
 This project is currently in an **EXPERIMENTAL** state. The API, functionality, and implementation details are subject to significant changes. While we encourage testing and feedback, please be aware that:
 
@@ -25,7 +25,7 @@ This project is currently in an **EXPERIMENTAL** state. The API, functionality, 
 - Documentation may be outdated or missing
 - Production use is not recommended at this time
 
-## ðŸŒŸ Overview
+## Overview
 
 What the sim does each tick, per agent:
 
@@ -38,7 +38,7 @@ What the sim does each tick, per agent:
 
 Decisions stream to `worlds/<level>/logs/agent_decisions.log` (completed decisions only) and
 `worlds/<level>/logs/sim_runner.log` (every tick's outcome for every agent, including skips and
-exclusions — truncated per run), plus the web cockpit's live feed.
+exclusions truncated per run), plus the web cockpit's live feed.
 
 > **Note (2026-06-28):** the **Python MCP editor-authoring tools were retired** (Actor Management,
 > Blueprint Development, Blueprint Node Graph, Editor Control, Camera, Project). Epic now ships an
@@ -46,14 +46,14 @@ exclusions — truncated per run), plus the web cockpit's live feed.
 > a **standalone runner + web cockpit** (no Claude/MCP required). The underlying C++ commands still
 > exist in the plugin (reachable over the raw socket on `:55557`).
 > The bridge currently lives in an editor-only module, so **Unreal must be running in PIE** to host
-> the socket (making it a runtime module — for a packaged, editor-free build — is on the backlog).
+> the socket (making it a runtime module for a packaged, editor-free build is on the backlog).
 >
-> **Update (2026-07-08):** the Python MCP layer is now **fully retired** (backlog #22) — no MCP
+> **Update (2026-07-08):** the Python MCP layer is now **fully retired** (backlog #22) no MCP
 > server, no `mcp.json`, no `mcp`/`fastmcp` dependency. The sim talks to Unreal over raw TCP via
 > `agent_runtime/unreal_connection.py`, and anything driving the sim (web cockpit, Claude in dev
 > mode, curl) uses the runner's localhost HTTP API.
 
-## ðŸ§© Components
+## Components
 
 ### Sample Project (MCPGameProject) `MCPGameProject`
 - Based off the Blank Project, but with the unrealSIM plugin added.
@@ -65,29 +65,29 @@ exclusions — truncated per run), plus the web cockpit's live feed.
 - Handles command execution and response handling
 
 ### Python Runtime `Python/`
-- Standalone — no Claude/MCP required to run the sim: `Python/start_sim.bat` or `python Python/sim_runner.py`
+- Standalone no Claude/MCP required to run the sim: `Python/start_sim.bat` or `python Python/sim_runner.py`
 - `agent_runtime/unreal_connection.py` owns the raw TCP socket to the Unreal bridge plugin (port 55557)
 - Handles command serialization, response parsing, and reconnection (Unreal closes the socket after each command)
 - Loads `Python/.env` for LLM-backed NPC simulation settings
 
-## ðŸ“‚ Directory Structure
+## Directory Structure
 
-- **MCPGameProject/** â€” Example Unreal project
-  - **Plugins/UnrealMCP/** — C++ plugin source
+- **MCPGameProject/** Example Unreal project
+  - **Plugins/UnrealMCP/** C++ plugin source
 
-- **Python/** â€” the standalone agent runtime (no MCP — retired 2026-07-08)
-  - **agent_runtime/** â€” the cognitive loop: `agent_manager` (tick orchestration), `factory`
+- **Python/** the standalone agent runtime (no MCP retired 2026-07-08)
+  - **agent_runtime/** the cognitive loop: `agent_manager` (tick orchestration), `factory`
     (shared AgentManager construction), `llm_router`, `perception` (VLM), `memory_store`,
     `social_memory` + `episodic_memory` (per-agent memory), `place_db` + `world_grid` (shared
     spatial map), `cell_sweep` (maintenance-APC sweep), `config_store`, `unreal_bridge`
-  - **scripts/** â€” offline test suite (`run_tests.py`) + the loop harness (`loop/preflight.py`)
-  - **worlds/** â€” Level-scoped NPC data (one folder per Unreal level)
-    - **`<LevelName>`/agents/`<agent_id>`/** â€” per-NPC config files
-      - `state.json` â€” identity, binding, tier, `role` (`npc` | `maintenance`), goal, tick settings
-      - `character.md` â€” role, personality, backstory
-      - `goals.md` â€” long-term and current goals
-      - `rules.md` â€” decision constraints
-      - `tools.json` â€” allowed action list
+  - **scripts/** offline test suite (`run_tests.py`) + the loop harness (`loop/preflight.py`)
+  - **worlds/** Level-scoped NPC data (one folder per Unreal level)
+    - **`<LevelName>`/agents/`<agent_id>`/** per-NPC config files
+      - `state.json` identity, binding, tier, `role` (`npc` | `maintenance`), goal, tick settings
+      - `character.md` role, personality, backstory
+      - `goals.md`  long-term and current goals
+      - `rules.md` decision constraints
+      - `tools.json` allowed action list
       - `memory.json` / `social.json` / `episodes.jsonl` â€” accumulated runtime memory (git-ignored)
     - **`<LevelName>`/`world_places.db`** â€” shared spatial map (place cells + landmarks; git-ignored)
     - **`<LevelName>`/logs/** â€” per-world decision logs (runtime, git-ignored)
