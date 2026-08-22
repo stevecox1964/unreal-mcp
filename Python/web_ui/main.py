@@ -324,7 +324,11 @@ def build_map(level: str) -> dict:
     # patches are sub-cell circles (#78). Shown, never editable from the map:
     # withdrawing one stays the APC's own act (allow_cell).
     refusals = db.all_refusals() if db else []
+    # Every patch ever written, marked with whether it still steers a step (#91).
+    # `all_patches` is the whole record and `active_patches` is the live subset,
+    # so the difference IS the expired set — no second age rule to keep in sync.
     no_go = db.all_patches() if db else []
+    live_ids = {p["id"] for p in db.active_patches()} if db else set()
     named = sum(1 for c in cells if c["named"])
     swept = sum(1 for c in cells if c["swept"])
     surveyed = sum(1 for c in cells if c["surveyed"])
@@ -352,12 +356,22 @@ def build_map(level: str) -> dict:
                      for r in refusals],
         "no_go": [{"x": p["x"], "y": p["y"], "radius_cm": p["radius_cm"],
                    "refused_by": p["refused_by"], "reason": p["reason"],
-                   "refused_at": p["refused_at"]}
+                   "refused_at": p["refused_at"],
+                   # Who wrote it and on what evidence (#91). A judgement the
+                   # APC stated and a reading its own body took are different
+                   # facts, and a map that draws them the same hides the one
+                   # thing worth watching: where the world walls an APC in.
+                   "source": p.get("source") or "stated",
+                   "proofs": p.get("proofs") or 0,
+                   "expired": p["id"] not in live_ids}
                   for p in no_go],
         "counts": {"named": named, "surveyed": surveyed, "swept": swept,
                    "mapped": len(cells), "stale": stale, "owned": len(owned),
                    "refused": len({(r["col"], r["row"]) for r in refusals}),
                    "no_go": len(no_go),
+                   "no_go_measured": sum(1 for p in no_go
+                                         if (p.get("source") or "stated") == "measured"),
+                   "no_go_expired": sum(1 for p in no_go if p["id"] not in live_ids),
                    "total_cells": (cols or 0) * (rows or 0)},
     }
 

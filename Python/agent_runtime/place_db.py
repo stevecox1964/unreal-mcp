@@ -149,6 +149,14 @@ CREATE TABLE IF NOT EXISTS cell_refusals (
 -- point plus a radius (default one place-cell extent, 9 m), refused by an APC
 -- with a stated reason. Same contract as cell_refusals: a fact shown back to
 -- every APC, never an enforcement — nothing stops a step onto a patch.
+--
+-- source (#91): 'stated' is the mind's judgement — someone's yard, standing
+-- corn — and keeps forever, because an opinion does not expire. 'measured' is
+-- the body's own reading: the engine swept this capsule along this heading and
+-- it did not fit. A reading is true of the moment it was taken, and the parked
+-- van that produced it drives away, so measured patches are believed for
+-- `dead_end.MEASURED_TTL_S` and then stop steering navigation. They are never
+-- deleted: `all_patches` is the reviewable record and must stay complete.
 CREATE TABLE IF NOT EXISTS no_go_patches (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     x          REAL NOT NULL,
@@ -157,7 +165,9 @@ CREATE TABLE IF NOT EXISTS no_go_patches (
     refused_by TEXT NOT NULL,
     reason     TEXT NOT NULL,
     refused_at TEXT NOT NULL,   -- world time, as the APC stated it
-    updated_at TEXT NOT NULL    -- real UTC
+    updated_at TEXT NOT NULL,   -- real UTC
+    source     TEXT NOT NULL DEFAULT 'stated',
+    proofs     INTEGER NOT NULL DEFAULT 0
 );
 
 -- Per-APC living visual history linked to exact shared image revisions.
@@ -178,6 +188,23 @@ _CONFIDENCE_FLOOR = 0.8
 # 9x9 m around the APC (user, 2026-07-05). Grid cells (30 m districts) hold
 # several of these; keep the two sizes an order of magnitude apart.
 PLACE_EXTENT_CM = 900.0
+
+
+def _age_seconds(stamp: str | None, now: datetime | None = None) -> float | None:
+    """Seconds since an ``_iso_now()`` stamp. ``None`` when it cannot be read.
+
+    Unreadable is not "old" (#91): a row whose timestamp we cannot parse must
+    keep steering navigation rather than silently lapsing, per rule 12.
+    """
+    if not stamp:
+        return None
+    try:
+        when = datetime.fromisoformat(str(stamp))
+    except ValueError:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return ((now or datetime.now(timezone.utc)) - when).total_seconds()
 
 
 def _iso_now() -> str:
@@ -271,6 +298,16 @@ class PlaceDB:
         for col in ("captured_x", "captured_y"):
             if col not in have:
                 conn.execute(f"ALTER TABLE place_images ADD COLUMN {col} REAL")
+        # source/proofs (#91): who wrote this no-go patch, a mind or a body, and
+        # on how much evidence. Pre-#91 rows were all the mind's — the body could
+        # not write one — so 'stated' is the honest default, never a guess.
+        have = {r[1] for r in conn.execute("PRAGMA table_info(no_go_patches)")}
+        if "source" not in have:
+            conn.execute("ALTER TABLE no_go_patches "
+                         "ADD COLUMN source TEXT NOT NULL DEFAULT 'stated'")
+        if "proofs" not in have:
+            conn.execute("ALTER TABLE no_go_patches "
+                         "ADD COLUMN proofs INTEGER NOT NULL DEFAULT 0")
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
@@ -695,47 +732,90 @@ class PlaceDB:
 
     def refuse_patch(self, agent_id: str, x: float, y: float, reason: str,
                      world_time: str,
-                     radius_cm: float = PLACE_EXTENT_CM / 2) -> bool:
+                     radius_cm: float = PLACE_EXTENT_CM / 2,
+                     source: str = "stated", proofs: int = 0) -> bool:
         """Record a sub-cell no-go patch: this ground, not this whole cell (#78).
 
         Re-refusing a spot already inside one of this APC's patches updates
         that patch's reason instead of stacking overlapping circles — a later
         look is the better one, same rule as ``refuse_cell``. Returns False for
         an empty reason.
+
+        ``source`` says who wrote it (#91). ``'stated'`` is the mind's judgement
+        and keeps forever; ``'measured'`` is the body's own engine reading and is
+        believed only for a while, because the thing it read can move. An update
+        carries the newer source and the higher proof count — a wall the body
+        keeps re-proving must not have its evidence reset by the update, and a
+        judgement stated over a stale measurement supersedes it.
+
+        The radius only ever GROWS on update. A wall that stopped the APC three
+        times is not narrowed back to one body's width by a fourth reading taken
+        from further away.
         """
         why = str(reason or "").strip()
         if not why:
             return False
         with self._lock, self._connect() as conn:
             own = conn.execute(
-                "SELECT id, x, y, radius_cm FROM no_go_patches WHERE refused_by=?",
+                "SELECT id, x, y, radius_cm, proofs FROM no_go_patches WHERE refused_by=?",
                 (agent_id,),
             ).fetchall()
             for row in own:
                 if math.hypot(x - row["x"], y - row["y"]) <= row["radius_cm"]:
+                    # The centre moves too. A widening patch that keeps its old
+                    # centre swallows the APC that widened it — the caller slid
+                    # the circle clear on purpose (#91) and dropping that here
+                    # puts the APC back inside its own mark.
                     conn.execute(
-                        "UPDATE no_go_patches SET reason=?, refused_at=?, updated_at=? "
-                        "WHERE id=?",
-                        (why, str(world_time or ""), _iso_now(), row["id"]),
+                        "UPDATE no_go_patches SET x=?, y=?, reason=?, refused_at=?, "
+                        "  updated_at=?, radius_cm=?, source=?, proofs=? WHERE id=?",
+                        (float(x), float(y), why, str(world_time or ""), _iso_now(),
+                         max(float(radius_cm), float(row["radius_cm"])),
+                         str(source), max(int(proofs), int(row["proofs"] or 0)),
+                         row["id"]),
                     )
                     return True
             conn.execute(
                 "INSERT INTO no_go_patches (x, y, radius_cm, refused_by, reason, "
-                "refused_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "refused_at, updated_at, source, proofs) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (float(x), float(y), float(radius_cm), agent_id, why,
-                 str(world_time or ""), _iso_now()),
+                 str(world_time or ""), _iso_now(), str(source), int(proofs)),
             )
         return True
 
     def patches_at(self, x: float, y: float) -> list[dict]:
-        """Every no-go patch containing this point, newest first. Empty = clear."""
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT id, x, y, radius_cm, refused_by, reason, refused_at "
-                "FROM no_go_patches ORDER BY updated_at DESC"
-            ).fetchall()
-        return [dict(r) for r in rows
-                if math.hypot(x - r["x"], y - r["y"]) <= r["radius_cm"]]
+        """Every LIVE no-go patch containing this point, newest first. Empty = clear.
+
+        Live, not every: an expired body measurement is history, not navigation
+        (#91). ``all_patches`` still shows it.
+        """
+        return [p for p in self.active_patches()
+                if math.hypot(x - p["x"], y - p["y"]) <= p["radius_cm"]]
+
+    def active_patches(self) -> list[dict]:
+        """Patches that should still steer a step, newest first (#91).
+
+        A ``'stated'`` patch is somebody's judgement about ground and never
+        lapses. A ``'measured'`` one is a reading the body took at a moment, and
+        an hour later the thing it read may have driven off — so it stops
+        steering after ``dead_end.MEASURED_TTL_S`` rather than fencing off a
+        street forever on the strength of one parked van.
+
+        Nothing is deleted. Rule 12: the record of what got skipped stays whole
+        and countable in ``all_patches``, expiry or not.
+        """
+        from . import dead_end
+        now = datetime.now(timezone.utc)
+        live = []
+        for patch in self.all_patches():
+            if patch.get("source") != "measured":
+                live.append(patch)
+                continue
+            age = _age_seconds(patch.get("updated_at"), now)
+            if age is None or age <= dead_end.MEASURED_TTL_S:
+                live.append(patch)
+        return live
 
     def clear_patches_at(self, agent_id: str, x: float, y: float) -> int:
         """Withdraw this APC's patches containing a point. Returns how many."""
@@ -755,7 +835,8 @@ class PlaceDB:
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT id, x, y, radius_cm, refused_by, reason, refused_at, "
-                "updated_at FROM no_go_patches ORDER BY updated_at DESC"
+                "updated_at, source, proofs FROM no_go_patches "
+                "ORDER BY updated_at DESC"
             ).fetchall()
         return [dict(r) for r in rows]
 

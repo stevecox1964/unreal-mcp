@@ -18,6 +18,7 @@ from . import explorer
 from . import interruptions
 from .perception import VisionPerceiver
 from . import cell_sweep
+from . import dead_end
 from .cell_sweep import filter_survey_claims
 from .landmarks import merge_entries, scan_landmarks
 from . import map_capture
@@ -483,6 +484,8 @@ class AgentManager:
         self._walk_plans: dict[str, dict] = {}      # agent_id -> grown step being walked hop by hop (#86)
         self._tried_here: dict[str, dict] = {}      # agent_id -> {at, tried: {heading: moved_cm}} while wedged on one spot (#60)
         self._stall_run: dict[str, int] = {}        # agent_id -> consecutive stalled orders (#65)
+        self._walls: dict[str, list[dict]] = {}     # agent_id -> volumes the body has proved impassable (#91)
+        self._last_raster: dict[str, float] = {}    # agent_id -> last probe blocked_fraction, sets seal width (#91)
         self._no_progress: dict[str, int] = {}      # agent_id -> consecutive "moving but didn't advance" ticks
         self._last_grid_place: dict[str, tuple] = {}  # agent_id -> (grid, place), reported even when LLM skipped
         self._routes: dict[str, dict] = {}          # agent_id -> cached grid-first route (#17/WP8)
@@ -565,6 +568,8 @@ class AgentManager:
         self._walk_plans.clear()
         self._tried_here.clear()
         self._stall_run.clear()
+        self._walls.clear()
+        self._last_raster.clear()
         self._no_progress.clear()
         self._routes.clear()
         self._live_pos.clear()
@@ -1687,6 +1692,11 @@ class AgentManager:
         if moving or stuck or stalled:
             probe_cm = _STUCK_TRACE_CM if (stuck or stalled) else _AHEAD_TRACE_CM
             trace = self._probe_ahead(agent, probe_cm)
+            # Width of whatever is ahead, kept for `_seal_dead_end` (#91).
+            if trace.get("blocked_fraction") is None:
+                self._last_raster.pop(agent_id, None)
+            else:
+                self._last_raster[agent_id] = float(trace["blocked_fraction"])
             if trace.get("hit"):
                 category = _classify_blocker(
                     trace.get("actor_name", ""),
@@ -1941,6 +1951,11 @@ class AgentManager:
                     "raster_silent": silent,
                     "fully_blocked": bool(result.get("fully_blocked")),
                     "clearance_cm": float(result.get("clearance_cm", 0.0) or 0.0),
+                    # How much of the raster is solid — the only measurement of
+                    # how WIDE the thing is, so it sets how wide a seal is (#91).
+                    "blocked_fraction": (
+                        None if result.get("blocked_fraction") is None
+                        else float(result["blocked_fraction"])),
                 }
             self._volume_probe_unavailable = True
             logger.warning(
@@ -1959,6 +1974,7 @@ class AgentManager:
             "signals": None,
             "fits": None,          # never measured — not the same as "does not fit"
             "open_columns": [],
+            "blocked_fraction": None,   # no raster on the ray path (#91)
             "raster_silent": False,
             "fully_blocked": False,
             "clearance_cm": float(trace.get("distance_cm", 0.0) or 0.0),
@@ -3847,6 +3863,10 @@ class AgentManager:
         if eyes is not None and math.hypot(xyz[0] - eyes["at"][0],
                                            xyz[1] - eyes["at"][1]) > _EYES_VALID_CM:
             eyes = None  # looks taken somewhere else say nothing about here (#77)
+        # One fetch for all eight headings — the line scan below tests every
+        # patch against every sample point, and eight DB round-trips to answer
+        # the same question is waste.
+        patches = self.place_db.active_patches() if self.place_db else []
         out: dict[str, dict] = {}
         for direction, yaw in _ABSOLUTE_DIRECTION_YAW.items():
             tx, ty, _ = _offset_location(*xyz, yaw, _STEP_DISTANCE)
@@ -3855,18 +3875,23 @@ class AgentManager:
             name = None
             ground: list[dict] = []
             refusals: list[dict] = []
-            no_go: list[dict] = []
             if self.place_db and col is not None:
                 known = self.place_db.get_place(col, row)
                 name = known.get("name") if known else None
                 ground = self.place_db.get_ground(col, row)
                 refusals = self.place_db.get_refusals(col, row)
-            if self.place_db:
-                # Patches are points, not cells — the step target decides (#78).
-                no_go = self.place_db.patches_at(tx, ty)
+            # Patches are points, not cells (#78) — but sampling only the step
+            # TARGET meant a wall three metres away was invisible in this list,
+            # because it sat nowhere near the point 15 m out. That is the exact
+            # gap #91 fills: a sealed volume the APC cannot see is a seal that
+            # changes nothing. Walk the line instead, and say how far along it
+            # the first no-go ground begins.
+            no_go, at_cm = self._patches_along(patches, xyz, yaw, _STEP_DISTANCE)
             out[direction] = {"cell": _cell_label(grid), "place": name,
                               "ground": ground, "refusals": refusals,
                               "no_go": no_go}
+            if at_cm is not None:
+                out[direction]["no_go_at_cm"] = at_cm
             seen_ahead = (eyes or {}).get("views", {}).get(direction)
             if seen_ahead:
                 out[direction]["seen_ahead"] = seen_ahead
@@ -4052,6 +4077,16 @@ class AgentManager:
             logger.warning(
                 "[%s] STALLED: ordered %s, achieved %.1f cm — the bridge accepted "
                 "a move that did not happen", agent_id, order.get("intent"), moved)
+            # A plan with room in it, an order the bridge took, and no movement:
+            # the ground disagreed with the measurement. One of those is
+            # ambiguous (somebody walked across the path), so `dead_end` makes a
+            # stall wait for a second proof against the same volume before it
+            # marks anything (#91).
+            self._seal_dead_end(
+                agent_id, str(order.get("intent") or ""),
+                (order["from"][0], order["from"][1], 0.0),
+                order.get("heading_yaw"), "stalled",
+                (order.get("plan") or {}).get("reach_cm"))
         fact["tried_here"] = self._record_attempt(
             agent_id, xyz, order.get("intent"), moved)
         # A step that was silently shortened is the bug class rule 12 forbids:
@@ -4103,7 +4138,11 @@ class AgentManager:
         tried = last_move.get("tried_here") or {}
         escapes = []
         for direction, info in (directions or {}).items():
-            if direction in tried or info.get("refusals"):
+            # An escape route that runs into ground the body has already proved
+            # impassable is not an escape (#91). The wedge sense used to skip
+            # only *stated* refusals, so a volume the APC sealed itself two ticks
+            # ago could still be offered back as a "known-good way out".
+            if direction in tried or info.get("refusals") or info.get("no_go"):
                 continue
             for ground in info.get("ground") or []:
                 if ground.get("footing") in _GOOD_FOOTING:
@@ -4207,6 +4246,98 @@ class AgentManager:
             "cells": cells[:_FRONTIER_LIMIT],
             "frontier_total": len(frontier),
         }
+
+    def _seal_dead_end(self, agent_id: str, direction: str, xyz,
+                       yaw: float | None, kind: str,
+                       reach_cm: float | None = None,
+                       blocker: str = "") -> dict | None:
+        """Write down the volume the body just proved it cannot enter (#91).
+
+        This is the step that was missing. Every other piece already existed: the
+        engine measures the wall (#90), the plan reports there is no room (#86),
+        the wedge sense counts the run (#65), PlaceDB stores no-go patches and the
+        prompt reads them back (#78). But a patch was only ever written by the
+        *mind* choosing `refuse`, and a wedged mind never chooses it — it is busy
+        picking the next heading. So the measurement was taken, stated, acted on
+        and thrown away, once per tick, forever. SR50: nine paid decisions on two
+        spots, every one of them correct about that instant, all of them ordering
+        a heading the body had already disproved minutes earlier.
+
+        The fix is not to stop the APC going that way. Per
+        [[feedback_facts_not_blocking]] the mind still chooses. The fix is that
+        the world now REMEMBERS: the volume in front is marked where it stands,
+        so the memory survives walking away from it, which `_record_attempt`'s
+        one-spot ledger deliberately does not.
+
+        Two grades of evidence, and they are not equal (see `dead_end`):
+        ``"measured"`` is the engine sweeping this capsule along this heading and
+        reporting it does not fit — one is enough. ``"stalled"`` is only that an
+        accepted order produced no movement, which a passer-by can cause, so it
+        waits for a second proof against the same volume.
+
+        Returns the sealed patch record, or ``None`` when nothing was written
+        (no position, no heading, no PlaceDB, or not enough proof yet).
+        """
+        if xyz is None or yaw is None or not direction or not self.place_db:
+            return None
+
+        candidates = self._walls.setdefault(agent_id, [])
+        # Locate the proof at a nominal width first — this is only a lookup, to
+        # decide whether it belongs to a wall already on the ledger.
+        probe_x, probe_y = dead_end.wall_point(
+            xyz[0], xyz[1], yaw, reach_cm or 0.0, dead_end.BASE_RADIUS_CM)
+        wall = dead_end.find_candidate(candidates, probe_x, probe_y)
+        if wall is None:
+            wall = {"x": probe_x, "y": probe_y, "radius_cm": dead_end.BASE_RADIUS_CM,
+                    "proofs": 0, "headings": [], "kind": kind, "sealed": False}
+            candidates.append(wall)
+        wall["proofs"] += 1
+        wall["headings"].append(direction)
+        # A measurement outranks a bare stall: once the engine has read this
+        # volume, the wall is measured even if the first proof was a stall.
+        if kind == "measured":
+            wall["kind"] = "measured"
+        wall["radius_cm"] = dead_end.seal_radius(
+            wall["proofs"], self._blocked_fraction(agent_id))
+        # Keep the wall where it was first seen and push it clear as it widens.
+        # Re-placing the circle on every proof splits one wall into a string of
+        # them (three headings into one building produced three rows), while
+        # leaving it alone lets the growing radius reach back over the APC's own
+        # feet — the SR44 failure, where an APC stands in ground it just marked.
+        wall["x"], wall["y"] = dead_end.push_clear(
+            wall["x"], wall["y"], xyz[0], xyz[1], wall["radius_cm"])
+
+        if not dead_end.should_seal(wall["kind"], wall["proofs"]):
+            logger.info(
+                "[%s] wall proof %d/%d going %s — not sealed yet", agent_id,
+                wall["proofs"], dead_end.PROOFS_TO_SEAL.get(wall["kind"], 2), direction)
+            return None
+
+        reason = dead_end.seal_reason(wall["kind"], wall["headings"],
+                                      wall["proofs"], reach_cm, blocker)
+        self.place_db.refuse_patch(
+            agent_id, wall["x"], wall["y"], reason,
+            self.world_clock.now_text(), radius_cm=wall["radius_cm"],
+            source="measured", proofs=wall["proofs"],
+        )
+        first_seal = not wall["sealed"]
+        wall["sealed"] = True
+        logger.warning(
+            "[%s] SEALED %s no-go volume r=%.1f m at (%.0f, %.0f) after %d proof(s) "
+            "going %s: %s", agent_id, "a new" if first_seal else "a wider",
+            wall["radius_cm"] / 100.0, wall["x"], wall["y"], wall["proofs"],
+            ", ".join(dict.fromkeys(wall["headings"])), reason)
+        return {"x": wall["x"], "y": wall["y"], "radius_cm": wall["radius_cm"],
+                "proofs": wall["proofs"], "reason": reason, "new": first_seal}
+
+    def _blocked_fraction(self, agent_id: str) -> float | None:
+        """How much of the last probe raster came back solid, if one was read (#91).
+
+        The width of the mark should come from the width of the thing, and the
+        raster is the only measurement of that we have. ``None`` when no raster
+        was read this tick — never guess a wall wider than what was seen.
+        """
+        return self._last_raster.get(agent_id)
 
     def _record_attempt(self, agent_id: str, xyz, intent, moved_cm: float) -> dict:
         """Which headings have already failed from the spot the APC is on (#60).
@@ -4450,6 +4581,37 @@ class AgentManager:
         step = _STEP_DISTANCE if distance_cm is None else float(distance_cm)
         return _offset_location(*xyz, yaw, step)
 
+    @staticmethod
+    def _patches_along(patches: list[dict], xyz, yaw: float,
+                       limit_cm: float) -> tuple[list[dict], float | None]:
+        """No-go patches lying on the line ahead, and how far along the first one starts.
+
+        A point test at the step target answers "is the place I mean to end up
+        forbidden". It cannot answer "is there forbidden ground between here and
+        there", and the second question is the one that matters when the mark is
+        two metres wide and the step is fifteen (#91).
+
+        Returns the patches hit, nearest first, and the distance to the first —
+        ``(<empty>, None)`` when the line is clear.
+        """
+        hits: list[tuple[float, dict]] = []
+        seen: set = set()
+        d = 0.0
+        while d <= limit_cm:
+            px, py, _ = _offset_location(*xyz, yaw, d)
+            for patch in patches:
+                key = patch.get("id", id(patch))
+                if key in seen:
+                    continue
+                if math.hypot(px - patch["x"], py - patch["y"]) <= patch["radius_cm"]:
+                    seen.add(key)
+                    hits.append((d, patch))
+            d += _SCAN_STEP_CM
+        if not hits:
+            return [], None
+        hits.sort(key=lambda h: h[0])
+        return [p for _, p in hits], round(hits[0][0], 1)
+
     def _scan_ahead(self, xyz, yaw: float, limit_cm: float) -> dict:
         """Look down one heading on the SHARED map: how far is proven, where must we stop?
 
@@ -4474,7 +4636,7 @@ class AgentManager:
         out = {"open_run_cm": 0.0, "stop_short_cm": None, "stop_reason": ""}
         if xyz is None or yaw is None or not self.place_db:
             return out
-        patches = self.place_db.all_patches() or []
+        patches = self.place_db.active_patches() or []
         cells: dict[tuple, dict] = {}
         open_run = 0.0
         open_ended = False
@@ -4679,8 +4841,28 @@ class AgentManager:
             if plan["distance_cm"] <= 0.0:
                 logger.info(f"[{agent.agent_id}] move plan: no step {direction} — "
                             f"{plan['why']}")
-                return {"status": "accepted", "action": "idle",
-                        "note": f"no room to step {direction}: {plan['why']}"}
+                # The engine just swept this body along this heading and found
+                # less than one step of travel. That reading is the whole point
+                # of #91 and it used to be thrown away the moment it was logged:
+                # SR50 re-ordered northwest, north and northeast into the same
+                # wall on two separate spots because nothing wrote it down. Only
+                # a *physical* refusal is the body's own proof — "refused
+                # ground" means the step stopped short of somebody's stated
+                # no-go, which is already recorded and must not be re-marked as
+                # a wall.
+                sealed = None
+                if plan.get("capped_by") != "refused ground":
+                    sealed = self._seal_dead_end(
+                        agent.agent_id, direction,
+                        _loc_xyz(observation.get("location")),
+                        self._direction_yaw(observation, direction),
+                        "measured", plan.get("reach_cm"),
+                        (observation.get("blocker") or {}).get("actor_name", ""))
+                note = f"no room to step {direction}: {plan['why']}"
+                if sealed:
+                    note += (f" — marked as no-go ground "
+                             f"({sealed['radius_cm'] / 100:.1f} m across)")
+                return {"status": "accepted", "action": "idle", "note": note}
             if plan["capped_by"] or plan["grew"]:
                 logger.info(
                     f"[{agent.agent_id}] move plan: {direction} "
@@ -5068,6 +5250,8 @@ class AgentManager:
         self._walk_plans.clear()
         self._tried_here.clear()
         self._stall_run.clear()
+        self._walls.clear()
+        self._last_raster.clear()
         self._no_progress.clear()
         self._routes.clear()
         self._cell_sweeps.clear()

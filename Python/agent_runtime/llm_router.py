@@ -1383,7 +1383,7 @@ def _direction_lines(directions: dict | None, landmarks: list | None = None,
             status = refusal or (f'"{place}"' if place else "unexplored")
             lines.append(f"- {d}: cell {info.get('cell', '?')} — {status}"
                          f", {_ground_text(info.get('ground'))}")
-            no_go = _no_go_text(info.get("no_go"))
+            no_go = _no_go_text(info.get("no_go"), info.get("no_go_at_cm"))
             if no_go:
                 lines[-1] += f"; {no_go}"
             eyes = _eyes_text(info.get("seen_ahead"))
@@ -1442,19 +1442,37 @@ def _frontier_note(frontier: dict | None) -> str:
     return "\n".join(lines)
 
 
-def _no_go_text(patches: list | None) -> str:
-    """State that the ground one step that way was refused as a patch (#78).
+def _no_go_text(patches: list | None, at_cm: float | None = None) -> str:
+    """State that no-go ground lies on the line that way (#78/#91).
 
     A patch is smaller than a cell on purpose: the cell may still be worth
     surveying while this particular approach — a yard, an alley mouth, a
     doorway — is not ground to step onto. Like a cell refusal it is a stated
     fact, not a wall.
+
+    Two kinds now say two different things, and the difference is the point.
+    A ``stated`` patch is somebody's judgement, and the APC may disagree with a
+    judgement. A ``measured`` one is its own body's reading — the engine swept
+    this capsule that way and it did not fit — and disagreeing with that is how
+    SR50 spent nine paid decisions ordering three headings into one wall. So a
+    measured patch is written in the first person, carries its proof count, and
+    says how far along the line the ground starts, because "3 m ahead" and
+    "14 m ahead" are different situations and the old one-point test could not
+    tell them apart.
+
+    Still a fact and not a fence ([[feedback_facts_not_blocking]]): the mind may
+    still order that heading. It can no longer say it did not know.
     """
     stated = [p for p in (patches or []) if isinstance(p, dict) and p.get("reason")]
     if not stated:
         return ""
     first = stated[0]
-    return (f"NO-GO ground one step that way (refused by "
+    where = f"{at_cm / 100:.1f} m" if at_cm is not None else "one step"
+    if first.get("source") == "measured":
+        proofs = int(first.get("proofs") or 1)
+        return (f"NO-GO ground {where} that way — YOU proved it impassable "
+                f"({proofs} attempt{'s' if proofs != 1 else ''}: {first['reason']})")
+    return (f"NO-GO ground {where} that way (refused by "
             f"{first.get('refused_by', 'someone')}: {first['reason']})")
 
 

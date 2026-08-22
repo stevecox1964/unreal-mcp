@@ -80,7 +80,9 @@
     <span><span class="swatch" style="border:2px solid #6f42c1; background:rgba(111,66,193,.3)"></span> owned place <b id="n-owned">0</b></span>
     <span><span class="swatch" style="background:#e63946; border-radius:50%; border:2px solid #fff"></span> agent (live)</span>
     <span><span class="swatch" style="background:repeating-linear-gradient(45deg, rgba(230,57,70,.7) 0 3px, transparent 3px 7px)"></span> refused (off-limits) <b id="n-refused">0</b></span>
-    <span><span class="swatch" style="border:2px dashed #e63946; border-radius:50%; background:rgba(230,57,70,.15)"></span> no-go patch <b id="n-nogo">0</b></span>
+    <span><span class="swatch" style="border:2px dashed #e63946; border-radius:50%; background:rgba(230,57,70,.15)"></span> no-go: APC stated <b id="n-nogo">0</b></span>
+    <span><span class="swatch" style="border:2px solid #e8850c; border-radius:50%; background:rgba(232,133,12,.22)"></span> no-go: body measured <b id="n-nogo-measured">0</b></span>
+    <span><span class="swatch" style="border:1px dotted #8b95a1; border-radius:50%; background:rgba(139,149,161,.12)"></span> lapsed <b id="n-nogo-expired">0</b></span>
     <span id="pct" style="color:#666"></span>
   </div>
   <p class="breadcrumb" style="margin-top:-.25rem;">stale = saved survey older than {{ map.stale_after_hours }}h (real time); eligible for refresh at the next survey opportunity</p>
@@ -164,8 +166,29 @@
        be swept AND ruled off-limits, and both facts must stay visible. */
     #cells .cell.refused { background-image:repeating-linear-gradient(45deg,
         rgba(230,57,70,.55) 0 6px, transparent 6px 14px); }
+    /* No-go ground, in three states (#78/#91). They must not look alike: a
+       dashed red circle is a JUDGEMENT an APC stated, a solid orange one is a
+       reading its own body took ("I measured this and I do not fit"), and a
+       faint grey one is a body reading old enough to have stopped steering.
+       Watching the orange ones appear is watching an APC wall itself in. */
     .nogo-mark { position:absolute; border:2px dashed #e63946;
-        background:rgba(230,57,70,.18); border-radius:50%; z-index:4; }
+        background:rgba(230,57,70,.18); border-radius:50%; z-index:4;
+        pointer-events:auto;
+        /* A body seal is 1-3 m wide on a map half a kilometre across, which at
+           default zoom is a couple of pixels — invisible is the same as absent.
+           Floor the drawn size so every seal can be seen and hovered; zoom in
+           and the true radius takes over. */
+        min-width:9px; min-height:9px; }
+    .nogo-mark.measured { border:2px solid #e8850c;
+        background:rgba(232,133,12,.22); }
+    /* The proof count, so a wall bounced off four times reads louder than one
+       first sighting without having to hover it. */
+    .nogo-mark.measured::after { content:attr(data-proofs); position:absolute;
+        left:50%; top:50%; transform:translate(-50%,-50%); font:700 10px/1 system-ui;
+        color:#8a4b00; }
+    .nogo-mark.expired { border:1px dotted #8b95a1; background:rgba(139,149,161,.12);
+        z-index:3; }
+    .nogo-mark.expired::after { color:#8b95a1; }
     /* APC-owned place cells (#11.2): a 9x9 m box at anchor + offset. */
     #places .owned-mark { position:absolute; box-sizing:border-box; pointer-events:auto;
                           border:2px solid #6f42c1; background:rgba(111,66,193,.3); border-radius:2px; }
@@ -367,14 +390,26 @@
         placesEl.appendChild(d);
       }
 
-      // Sub-cell no-go patches (#78/#80): dashed red circles at true radius.
-      for (const p of data.no_go || []) {
+      // Sub-cell no-go patches (#78/#80/#91): circles at true radius, drawn by
+      // who wrote them. Expired ones go down first so a live mark on the same
+      // ground is never hidden underneath its own lapsed reading.
+      const patches = (data.no_go || []).slice()
+        .sort((a, b) => (b.expired ? 1 : 0) - (a.expired ? 1 : 0));
+      for (const p of patches) {
+        const measured = p.source === "measured";
         const d = document.createElement("div");
-        d.className = "nogo-mark";
+        d.className = "nogo-mark" + (measured ? " measured" : "") +
+                      (p.expired ? " expired" : "");
         placeRect(d, p.x - p.radius_cm, p.y - p.radius_cm,
                   2 * p.radius_cm, 2 * p.radius_cm);
-        d.dataset.tip = `NO-GO patch (${(p.radius_cm / 100).toFixed(0)} m): ` +
-                        `refused by ${p.refused_by} — ${p.reason} (${p.refused_at || "?"})`;
+        if (measured) d.dataset.proofs = p.proofs || 1;
+        const who = measured
+          ? `${p.refused_by}'s own body proved it (${p.proofs || 1} attempt` +
+            `${(p.proofs || 1) === 1 ? "" : "s"})`
+          : `refused by ${p.refused_by}`;
+        d.dataset.tip = `NO-GO ${(p.radius_cm / 100).toFixed(1)} m across — ${who}` +
+                        `${p.expired ? " — LAPSED, no longer steering steps" : ""}: ` +
+                        `${p.reason} (${p.refused_at || "?"})`;
         placesEl.appendChild(d);
       }
 
@@ -412,7 +447,13 @@
       document.getElementById("n-stale").textContent = data.counts.stale;
       document.getElementById("n-owned").textContent = data.counts.owned || 0;
       document.getElementById("n-refused").textContent = data.counts.refused || 0;
-      document.getElementById("n-nogo").textContent = data.counts.no_go || 0;
+      // "no-go patches" was one number over three different facts. Split it:
+      // the stated count is the APCs' own judgement calls, the measured count is
+      // how much of the world their bodies have walled off (#91).
+      const nMeasured = data.counts.no_go_measured || 0;
+      document.getElementById("n-nogo").textContent = (data.counts.no_go || 0) - nMeasured;
+      document.getElementById("n-nogo-measured").textContent = nMeasured;
+      document.getElementById("n-nogo-expired").textContent = data.counts.no_go_expired || 0;
       const built = data.counts.mapped;
       const total = data.counts.total_cells || 1;
       document.getElementById("pct").textContent =

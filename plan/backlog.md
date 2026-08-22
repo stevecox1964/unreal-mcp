@@ -4028,6 +4028,90 @@ identical 15 m steps in a row on varied terrain, and no step longer than the gro
 
 ---
 
+## 91. The body writes its own no-go volumes — seal the trap, not the tick
+
+**Status:** **BUILT + map view 2026-08-21, no rebuild needed — needs a test, needs SR51.** **Source:** user,
+2026-08-21: *"we still don't have a perception flow that keeps obvious entrapment from happening...
+The LLMs are saying don't do these things, but the current code just does them. The AI's should
+perceive 'Hey this whole volume in front of me is a waste of time. Mark it as do not go'."*
+
+### The gap
+
+Every piece already existed. The engine measures the wall (#90), the plan reports there is no room
+(#86), the wedge sense counts the run (#65), PlaceDB stores no-go patches and the prompt reads them
+back (#78). But **a patch was only ever written by the mind choosing `refuse`** — and a wedged mind
+never chooses it, it is busy picking the next heading. The measurement was taken, stated, acted on
+and thrown away, once per tick, forever.
+
+**SR50 is the proof.** Dufus stood on one spot and ordered northeast, north, northwest — each refused
+by the body with *"there was no room to step"* — took the wedge escape west, walked 22 m, and on the
+very next tick ordered northwest again. Nine paid decisions, zero metres, two WEDGED warnings, and
+every line of reasoning correct. The only memory of a failed heading (`_record_attempt`) is wiped the
+moment the body moves, which is right for "a mailbox blocks east from here" and wrong for a building.
+
+### What changed
+
+* **`agent_runtime/dead_end.py` (new, pure).** Given that the body just failed to move one way: what
+  volume to mark, how wide, and the sentence to say. Two grades of evidence — `measured` (the engine
+  swept this capsule and it does not fit: **one proof is enough**) and `stalled` (an accepted order
+  produced no movement, which a passer-by can cause: **needs two**).
+* **`AgentManager._seal_dead_end`.** A per-agent ledger of proved walls; on enough proof it writes a
+  real `no_go_patch` with `source='measured'`. Fed from two hooks: the zero-room branch in
+  `_execute_world_action` (measured) and the STALLED branch of `_last_move_fact` (stalled).
+* **`no_go_patches.source` / `.proofs` + `PlaceDB.active_patches()`.** A stated refusal is a
+  judgement and keeps forever; a body reading is true of the moment it was taken and the parked van
+  that produced it drives away, so measured patches stop steering after `MEASURED_TTL_S` (30 min).
+  Nothing is deleted — `all_patches` stays the whole reviewable record (rule 12).
+* **`AgentManager._patches_along`.** `_direction_places` sampled only the point 15 m out, so a wall
+  three metres away was invisible in the direction list. It now walks the line and reports how far
+  along the first no-go ground begins.
+* **`_wedge_fact` escapes** no longer offer a heading whose line runs into a sealed volume.
+* **`llm_router._no_go_text`** says a measured patch in the first person, with its proof count:
+  *"NO-GO ground 3.0 m that way — YOU proved it impassable (2 attempts: ...)"*.
+
+### The geometry is the design
+
+A seal is a circle, and a circle whose near edge touches your feet covers a **fifty-degree** slice of
+everything in front of you. The first build sized them generously and sealed Dufus's one working
+escape west on the strength of three walls to the north — trading the SR50 loop for a worse one. So:
+mark the **mouth** of the trap (`BASE_RADIUS_CM = 100`, growing 100 per repeat, cap 300), and push
+the centre out to `2 x radius` so one seal covers at most ±30° and leaves its neighbours alone.
+Replaying SR50's corner now seals exactly northeast, north and northwest and leaves the other five
+headings clear, with nothing underfoot.
+
+Still facts, not fences ([[feedback_facts_not_blocking]]): a seal caps how FAR a step travels and is
+read back to the APC. It never overrides which way the mind chose to go.
+
+### Not done
+
+* **Needs a test** (speed mode): `dead_end` geometry, the arc constraint, `active_patches` expiry,
+  and the `_patches_along` line scan.
+* **In-world Unreal markers: deliberately NOT built.** They need a new debug-draw command *and* a
+  plugin rebuild, and a marker visible to `capture_camera_image` lands in Dufus's PNGs — which are
+  the VLM training corpus ([[project_dufus_vlm_training_corpus]]). A model trained on frames with
+  synthetic markers learns "marker = stop" and stops learning to see the fence behind it. If they
+  are ever built they must be editor-viewport-only.
+* **Wanted instead — no-go labels as capture sidecars.** The right way to get no-go into the training
+  set is not paint, it is annotation: every capture already records camera position and rotation, and
+  seals are in world coordinates, so the volumes can be projected into the frame and written as a
+  sidecar JSON next to each PNG. Clean image + boxes = a real detection/segmentation corpus.
+
+### Visual feedback (built 2026-08-21, same session)
+
+`/map` now draws the three states apart, because one dashed red circle over all of them hid the only
+thing worth watching — where the world is walling an APC in:
+
+* **dashed red** — a judgement an APC stated (`source='stated'`), keeps forever;
+* **solid orange, proof count in the middle** — its own body measured it (`source='measured'`);
+* **faint grey dotted** — a body reading past `MEASURED_TTL_S`, no longer steering steps.
+
+`GET /api/map` ships `source`, `proofs` and `expired` per patch (expired = in `all_patches` but not in
+`active_patches`, so there is no second age rule to keep in sync) plus split counts. Expired circles
+draw first so a live seal on the same ground is never hidden under its own lapsed reading, and every
+mark has a 9 px floor — a 1-3 m seal on a half-kilometre map is otherwise invisible. Verified live
+against a seeded world: 10 stated / 2 measured / 1 lapsed, tooltip reading *"NO-GO 3.0 m across —
+dufus's own body proved it (3 attempts)"*.
+
 ## Order of work, and what is explicitly NOT proposed
 
 **Do Phase A in order — #62, #63, #64, #65 — then run the sim with both APCs and grade the run on
