@@ -4816,6 +4816,60 @@ that is where the thing it came for is. What changes is that it now knows it is 
 * **Needs a test:** the yaw-offset math on every facing (verified by hand at 7 facings, not
   committed as a test), the `_open_headings` filter, and the `None`-vs-`[]` fallback contract.
 
+## 93. `refuse` must never seal the ground under the body's own feet
+
+**Status:** **BUILT 2026-08-29, no rebuild needed — needs a test, needs SR53.**
+**Source:** SR51 log reading (see the #92 handoff): DB row 14 of `world_places.db` at
+`(2423, -2214)`, a 450 cm stated no-go circle centred on the spot Dufus was standing on.
+
+### The gap
+
+`_apply_cell_verdict` handles `refuse_cell` with `scope: "spot"`. When the mind gave a
+`direction`, the patch centre resolved one nominal step (15 m) that way — well clear of a
+450 cm circle. When it gave **no** direction, the centre fell back to
+`_loc_xyz(observation["location"])`: the APC's own position. The body then stood inside its
+own 450 cm mark, and `move_plan` capped every step out of it to zero. A trap the mind wrote
+itself, in one action, with no wall involved.
+
+This is the exact geometry #91 already solved for *measured* seals (`dead_end.wall_point`:
+push the centre out to `2 x radius` so the circle clears the body and stays inside one
+45-degree heading). The stated path never got the same treatment.
+
+### What changed
+
+* `AgentManager._apply_cell_verdict` — a directionless `refuse_cell` now places the patch
+  with `dead_end.wall_point(x, y, facing, 0.0, PLACE_EXTENT_CM / 2)`, i.e. centred 9 m along
+  the body's current facing, near edge 4.5 m ahead. With no direction the only ground the
+  mind can mean is the ground it faces.
+* **No position or no facing → nothing is written.** It logs a warning and returns
+  "could not tell which ground that is". Refusing to mark beats marking the wrong ground
+  ([[feedback_facts_not_blocking]], rule 12: fail loud).
+* **`allow_cell` is deliberately untouched.** Withdrawing a patch with no direction *does*
+  mean underfoot — that is how an APC takes back a seal it is standing in, and pushing that
+  centre out would break the only escape hatch.
+* The log line, PIE activity and `_note` now say **"ahead"**, not "here", when the centre was
+  pushed out. The APC must not be told it sealed ground it did not seal.
+* Live cleanup: row 14 deleted from `Python/worlds/MCP_World/world_places.db`
+  (backup in the session scratchpad). The nearby *measured* patches (rows 11–13, radius 100)
+  are real walls and were kept.
+
+### Deliberately NOT built
+
+* **Stopping a remembered no-go from capping a step to zero** (`move_plan.py:115-128`).
+  The #92 handoff proposed it as part (b) of this fix: memory could shorten a step but never
+  kill the order, so a wall inherited from an earlier run can always be walked out of. Not
+  chosen by the user yet. Without it, an old bad patch written before this fix still holds an
+  order at zero — the DB cleanup above is what covers that for now.
+
+### Open
+
+* **Is "the ground it faces" the right reading of a directionless refusal?** It is the only
+  direction available, and it matches the measured path. SR53 should show whether the mind
+  ever meant something else.
+* **Needs a test:** the directionless `refuse_cell` centre lands `2 x radius` along facing and
+  never within `PLACE_EXTENT_CM / 2` of the body; a directionless `allow_cell` still clears
+  underfoot; missing rotation writes nothing.
+
 ## Notes
 
 - **Current priority and classification live only in the Active view at the top.** Dated

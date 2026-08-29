@@ -3432,8 +3432,30 @@ class AgentManager:
         # scope "spot": rule on the ~9 m patch one step that way, not the whole
         # 30 m cell (#78) — a bad backyard must not un-target a surveyable cell.
         if str(action.get("scope") or "").strip().lower() == "spot":
-            if target is None:
-                xyz = _loc_xyz(observation.get("location"))
+            xyz = _loc_xyz(observation.get("location"))
+            placed = direction or "here"
+            if target is None and kind == "refuse_cell":
+                # A refusal with no direction used to fall back to the APC's own
+                # position, dropping a 450 cm circle on the ground it was
+                # standing on — a trap it wrote itself, and every step out of it
+                # then capped to zero. SR51 row 14 of world_places.db is the live
+                # example. With no direction the only ground the mind can mean is
+                # the ground it FACES, so slide the centre out exactly the way a
+                # measured seal already does (#91): 2 x radius, which clears the
+                # body and keeps the mark inside one heading.
+                facing = _yaw_of(observation.get("rotation"))
+                if xyz is None or facing is None:
+                    logger.warning("[%s] %s: no position or facing — refusing to mark "
+                                   "ground the body may be standing on", agent_id, kind)
+                    return {"type": "idle",
+                            "_note": "could not tell which ground that is — nothing marked"}
+                target = list(dead_end.wall_point(
+                    xyz[0], xyz[1], facing, 0.0, PLACE_EXTENT_CM / 2))
+                placed = "ahead"
+            elif target is None:
+                # Withdrawing a patch is the opposite case: "here" really does
+                # mean underfoot, and that is how an APC takes back a seal it is
+                # standing in.
                 target = [xyz[0], xyz[1]] if xyz else None
             if target is None:
                 return {"type": "idle", "_note": "no position to rule on"}
@@ -3443,12 +3465,11 @@ class AgentManager:
                 self.place_db.refuse_patch(agent_id, target[0], target[1], reason,
                                            str(observation.get("world_time") or ""))
                 logger.info("[%s] refused a %s-m patch %s %s — %s", agent_id,
-                            round(PLACE_EXTENT_CM / 100), direction or "here",
-                            where, reason)
+                            round(PLACE_EXTENT_CM / 100), placed, where, reason)
                 self._pie_activity(
-                    agent_id, f"refused ground {direction or 'here'}: {reason}")
+                    agent_id, f"refused ground {placed}: {reason}")
                 return {"type": "idle",
-                        "_note": f"refused the ground {direction or 'here'} ({reason}) "
+                        "_note": f"refused the ground {placed} ({reason}) "
                                  "— the rest of the cell stays surveyable"}
             cleared = self.place_db.clear_patches_at(agent_id, target[0], target[1])
             logger.info("[%s] %s no-go patch at %s", agent_id,
