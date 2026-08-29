@@ -4870,6 +4870,70 @@ push the centre out to `2 x radius` so the circle clears the body and stays insi
   never within `PLACE_EXTENT_CM / 2` of the body; a directionless `allow_cell` still clears
   underfoot; missing rotation writes nothing.
 
+## 94. SR53's two-node loop — the goal pointed at the wall and banned the door
+
+**Status:** **FIXED 2026-08-29 (goal wording only, no code) — needs SR54.**
+**Source:** user, 2026-08-29: *"Dufus seems to get stuck going back and forth from the main
+toen town area"*, then the SR53 logs.
+
+### What SR53 actually shows
+
+The #92 radar and the #93 refuse fix both held: **0 WEDGED, 0 self-inflicted no-go circles,
+0 false "boxed in", eight honest headings every tick.** The loop is not a sensing failure.
+
+Dufus oscillated between two spots 27 m apart, three round trips, ~110 m walked for zero
+new ground:
+
+* **A** `(-2435, -160)` — `veh_PoliceCarSedan_5` 3.3 m ahead, `open=none`.
+* **B** `(-499, -2097)` — `trash_bin_bigOpen6` 3.4 m ahead.
+
+At **B** the radar read: northeast 3.4 m, east 2.8 m, southeast 4.2 m (all tight);
+north 20.0 m, south 20.0 m, southwest 20.0 m, northwest 13.4 m (all open). He tried north
+and it was **HELD** — cell `8,4` is a refused cell ("American Bank building interior"), so
+`stop_short_cm` capped the step to zero. That leaves south, southwest and northwest as the
+only real exits. **He never took any of them.**
+
+### Why
+
+His objective read, verbatim: *"Strike out into ground that has never been surveyed and keep
+pushing outward. **Never circle back over covered ground.**"* All three open exits cross
+ground he has already surveyed, so the goal forbade them. The unmapped cell he wanted (`9,4`)
+lay northeast, behind the dumpster. The goal pointed him at the wall and banned the door.
+
+He was not blind and not confused — his own last thought names the loop: *"This spot near the
+sheriff car is a dead-end pocket I've bounced in and out of three times."* He says it and
+walks it again, because the rule leaves nothing else legal.
+
+### What changed
+
+`Python/worlds/MCP_World/agents/dufus/agenda.json` (and the cached copies in the untracked
+`runtime.json`): "Never circle back over covered ground" becomes *"Do not re-survey ground
+that is already covered, but WALKING BACK ACROSS covered ground is normal and expected — it
+is usually the only way round a blocked route to new ground."*
+
+The intent behind the original line was **don't waste ticks re-surveying**. It was written as
+**don't traverse**, which is a different and much stronger rule, and in a cul-de-sac it is
+unsatisfiable.
+
+### Deliberately NOT built
+
+* **Route memory ("heading X from spot Y already failed", shown in the sense block).**
+  The obvious code fix, and it was rejected for this run: Dufus *already states* he has
+  bounced three times, so another fact is not the missing piece — the missing piece was a
+  legal move. Revisit only if SR54 still loops.
+* **An oscillation detector.** Same reasoning, and it would be a fence, not a fact
+  ([[feedback_facts_not_blocking]]).
+
+### Open
+
+* **Does the sentence alone do it?** SR54 answers this. Watch for: does he take northwest or
+  south out of the A/B pocket, and does the A↔B round trip stop repeating?
+* **Radar advertises headings that memory will veto.** At B the ring said "north 20.0 m,
+  room to travel" and the order was then HELD on a refused cell. The readout is honest about
+  *air* and silent about *permission*, and the model spent a decision on it. Marking
+  memory-vetoed headings in `_radar_text` is a candidate if it recurs.
+* **The same objective wording is shared by any future surveyor APC.** Only Dufus was fixed.
+
 ## Notes
 
 - **Current priority and classification live only in the Active view at the top.** Dated
