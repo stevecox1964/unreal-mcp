@@ -223,15 +223,23 @@ def test_a_sweep_that_hits_what_no_ray_hit_names_no_side():
 
 def test_open_headings_are_compass_words_nearest_turn_first():
     tmp = tempfile.mkdtemp()
+    # Facing east, with east/southeast/south walled at 30 cm.
     bridge = _VolumeBridge(blocked={0.0: 30.0, 45.0: 30.0, 90.0: 30.0})
     mgr = make_manager(tmp, "headings", bridge)
-    # Facing east: -45 is northeast, -90 is north.
-    found = mgr._open_headings(_AgentStub(), obs_at(0.0, 0.0, yaw=0.0), 500.0)
-    check("only the headings the body fits down are returned",
-          [h["heading"] for h in found] == ["northeast", "north"])
+    radar = mgr._radar(_AgentStub(), obs_at(0.0, 0.0, yaw=0.0))
+    found = mgr._open_headings(radar)
+    names = [h["heading"] for h in found]
+    check("all eight headings are measured, not just the ones in front (#92)",
+          len(radar) == 8)
+    check("the walled headings are not offered as room to step",
+          not ({"east", "southeast", "south"} & set(names)))
     check("compass words, never body-relative ones (#59)",
-          all(h["heading"] not in ("left", "forward-left") for h in found))
-    check("the smallest turn comes first", found[0]["turn_deg"] < found[1]["turn_deg"])
+          all(n not in ("left", "forward-left") for n in names))
+    check("the smallest turn comes first",
+          [h["turn_deg"] for h in found] == sorted(h["turn_deg"] for h in found))
+    # The whole point of #92: SR51 said "boxed in" while the way out was behind
+    # him. West is a half turn from facing east, and it must be in the answer.
+    check("the ground BEHIND the body is in the answer (#92)", "west" in names)
 
 
 def test_boxed_in_is_not_the_same_as_never_asked():
@@ -242,9 +250,13 @@ def test_boxed_in_is_not_the_same_as_never_asked():
                                      "fits": False, "clearance_cm": 352.0,
                                      "open_columns": [], "open_headings": []}})
     check("never probed says nothing about the sides",
-          "fits down none of them" not in never)
+          "not one of them has room for a step" not in never)
+    # #92: the claim is now literally true — the radar measures all eight, so
+    # the wording says "BEHIND you included" where it used to say "within a
+    # quarter turn of your facing".
     check("boxed in says every heading was measured",
-          "fits down none of them" in boxed)
+          "not one of them has room for a step" in boxed
+          and "BEHIND you included" in boxed)
     check("the two are different facts", never != boxed)
 
     found = _sense_note({"blocker": {"category": "prop", "distance_cm": 352.0,

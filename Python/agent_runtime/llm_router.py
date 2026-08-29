@@ -851,6 +851,12 @@ def _sense_note(observation: dict) -> str:
     the agent is wedged on them. The LLM reasons; the lizard brain senses.
     """
     lines = []
+    radar = _radar_text(observation.get("radar"))
+    if radar:
+        # First, because it frames every other sense below it: those all describe
+        # what is in front of the body, and this is the only one that describes
+        # the whole space it is standing in.
+        lines.append(radar)
     # Whether the last order actually moved the body. The engine reports a walk
     # as "accepted" the moment it takes the command, so an order that achieved
     # nothing looked identical to one that crossed a field (#59).
@@ -947,6 +953,47 @@ def _sense_note(observation: dict) -> str:
     return ("\n" + "\n".join(lines) + "\n") if lines else ""
 
 
+_RADAR_TIGHT_M = 3.0     # below this the body is up against something
+_RADAR_OPEN_M = 10.0     # at or above this the heading is real travelling room
+
+
+def _radar_text(radar: list | None) -> str:
+    """The eight-heading range ring, written as a dial (#92).
+
+    Every other spatial sense in this prompt points where the body already
+    faces. This one describes the whole space it is standing in, including
+    behind it — which is where the way out of SR51's two traps actually was,
+    unmeasured, while the APC was told it was boxed in.
+
+    Written as ranges in a fixed compass order so the model can compare one tick
+    to the next and see a ring closing. The count of open headings is stated
+    because "how many ways out do I have" is the fact that separates a square
+    from an alcove, and it is a count of measurements, not a judgement.
+
+    Facts only: no heading is recommended, and none is forbidden. Walking into a
+    dead end on purpose is still the APC's to choose — sometimes that is where
+    the thing it came for is.
+    """
+    if not isinstance(radar, list) or not radar:
+        return ""
+    dial = "  ".join(f"{h['heading']} {h['range_cm'] / 100:.1f}m" for h in radar)
+    open_ways = [h["heading"] for h in radar
+                 if h["range_cm"] / 100.0 >= _RADAR_OPEN_M]
+    tight = [h["heading"] for h in radar
+             if h["range_cm"] / 100.0 < _RADAR_TIGHT_M]
+    line = (f"Sense: RADAR — your own body swept on all eight headings, measured "
+            f"this tick, not guessed from the picture:\n  {dial}")
+    if open_ways:
+        line += (f"\n  Room to travel ({_RADAR_OPEN_M:.0f} m or more): "
+                 f"{', '.join(open_ways)} — {len(open_ways)} of 8.")
+    else:
+        line += ("\n  NO heading has 10 m of room. Every way out of this spot is "
+                 "short. You are in an enclosed space.")
+    if tight:
+        line += f"\n  Up against something (under 3 m): {', '.join(tight)}."
+    return line
+
+
 def _open_headings_text(blocker: dict) -> str:
     """Which way the body CAN go when it does not fit straight ahead (#88).
 
@@ -961,9 +1008,9 @@ def _open_headings_text(blocker: dict) -> str:
     clearance = blocker.get("clearance_cm", 0.0) / 100.0
     if not headings:
         return (f"Sense: your body DOES NOT FIT straight ahead (measured clearance "
-                f"{clearance:.1f} m), and it does not fit to either side or square "
-                f"left or right either. Every heading within a quarter turn of your "
-                f"facing was measured and your body fits down none of them.")
+                f"{clearance:.1f} m). All eight compass headings were measured, "
+                f"BEHIND you included, and not one of them has room for a step. "
+                f"You are truly boxed in — this is a measurement, not a guess.")
     ways = ", ".join(f"{h['heading']} (clear for at least "
                      f"{h['clearance_cm'] / 100:.1f} m)" for h in headings)
     return (f"Sense: your body DOES NOT FIT straight ahead (measured clearance "

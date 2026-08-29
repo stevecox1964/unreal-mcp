@@ -125,6 +125,26 @@ class UnrealBridge:
             "yaw_offset_deg": yaw_offset_deg,
         })
 
+    def radar(self, actor_name: str, distance_cm: float = 2000.0,
+              sectors: int = 8, yaw_offset_deg: float = 0.0) -> dict:
+        """Sweep the body all the way round the compass in one round trip (#92).
+
+        The same capsule sweep ``forward_volume`` runs, repeated on every sector
+        and returned together. ``yaw_offset_deg`` rotates sector 0 off the body's
+        facing so the ring can be aligned to world headings.
+
+        Raw engine data only — semantic classification belongs in the caller.
+
+        Result: {'ring': [{'yaw_offset_deg', 'world_yaw', 'fits', 'clearance_cm',
+                 'contact': {...}}, ...], 'sectors', 'distance_cm', 'facing_yaw'}
+        """
+        return self._send("get_character_radar", {
+            "character_name": actor_name,
+            "distance_cm": distance_cm,
+            "sectors": sectors,
+            "yaw_offset_deg": yaw_offset_deg,
+        })
+
     def get_character_transform(self, actor_name: str) -> dict:
         """Return {'location': {x,y,z}, 'rotation': {x:pitch, y:yaw, z:roll}} or empty values."""
         result = self._send("get_character_location", {"character_name": actor_name})

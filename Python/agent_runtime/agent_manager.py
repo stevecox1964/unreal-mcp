@@ -177,6 +177,30 @@ _PLAN_PROBE_MAX_CM = 9000.0
 # it, so the answer is a real fit test and not a guess from rays.
 _OPEN_HEADING_OFFSETS = (-90.0, -45.0, 45.0, 90.0)
 
+# Radar (#92). The sweep above has two limits that together made entrapment
+# inevitable, and neither is about reasoning:
+#
+#   1. It covers a quarter turn either side of the face. The ground BEHIND the
+#      body is never measured. SR51 logged "open headings: none — boxed in"
+#      three times; each of those means "none of the four in front of me", and
+#      the way out was behind him, unmeasured, every time.
+#   2. It fires only after `fits is False` — after the body has already walked
+#      into the thing. It is a collision response, not a sense.
+#
+# The radar answers the same question on all eight compass headings on EVERY
+# decision tick. Walk into a throat and the ring closes in front of you tick by
+# tick while the way out behind you is still open and still measured, so there
+# is nothing to predict and nothing to bail out of.
+#
+# Range is a room-sized read, deliberately longer than one nominal step (15 m):
+# what tells an alcove from a square is the SHAPE of the ring, and that only
+# shows up past where the next step would land.
+_RADAR_RANGE_CM = 2000.0
+_RADAR_HEADINGS = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+# UE yaw: 0 = +X = East, 90 = South, 180 = West, 270 = North.
+_COMPASS_ABS_YAW = {"E": 0.0, "SE": 45.0, "S": 90.0, "SW": 135.0,
+                    "W": 180.0, "NW": 225.0, "N": 270.0, "NE": 315.0}
+
 # Walking a grown step (#86). The engine is never handed a target further than
 # one nominal step, so the navmesh has almost no room to route around something
 # and land somewhere else — SR47's 45 m orders arrived 50 m sideways. The hops
@@ -476,6 +500,10 @@ class AgentManager:
         # #81: set once if the engine cannot answer the body-box probe, so the
         # fallback warning is loud but printed once rather than every tick.
         self._volume_probe_unavailable = False
+        # #92: same idea for the one-trip radar command. An un-rebuilt plugin
+        # simply does not have it, and the eight-sweep fallback is correct — so
+        # this is a speed degradation, not a sense degradation, and it says so.
+        self._radar_command_unavailable = False
         self._last_pos: dict[str, tuple] = {}       # agent_id -> last (x, y), for stuck detection
         self._travel_from: dict[str, tuple] = {}    # agent_id -> (x, y) at the previous observation
         self._travel: dict[str, dict] = {}          # agent_id -> last real heading travelled (#56)
@@ -1681,6 +1709,13 @@ class AgentManager:
         moving = "moving" in str(observation.get("current_action") or "").lower()
         stuck = self._detect_stuck(agent_id, _loc_xyz(observation.get("location")), moving)
         observation["stuck"] = stuck
+        # Radar (#92): all eight headings, every tick, before anything has gone
+        # wrong. This is the sense the runtime never had — every other probe here
+        # points where the body already faces, so "which way is still open" could
+        # only ever be asked about the half of the world in front of it, and only
+        # after it had already stopped. Cheap to read, and the ring closing is
+        # what a trap looks like from the inside while there is still a way out.
+        observation["radar"] = self._radar(agent, observation)
         # Forward path sense (B7): trace ahead on every moving tick, not just when
         # already wedged — a mobile blocker (someone crossing the path) becomes a
         # fact the LLM can sidestep *before* the collision, and when stuck,
@@ -1742,15 +1777,24 @@ class AgentManager:
                     # Blocked straight ahead is only half a fact. Without the
                     # other half the only move left is to turn around, which is
                     # what SR49's bounce was made of (#88).
-                    openings = self._open_headings(agent, observation, probe_cm)
+                    openings = self._open_headings(observation["radar"])
                     observation["blocker"]["open_headings"] = openings
                     if openings:
                         logger.info(
                             "[%s] open headings: %s", agent_id,
                             ", ".join(f"{h['heading']} ({h['clearance_cm'] / 100:.1f} m)"
                                       for h in openings))
+                    elif observation["radar"]:
+                        logger.warning(
+                            "[%s] boxed in: all eight headings measured, none has "
+                            "room for a step", agent_id)
                     else:
-                        logger.info("[%s] open headings: none — boxed in", agent_id)
+                        # No radar means nothing was measured. Saying "boxed in"
+                        # here is what the old sweep did, and it was a lie three
+                        # times in SR51 (rule 12).
+                        logger.warning(
+                            "[%s] open headings unknown — the radar did not run",
+                            agent_id)
                     observation["blocker"]["fully_blocked"] = bool(
                         trace.get("fully_blocked"))
                     observation["blocker"]["clearance_cm"] = float(
@@ -1980,41 +2024,126 @@ class AgentManager:
             "clearance_cm": float(trace.get("distance_cm", 0.0) or 0.0),
         }
 
-    def _open_headings(self, agent, observation: dict,
-                       distance_cm: float) -> list[dict]:
-        """Which way CAN this body go, when it does not fit straight ahead (#88).
+    def _radar(self, agent, observation: dict,
+               distance_cm: float = _RADAR_RANGE_CM) -> list[dict]:
+        """Range to the first thing the body cannot pass, on all eight headings (#92).
 
-        Turns the body-box probe (#81) rather than the body: one call per offset,
-        each a genuine capsule sweep along that heading, so the answer is "my body
-        fits that way", not "a ray got through". Only the headings that fit are
-        returned, nearest-to-straight-ahead first, named in COMPASS words because
-        that is the vocabulary the APC steers with (#59) — a body-relative word
-        would change meaning the moment it turned.
+        One capsule sweep per compass heading, aimed by yaw offset so the body
+        never turns — the engine rotates the swept capsule, so every entry is a
+        real "would my body fit that way" answer and not a guess from rays.
 
-        Costs one bridge call per offset and runs only when the body is already
-        blocked, which is the one tick where it is worth paying for.
+        Named in COMPASS words, not body-relative ones, because that is the
+        vocabulary the APC steers with (#59): "left" changes meaning the moment
+        it turns, "north" does not.
+
+        Returned in fixed compass order (N first, clockwise) so the readout is a
+        dial the model can compare tick to tick, rather than a list that
+        reshuffles whenever the body turns.
+
+        Facts only. A range per heading and whether that sweep ran clear to the
+        end of its reach. Nothing here says which way to go, and nothing here
+        stops a step ([[feedback_facts_not_blocking]]).
         """
-        volume = getattr(self.bridge, "forward_volume", None)
         facing = _yaw_of(observation.get("rotation"))
-        if not callable(volume) or facing is None or self._volume_probe_unavailable:
+        if facing is None:
+            return []
+        ring = self._radar_one_trip(agent, facing, distance_cm)
+        if ring is not None:
+            return ring
+        volume = getattr(self.bridge, "forward_volume", None)
+        if not callable(volume) or self._volume_probe_unavailable:
             return []
         out: list[dict] = []
-        for offset in _OPEN_HEADING_OFFSETS:
+        for letter in _RADAR_HEADINGS:
+            # Signed shortest turn from the current facing to this heading.
+            offset = ((_COMPASS_ABS_YAW[letter] - facing + 180.0) % 360.0) - 180.0
             try:
                 result = volume(agent.bound_unreal_actor_name, distance_cm,
                                 yaw_offset_deg=offset) or {}
             except Exception as e:
-                logger.warning("[%s] angled probe %+.0f failed: %s",
-                               agent.agent_id, offset, e)
+                logger.warning("[%s] radar sweep %s failed: %s",
+                               agent.agent_id, letter, e)
                 continue
-            if not result.get("success") or result.get("fits") is not True:
+            # `fits` missing means the body-box probe did not run at all. That is
+            # not "blocked" — say nothing for this heading rather than report a
+            # measurement that was never taken (rule 12).
+            if not result.get("success") or result.get("fits") is None:
                 continue
-            word = _COMPASS_LETTER_WORD.get(yaw_to_compass(facing + offset))
-            if not word:
+            out.append({
+                "heading": _COMPASS_LETTER_WORD[letter],
+                # Distance to first contact, or the full reach when nothing was
+                # struck — the engine reports clearance as exactly that.
+                "range_cm": float(result.get("clearance_cm", 0.0) or 0.0),
+                "clear_to_end": bool(result.get("fits")),
+                "turn_deg": abs(offset),
+            })
+        return out
+
+    def _radar_one_trip(self, agent, facing: float,
+                        distance_cm: float) -> list[dict] | None:
+        """The whole ring from one bridge call, or None if the engine cannot (#92).
+
+        Same measurement as the eight-sweep loop below, same units, same shape —
+        this is purely the cost. Returning None (never []) is what makes the
+        caller fall back: an empty ring is a real answer meaning "nothing was
+        measurable", and must not be confused with "this command does not exist".
+
+        Sector 0 is aimed at NORTH rather than at the body, so the ring is
+        already in the compass words the APC steers with and does not have to be
+        re-labelled when the body turns.
+        """
+        call = getattr(self.bridge, "radar", None)
+        if not callable(call) or self._radar_command_unavailable:
+            return None
+        # Rotate sector 0 from the body's facing onto north; sectors then run
+        # clockwise through _RADAR_HEADINGS exactly.
+        to_north = ((_COMPASS_ABS_YAW["N"] - facing + 180.0) % 360.0) - 180.0
+        try:
+            result = call(agent.bound_unreal_actor_name, distance_cm,
+                          sectors=len(_RADAR_HEADINGS),
+                          yaw_offset_deg=to_north) or {}
+        except Exception as e:
+            result = {"error": str(e)}
+        sectors = result.get("ring")
+        if not result.get("success") or not isinstance(sectors, list):
+            self._radar_command_unavailable = True
+            logger.warning(
+                "one-trip radar (#92) unavailable — falling back to eight "
+                "separate sweeps for the rest of this run. The radar still "
+                "works and still sees all eight headings; it just costs eight "
+                "round trips instead of one. Engine said: %s. Rebuild the "
+                "UnrealMCP plugin to get the fast path.",
+                result.get("error") or result)
+            return None
+        out: list[dict] = []
+        for letter, sector in zip(_RADAR_HEADINGS, sectors):
+            if not isinstance(sector, dict) or sector.get("fits") is None:
                 continue
-            out.append({"heading": word,
-                        "clearance_cm": float(result.get("clearance_cm", 0.0) or 0.0),
-                        "turn_deg": abs(offset)})
+            offset = ((_COMPASS_ABS_YAW[letter] - facing + 180.0) % 360.0) - 180.0
+            out.append({
+                "heading": _COMPASS_LETTER_WORD[letter],
+                "range_cm": float(sector.get("clearance_cm", 0.0) or 0.0),
+                "clear_to_end": bool(sector.get("fits")),
+                "turn_deg": abs(offset),
+            })
+        return out
+
+    def _open_headings(self, radar: list[dict]) -> list[dict]:
+        """Which headings have room for a step, read off the radar (#88, #92).
+
+        This used to fire its own four capsule sweeps, and only after the body
+        had already failed to fit. The radar has now measured all eight on this
+        same tick, so this is a filter over facts already in hand — no extra
+        bridge calls, and the half of the compass behind the body is finally in
+        the answer.
+
+        Nearest-to-straight-ahead first, because a smaller turn is a cheaper move
+        — an ordering, not a recommendation.
+        """
+        out = [{"heading": h["heading"],
+                "clearance_cm": h["range_cm"],
+                "turn_deg": h["turn_deg"]}
+               for h in radar if h["range_cm"] >= move_plan.MIN_STEP_CM]
         out.sort(key=lambda h: (h["turn_deg"], -h["clearance_cm"]))
         return out
 

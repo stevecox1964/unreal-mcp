@@ -4730,6 +4730,92 @@ before driving it (health endpoint vs port check)? guardrails for unsupervised U
   AI-narrated vs. the user's voice, episode cadence (per milestone vs. per session). Not loop-safe (needs
   capture + the user's channel/voice) — park until the sim is more visually compelling.
 
+---
+
+## 92. Radar — look out in all directions, all the time
+
+**Status:** **BUILT 2026-08-26. Python (A) works now with no rebuild; the one-trip C++ command (B) is
+written but NOT COMPILED — needs the plugin rebuild. Needs a test, needs SR52.**
+**Source:** user, 2026-08-26: *"I don't care what the APC is standing on. I want a raydar like thought
+procsess lookijng out in all dorection"* — after reading the SR51 logs, and after correctly rejecting
+the framing that entrapment is something to be bailed out of: *"It makes more sense to stop the bad
+behaviour instead of just blundering into a situation and expecting tons of code and system prompts
+to bail the APC out."*
+
+### The gap
+
+Every spatial sense in the runtime pointed **where the body already faced**, and most of them fired
+only **after** something had gone wrong. Two limits did the damage together:
+
+1. `_OPEN_HEADING_OFFSETS = (-90, -45, +45, +90)` — a quarter turn either side of the face. The
+   ground **behind** the body was never measured, not once, in any run.
+2. The sweep ran only under `if fits is False:` — after the body had already failed to move.
+
+So `"open headings: none — boxed in"` was **a false statement**, and SR51 logged it twice (17:03:32,
+17:09:16). It means *"none of the four headings in front of my face"*. Both times an open heading was
+behind him, unmeasured. #91's seal then correctly recorded walls the APC had proved — and, because
+the seal caps step distance, three orders were HELD before reaching the engine, which starved the
+proof loop that would have got him out.
+
+The deeper point (the user's, and it is right): a system that can answer *"can I get there?"* and
+never *"what is it like there?"* will walk into traps forever, and no amount of prompt or bail-out
+code fixes a **missing measurement**.
+
+### What changed
+
+* **`AgentManager._radar`** — one capsule sweep per compass heading, all eight, **every decision
+  tick**, at `_RADAR_RANGE_CM = 2000` (deliberately longer than a nominal 15 m step: what tells an
+  alcove from a square is the SHAPE of the ring past where the next step lands). Compass words, not
+  body-relative ones (#59) — "left" changes meaning when the body turns, "north" does not. Fixed
+  compass order so the model can compare tick to tick and watch a ring close.
+* **`AgentManager._open_headings`** — no longer fires its own four sweeps. It is now a pure filter
+  over the radar already measured this tick (`range_cm >= move_plan.MIN_STEP_CM`). Fewer bridge
+  calls than before, and the half of the compass behind the body is finally in the answer.
+* **`llm_router._radar_text`** — the ring written as a dial, plus the count of headings with real
+  travelling room. *"Room to travel (10 m or more): south — 1 of 8"* is what separates a storefront
+  alcove from a village square, and it is a count of measurements, not a judgement. Placed first in
+  the sense block because it frames every other sense under it.
+* **Honest "boxed in".** With no radar the log now says `open headings unknown — the radar did not
+  run`, never "boxed in" (rule 12). The prompt's all-blocked wording now says *"All eight compass
+  headings were measured, BEHIND you included"* — true only because it now is.
+* **`get_character_radar` (C++, #92 B)** — the whole ring in ONE round trip. The costly part of the
+  volume probe is the 5x3 raster, and a radar does not want it, so the full eight-heading ring costs
+  **less** than the four raster probes it replaces. `UnrealMCPCharacterCommands.{h,cpp}` +
+  the `UnrealMCPBridge.cpp` allowlist + `unreal_bridge.radar()`.
+* **`_radar_one_trip` degrades cleanly.** Returns `None` (never `[]`) when the command is unknown, so
+  an un-rebuilt plugin falls back to the eight-sweep loop with **identical readings** — verified on
+  all three paths (rebuilt: 1 call; not rebuilt: 8 sweeps, warning latched once; old bridge with no
+  `radar` attribute: 8 sweeps). This is a speed degradation, not a sense degradation, and the warning
+  says exactly that.
+
+### Still facts, not fences
+
+The radar reports ranges. It recommends no heading and forbids none
+([[feedback_facts_not_blocking]]). Walking into a dead end on purpose stays the APC's call — sometimes
+that is where the thing it came for is. What changes is that it now knows it is a dead end first.
+
+### Deliberately not built
+
+* **Sweeping from a point the body has not reached.** The genuinely predictive version ("if I stood
+  there, how many ways out?") needs a probe that takes a world point instead of a character, and it
+  is not what the user asked for. The continuous ring makes it mostly unnecessary: walk into a throat
+  and it closes in front of you while the way out behind you is still open and still measured.
+* **Radar as a floor sense.** A capsule sweep measures **empty air, not walkable ground** — open
+  water, a drop and a clear street all return "20 m open". Footing still has to do that job, and
+  radar must never be allowed to replace it.
+
+### Open
+
+* **Cost.** A (eight sweeps) adds ~8 bridge round trips per agent per tick on a bridge that already
+  opened 1162 connections across SR51's 36 ticks. B removes it. If SR52 on the un-rebuilt plugin
+  feels slow, that is the reason, and the rebuild is the fix.
+* **Is `_RADAR_RANGE_CM = 2000` right?** Guessed. Too short and a street reads as a room; too long
+  and every heading in open country reads the same.
+* **`_RADAR_OPEN_M = 10` / `_RADAR_TIGHT_M = 3`** are the thresholds that decide what the readout
+  calls "room to travel". Guessed too.
+* **Needs a test:** the yaw-offset math on every facing (verified by hand at 7 facings, not
+  committed as a test), the `_open_headings` filter, and the `None`-vs-`[]` fallback contract.
+
 ## Notes
 
 - **Current priority and classification live only in the Active view at the top.** Dated

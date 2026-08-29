@@ -28,6 +28,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommand(const FString
     // Info / Query
     if (CommandType == TEXT("get_character_forward_trace"))   return HandleGetCharacterForwardTrace(Params);
     if (CommandType == TEXT("get_character_forward_volume"))  return HandleGetCharacterForwardVolume(Params);
+    if (CommandType == TEXT("get_character_radar"))           return HandleGetCharacterRadar(Params);
     if (CommandType == TEXT("get_character_status"))          return HandleGetCharacterStatus(Params);
     if (CommandType == TEXT("get_character_location"))        return HandleGetCharacterLocation(Params);
     if (CommandType == TEXT("get_character_health"))          return HandleGetCharacterHealth(Params);
@@ -410,6 +411,127 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterForwardVo
     // clip one shoulder while a real gap remains.
     Result->SetBoolField(TEXT("fully_blocked"), BlockedCells == TotalCells);
     Result->SetBoolField(TEXT("hit"), bSweepBlocked || BlockedCells > 0);
+
+    return Result;
+}
+
+// ---------------------------------------------------------------------------
+// #92 — the radar. The same capsule sweep as above, fired all the way round the
+// compass in ONE round trip.
+//
+// The handler above answers "what is in front of me". That is the only spatial
+// question this runtime could ask, and it is the reason APCs get trapped: in
+// SR51 the log said "open headings: none — boxed in" three times, and each of
+// those meant "none of the four headings in front of my face". Nobody had ever
+// measured behind him. The way out was there every time.
+//
+// Python can already do this by calling get_character_forward_volume once per
+// heading, and that is exactly how it shipped first — correct, and eight socket
+// round trips per agent per tick on a bridge that opens a fresh connection per
+// command.
+//
+// Everything costly about the volume probe is the 5x3 raster, and a radar does
+// not want it: "how far until something stops me that way" is the capsule sweep
+// on its own. So the whole ring costs less than the four raster probes it
+// replaces, while measuring twice as many headings, on every tick instead of
+// only after a collision.
+// ---------------------------------------------------------------------------
+TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterRadar(const TSharedPtr<FJsonObject>& Params)
+{
+    FString Error;
+    AActor* Actor = ResolveCharacter(Params, Error);
+    if (!Actor) return FUnrealMCPCommonUtils::CreateErrorResponse(Error);
+
+    UWorld* World = Actor->GetWorld();
+    if (!World) return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("No world"));
+
+    double DistanceCm = 2000.0;
+    Params->TryGetNumberField(TEXT("distance_cm"), DistanceCm);
+
+    // Sectors are spread evenly over the full turn. 8 is the compass the APC
+    // steers with; more is allowed so the ring can be made finer without a
+    // second command.
+    int32 Sectors = 8;
+    { int32 V = 0; if (Params->TryGetNumberField(TEXT("sectors"), V) && V >= 4 && V <= 36) Sectors = V; }
+
+    // The ring may be rotated off the body's facing, so the caller can align
+    // sector 0 with a WORLD heading. Python wants compass words, and a purely
+    // body-relative ring would rename every sector the moment the body turned.
+    double YawOffsetDeg = 0.0;
+    Params->TryGetNumberField(TEXT("yaw_offset_deg"), YawOffsetDeg);
+
+    // Read the real capsule rather than hard-coding a body size.
+    float Radius = 34.0f;
+    float HalfHeight = 88.0f;
+    bool bCapsuleFromEngine = false;
+    if (ACharacter* AsCharacter = Cast<ACharacter>(Actor))
+    {
+        if (UCapsuleComponent* Capsule = AsCharacter->GetCapsuleComponent())
+        {
+            Radius = Capsule->GetScaledCapsuleRadius();
+            HalfHeight = Capsule->GetScaledCapsuleHalfHeight();
+            bCapsuleFromEngine = true;
+        }
+    }
+
+    float StepUpCm = 45.0f;
+    if (ACharacter* AsCharacter = Cast<ACharacter>(Actor))
+    {
+        if (UCharacterMovementComponent* Move = AsCharacter->GetCharacterMovement())
+        {
+            StepUpCm = Move->MaxStepHeight;
+        }
+    }
+
+    // Same lift-and-shorten as the forward volume: a sweep at full body height
+    // calls every kerb a wall, and a radar that does that reports a pavement
+    // edge as an enclosing ring.
+    const float SweepHalfHeight = FMath::Max(HalfHeight - StepUpCm * 0.5f, Radius + 1.0f);
+    const FVector Start = Actor->GetActorLocation() + FVector::UpVector * (StepUpCm * 0.5f);
+
+    FCollisionQueryParams QueryParams(TEXT("Radar"), /*bTraceComplex=*/false, Actor);
+    QueryParams.bReturnPhysicalMaterial = true;
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("success"), true);
+    Result->SetNumberField(TEXT("distance_cm"), DistanceCm);
+    Result->SetNumberField(TEXT("sectors"), Sectors);
+    Result->SetNumberField(TEXT("body_radius_cm"), (double)Radius);
+    Result->SetBoolField(TEXT("capsule_from_engine"), bCapsuleFromEngine);
+    Result->SetNumberField(TEXT("step_up_cm"), (double)StepUpCm);
+    Result->SetNumberField(TEXT("facing_yaw"), (double)Actor->GetActorRotation().Yaw);
+
+    TArray<TSharedPtr<FJsonValue>> Ring;
+    const double Span = 360.0 / (double)Sectors;
+    for (int32 i = 0; i < Sectors; ++i)
+    {
+        const double Offset = YawOffsetDeg + Span * (double)i;
+        const FRotator ProbeRotation = Actor->GetActorRotation() + FRotator(0.0f, (float)Offset, 0.0f);
+        const FVector Forward = ProbeRotation.Vector().GetSafeNormal();
+        const FVector End = Start + Forward * (float)DistanceCm;
+
+        FHitResult SweepHit;
+        const bool bBlocked = World->SweepSingleByChannel(
+            SweepHit, Start, End, ProbeRotation.Quaternion(), ECC_Pawn,
+            FCollisionShape::MakeCapsule(Radius, SweepHalfHeight), QueryParams);
+
+        TSharedPtr<FJsonObject> Sector = MakeShared<FJsonObject>();
+        Sector->SetNumberField(TEXT("yaw_offset_deg"), Offset);
+        Sector->SetNumberField(TEXT("world_yaw"), (double)ProbeRotation.Yaw);
+        Sector->SetBoolField(TEXT("fits"), !bBlocked);
+        // Distance to first contact, or the full reach when nothing was struck —
+        // the same meaning "clearance_cm" carries on the forward volume.
+        Sector->SetNumberField(TEXT("clearance_cm"),
+                               bBlocked ? (double)SweepHit.Distance : DistanceCm);
+        if (bBlocked)
+        {
+            TSharedPtr<FJsonObject> Contact = MakeShared<FJsonObject>();
+            FillHitIdentity(SweepHit, Contact);
+            Sector->SetObjectField(TEXT("contact"), Contact);
+        }
+        Ring.Add(MakeShared<FJsonValueObject>(Sector));
+    }
+    Result->SetArrayField(TEXT("ring"), Ring);
 
     return Result;
 }

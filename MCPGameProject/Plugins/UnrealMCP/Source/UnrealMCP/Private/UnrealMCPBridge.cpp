@@ -292,6 +292,7 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
             // Character Commands
             else if (CommandType == TEXT("get_character_forward_trace") ||
                      CommandType == TEXT("get_character_forward_volume") ||
+                     CommandType == TEXT("get_character_radar") ||
                      CommandType == TEXT("get_character_status") ||
                      CommandType == TEXT("get_character_location") ||
                      CommandType == TEXT("get_character_health") ||
