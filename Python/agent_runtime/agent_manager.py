@@ -30,6 +30,7 @@ from . import recognition
 from . import route_map
 from . import route_planner
 from . import sim_run
+from . import survey_mission
 from .episodic_memory import EpisodicLog
 from .memory_store import _MOVEMENT_ACTIONS, movement_summary, movement_trace
 from .place_db import (COMMUNITY_SURVEY_MAX_AGE_SECONDS, PLACE_EXTENT_CM,
@@ -494,6 +495,7 @@ class AgentManager:
         self._social_mem: dict[str, SocialMemory] = {}  # agent_id -> acquaintance store (cache)
         self._episodic_log: dict[str, EpisodicLog] = {}  # agent_id -> episodic event log (cache)
         self._cell_sweeps: dict[str, dict] = {}      # agent_id -> in-progress unexplored-cell sweep
+        self._mission_complete: set[str] = set()     # agent_ids whose survey mission found no work left (#96)
         self._last_cell: dict[str, str] = {}        # agent_id -> previous cell key, for nav edges
         self._frontier_failures: dict[str, dict[str, int]] = {}  # agent_id -> cell key -> consecutive failed walks
         self._scene_skips: dict[str, int] = {}      # agent_id -> consecutive scene-unchanged skips (gate liveness)
@@ -605,6 +607,7 @@ class AgentManager:
         self._eyes.clear()
         self._bounces.clear()
         self._force_next_decide.clear()
+        self._mission_complete.clear()
 
         self._load_agents(active_agents)
         if active_agents:
@@ -695,6 +698,30 @@ class AgentManager:
                     logger.warning(f"[{agent.agent_id}] Reposition failed: {result.get('error', 'unknown')}")
             else:
                 logger.warning(f"[{agent.agent_id}] No start transform recorded — skipping reposition")
+
+        # Survey-mission start placement (#96): after the reposition, move each
+        # mission APC to the edge of covered ground next to its first target —
+        # once, before the first tick. Mid-run the body always walks.
+        for agent in active:
+            if agent.mission != "survey":
+                continue
+            placement = self._mission_start_placement(agent)
+            if placement is None:
+                continue
+            result = self.bridge.teleport(
+                agent.bound_unreal_actor_name, placement["location"], agent.start_rotation
+            )
+            ok = result.get("success") is True or result.get("status") == "success"
+            if ok:
+                logger.info(
+                    f"[{agent.agent_id}] Mission start placement: swept cell "
+                    f"{placement['cell']} beside first target {placement['target']}"
+                )
+            else:
+                logger.warning(
+                    f"[{agent.agent_id}] Mission start placement failed "
+                    f"({result.get('error', 'unknown')}) — walking from start instead"
+                )
 
         self.bridge.clear_scene_cache()
 
@@ -1457,6 +1484,14 @@ class AgentManager:
         # an APC that has arrived somewhere worth surveying is done travelling.
         walking = [a for a in ready if self._has_active_walk(a)]
         ready = [a for a in ready if not self._has_active_walk(a)]
+        # Survey-mission APCs (#96) with no survey, no walk, and no checkpoint
+        # owed get their next target chosen by code — no perceive, no decide.
+        # The one tick this deliberately leaves to the LLM is the checkpoint:
+        # a finished sweep files a _force_next_decide debt, and while that debt
+        # stands the mission bucket declines the agent, so it falls through to
+        # the ordinary observe/perceive/decide path exactly once per cell.
+        missioning = [a for a in ready if self._mission_wants_tick(a)]
+        ready = [a for a in ready if not self._mission_wants_tick(a)]
 
         # Account for every active agent this tick (#51). An APC dropped by the
         # ready filter — wedged is_busy, cooling down, holding an open chat —
@@ -1464,7 +1499,7 @@ class AgentManager:
         # mark it: no decision entry, no skip line, no capture. Silence must not
         # be the same observation as "nothing was wrong".
         running = ({id(a) for a in ready} | {id(a) for a in sweeping}
-                   | {id(a) for a in walking})
+                   | {id(a) for a in walking} | {id(a) for a in missioning})
         excluded = [
             f"{a.agent_id} ({self._not_ready_reason(a)})"
             for a in sorted(self.agents.values(), key=lambda a: a.agent_id)
@@ -1483,6 +1518,11 @@ class AgentManager:
         for agent in walking:
             self._set_activity(agent, "walking")
             results.append(self._pulse_walk(agent))
+
+        # Mission phase (#96, sequential — same single bridge socket).
+        for agent in missioning:
+            self._set_activity(agent, "on mission")
+            results.append(self._pulse_mission(agent))
 
         # Phase 1: observe (sequential, bridge)
         observations: dict[str, dict | None] = {}
@@ -1664,6 +1704,11 @@ class AgentManager:
         observation["wedge"] = self._wedge_fact(
             agent_id, observation.get("last_move"), observation.get("directions"))
         observation["frontier"] = self._frontier_fact(grid)
+        # A mission APC only reaches this path on its per-cell checkpoint (#96)
+        # — tell it so, or it spends the one paid decision planning travel the
+        # mission will run itself.
+        if agent.mission == "survey":
+            observation["mission"] = self._mission_fact(agent_id)
         observation["travel"] = self._travel_fact(agent_id, observation.get("location"), grid)
         # Standing inside a no-go patch is its own fact (SR44: Dufus stood in
         # the pergola yard and re-refused it eight ticks running, because the
@@ -3559,9 +3604,19 @@ class AgentManager:
             return action, sweep_action
         return (sweep_action if sweep_action is not None else {"type": "idle"}), None
 
-    def _offer_survey_interrupt(self, agent: Agent, observation: dict) -> dict | None:
-        """Offer the current unknown cell as a persisted survey interruption."""
-        col, row = self._cell_col_row(observation.get("grid"))
+    def _offer_survey_interrupt(self, agent: Agent, observation: dict,
+                                target: tuple[int, int] | None = None,
+                                source: str = "agent",
+                                reason: str | None = None) -> dict | None:
+        """Offer a cell as a persisted survey interruption.
+
+        Default: the cell the APC stands in, asked for by the model
+        (``survey_here``). The survey mission (#96) passes ``target`` — any
+        cell, however far — with ``source="mission"``: the sweep machinery
+        already walks to a target cell it is not standing in, so the mission's
+        whole commute rides on the existing travel/wedge handling for free.
+        """
+        col, row = target if target is not None else self._cell_col_row(observation.get("grid"))
         if col is None:
             return None
         for record in [getattr(agent, "active_interrupt", None),
@@ -3577,13 +3632,14 @@ class AgentManager:
         record = interruptions.make_record(
             interrupt_id=f"survey:{col},{row}",
             kind="survey",
-            # The APC asked for this. It used to say source="world" / "needs a
-            # community survey", which was true when code seized the tick and
-            # became a lie the moment surveying became the model's own action
-            # (#57) — SR39's log read as if the world had ordered three surveys
-            # Dufus in fact chose himself.
-            source="agent",
-            reason=f"{agent.agent_id} asked to survey grid cell ({col},{row})",
+            # The APC asked for this (or the mission scheduled it — the source
+            # says which). It used to say source="world" / "needs a community
+            # survey", which was true when code seized the tick and became a
+            # lie the moment surveying became the model's own action (#57) —
+            # SR39's log read as if the world had ordered three surveys Dufus
+            # in fact chose himself.
+            source=source,
+            reason=reason or f"{agent.agent_id} asked to survey grid cell ({col},{row})",
             requested_at=str(observation.get("world_time") or self.world_clock.now_text()),
             payload={
                 "col": col, "row": row,
@@ -5213,6 +5269,175 @@ class AgentManager:
         agent.mark_ticked(self._agents_dir)
         return {"agent_id": agent_id, "action": action, "result": result,
                 "grid": grid, "sweep": True}
+
+    def _mission_wants_tick(self, agent: Agent) -> bool:
+        """Whether the survey mission (#96) drives this APC's tick.
+
+        No when a checkpoint is owed (`_force_next_decide`): that one tick
+        belongs to the LLM — it is the entire model budget of a surveyed cell.
+        """
+        return (agent.mission == "survey" and agent.has_unreal_binding
+                and agent.agent_id not in self._force_next_decide)
+
+    def _pulse_mission(self, agent: Agent) -> dict:
+        """One survey-mission tick (#96): pick the next cell, put it to work.
+
+        Deterministic and bridge-only, like `_pulse_sweep`. Code chooses the
+        target (center-out ring order over the world grid, skipping answered
+        and unreachable ground) and offers it as an ordinary survey
+        interruption — from there the existing machinery does everything:
+        travel to the cell (with the wedge/abandon handling), the four-heading
+        sweep, the breadcrumb, and the `_force_next_decide` debt that becomes
+        this cell's one LLM checkpoint. A cell whose travel is abandoned is
+        marked unreachable in the spatial map and the next tick simply picks
+        the next cell — the mission never ends on a wedge.
+        """
+        agent_id = agent.agent_id
+        observation = self.bridge.get_observation(
+            agent.bound_unreal_actor_name, agent_id, self._agents_dir
+        )
+        grid, place = self._grid_and_place(agent_id, observation.get("location"))
+        observation["grid"] = grid
+        observation["place"] = place
+        observation["world_time"] = self.world_clock.now_text()
+
+        target = self._mission_next_target(agent_id)
+        if target is None:
+            # Every cell is swept, refused, or proven unreachable. Loud, once —
+            # a completed mission must never look like an idle wedge (rule 12).
+            if agent_id not in self._mission_complete:
+                self._mission_complete.add(agent_id)
+                logger.warning(
+                    f"[{agent_id}] SURVEY MISSION COMPLETE — every grid cell is "
+                    f"swept, refused, or marked unreachable"
+                )
+                self._pie_activity(agent_id, "survey mission complete")
+            agent.mark_ticked(self._agents_dir)
+            return {"agent_id": agent_id, "action": "mission_complete",
+                    "grid": grid, "mission": True}
+        self._mission_complete.discard(agent_id)
+
+        col, row = target
+        offer = self._offer_survey_interrupt(
+            agent, observation, target=(col, row), source="mission",
+            reason=f"survey mission: ({col},{row}) is the next unsurveyed cell",
+        )
+        if isinstance(offer, dict) and offer.get("_survey_pending"):
+            logger.info(f"[{agent_id}] mission: next survey target ({col},{row})")
+            self._pie_activity(agent_id, f"mission -> survey cell ({col},{row})")
+            action = self._dispatch_active_survey(agent, observation)
+        else:
+            action = offer
+        if action is None:
+            # Offer refused or the survey resolved instantly — nothing to walk.
+            # Not silent: the next tick re-selects, and a repeat is visible.
+            logger.warning(
+                f"[{agent_id}] mission: survey of ({col},{row}) produced no "
+                f"step this tick — will re-select next tick"
+            )
+            agent.mark_ticked(self._agents_dir)
+            return {"agent_id": agent_id, "action": "mission_no_step",
+                    "target": [col, row], "grid": grid, "mission": True}
+
+        agent.set_active_interrupt_preemptible(False, self._agents_dir)
+        result = self._execute_world_action(agent, action, observation)
+        if action.get("type") == "observe_heading":
+            self._finish_survey_heading(agent, result)
+        agent.mark_ticked(self._agents_dir)
+        return {"agent_id": agent_id, "action": action, "result": result,
+                "grid": grid, "mission": True}
+
+    def _mission_next_target(self, agent_id: str) -> tuple[int, int] | None:
+        """The next cell the survey mission should work, or None = complete.
+
+        Done = swept or refused (both are answered ground). Unreachable = the
+        APC's own spatial map says the cell cannot be entered (written by the
+        abandoned-travel path), or its composite already exists — the same
+        gate `_sweep_step` starts with, checked here so the mission can never
+        select a cell the sweep would instantly decline, tick after tick.
+        """
+        if self.place_db is None or not self.world_grid.has_bounds:
+            return None
+        b = self.world_grid.bounds
+        probe = self.world_grid.locate(b["min_x"], b["min_y"])
+        origin = self._cell_col_row(self.world_grid.locate(
+            (b["min_x"] + b["max_x"]) / 2.0, (b["min_y"] + b["max_y"]) / 2.0))
+        if origin[0] is None:
+            return None
+        done = set(self.place_db.swept_cells())
+        done |= {(r["col"], r["row"]) for r in self.place_db.all_refusals()}
+        smap = self._spatial_map(agent_id)
+
+        def unreachable(cell: tuple[int, int]) -> bool:
+            center = self.world_grid.cell_center(*cell)
+            if center is None:
+                return True
+            if smap.is_blocked(self.world_grid.locate(center[0], center[1])["key"]):
+                return True
+            return self._survey_visual_is_current(agent_id, *cell)
+
+        return survey_mission.next_target(
+            probe["cols"], probe["rows"], origin, done, unreachable)
+
+    def _mission_fact(self, agent_id: str) -> dict | None:
+        """Coverage + next target, shown to a mission APC at its checkpoint."""
+        if self.place_db is None or not self.world_grid.has_bounds:
+            return None
+        b = self.world_grid.bounds
+        probe = self.world_grid.locate(b["min_x"], b["min_y"])
+        target = self._mission_next_target(agent_id)
+        return {
+            "kind": "survey",
+            "swept": len(self.place_db.swept_cells()),
+            "total": probe["cols"] * probe["rows"],
+            "next_target": list(target) if target else None,
+        }
+
+    def _mission_start_placement(self, agent: Agent) -> dict | None:
+        """Where a mission APC starts the run: the edge of covered ground (#96).
+
+        As coverage grows, the first target cell moves further from the town,
+        and a run that begins with a ten-minute commute across surveyed ground
+        buys nothing the map does not already hold. So at sim start — and only
+        then; mid-run the body always walks — the APC is placed at the center
+        of a *swept* cell adjacent to its first target: ground the survey has
+        stood on, one step from the work. Fresh worlds (no swept neighbor) and
+        APCs already within a cell of the target place nothing and walk as
+        before. Returns ``{"location", "cell", "target"}`` or None.
+        """
+        if self.place_db is None:
+            return None
+        target = self._mission_next_target(agent.agent_id)
+        if target is None:
+            return None
+        tf = self.bridge.get_character_transform(agent.bound_unreal_actor_name)
+        xyz = _loc_xyz(tf.get("location"))
+        if xyz is None:
+            return None
+        here = self._cell_col_row(self.world_grid.locate(xyz[0], xyz[1]))
+        if (here[0] is not None
+                and max(abs(here[0] - target[0]), abs(here[1] - target[1])) <= 1):
+            return None
+        swept = set(self.place_db.swept_cells())
+        neighbors = [(target[0] + dc, target[1] + dr)
+                     for dc in (-1, 0, 1) for dr in (-1, 0, 1)
+                     if (dc, dr) != (0, 0)]
+        candidates = [c for c in neighbors if c in swept]
+        if not candidates:
+            return None
+
+        def walked(cell: tuple[int, int]) -> bool:
+            return any(str(g.get("footing")) in _GOOD_FOOTING
+                       for g in self.place_db.get_ground(*cell))
+
+        # Prefer a neighbor somebody has actually stood in with good footing —
+        # a teleport is the one move the navmesh never checks.
+        candidates.sort(key=lambda c: (not walked(c), c))
+        center = self.world_grid.cell_center(*candidates[0])
+        if center is None:
+            return None
+        return {"location": [center[0], center[1], xyz[2]],
+                "cell": candidates[0], "target": target}
 
     def _pulse_explore(self, agent: Agent) -> dict:
         """One exploration tick: see → perceive → map → pick frontier → walk.

@@ -210,6 +210,17 @@ class Agent:
         return self.state.get("role", "npc")
 
     @property
+    def mission(self) -> str:
+        """Deterministic duty that drives this APC instead of per-tick decisions.
+
+        ``"survey"`` puts the APC under Survey Mission Mode (#96): code chooses
+        targets and runs travel/sweeps, the LLM gets one checkpoint decision
+        per finished cell. Empty (the default) means the ordinary cognitive
+        loop — every personality APC stays there.
+        """
+        return str(self.state.get("mission", "") or "")
+
+    @property
     def survey_priority(self) -> bool:
         """Whether unexplored-cell surveys outrank this APC's schedule.
 

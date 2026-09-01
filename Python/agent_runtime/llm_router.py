@@ -851,6 +851,10 @@ def _sense_note(observation: dict) -> str:
     the agent is wedged on them. The LLM reasons; the lizard brain senses.
     """
     lines = []
+    mission = _mission_text(observation.get("mission"))
+    if mission:
+        # Above everything: it changes what this whole decision is FOR.
+        lines.append(mission)
     radar = _radar_text(observation.get("radar"))
     if radar:
         # First, because it frames every other sense below it: those all describe
@@ -951,6 +955,36 @@ def _sense_note(observation: dict) -> str:
         if blocker.get("halted"):
             lines.append("Sense: your walk has been halted.")
     return ("\n" + "\n".join(lines) + "\n") if lines else ""
+
+
+def _mission_text(mission: dict | None) -> str:
+    """The survey-mission checkpoint framing (#96).
+
+    A mission APC's travel and sweeps are driven by code; the only tick that
+    reaches the model is the checkpoint after each finished cell. Without this
+    section the model reads its usual prompt and spends that one paid decision
+    planning a route — work the mission does deterministically. This is the one
+    place the prompt is allowed to steer instead of only stating facts: mission
+    mode is a different authority regime by design (plan/survey_mission_plan.md),
+    and only APCs that opted in via ``"mission": "survey"`` ever see it.
+    """
+    if not isinstance(mission, dict) or mission.get("kind") != "survey":
+        return ""
+    target = mission.get("next_target")
+    where = (f"cell ({target[0]},{target[1]})" if isinstance(target, (list, tuple))
+             else "nowhere — the survey is COMPLETE")
+    return (
+        f"SURVEY MISSION CHECKPOINT — you are the survey mission executor. "
+        f"Code walks you between cells and runs every sweep; you are awake for "
+        f"ONE decision, usually right after finishing a cell's survey. "
+        f"Coverage: {mission.get('swept', 0)} of {mission.get('total', 0)} cells. "
+        f"After this decision the mission sends you to {where}.\n"
+        f"  Spend this decision on MEANING, not movement: name this place if it "
+        f"deserves a name, refuse ground that should never be walked "
+        f"(refuse_cell, whole cell or spot), or simply observe and continue. "
+        f"Do NOT order travel — the mission resumes it next tick, and any walk "
+        f"you start only delays the survey."
+    )
 
 
 _RADAR_TIGHT_M = 3.0     # below this the body is up against something

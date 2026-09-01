@@ -85,6 +85,10 @@ happened. The 2026-08-12 reframe (grade on social) is suspended until the exit c
 
 ### Now (groomed 2026-08-19) — perception-guided exploration, bounded, then Phase B
 
+> **2026-09-01: the headline is #96 Survey Mission Mode** (see item 96 below and
+> `plan/survey_mission_plan.md`) — Phase 1 + start placement BUILT, needs live run SR55.
+> It is the instrument for THE EXIT CONDITION; the plan doc's #93–#97 are #96–#100 here.
+
 **Source:** user, 2026-08-19: *"concentrate on perception and how Dufus can explore/survey the world
 from center of world out... not go into areas that can get him stuck regardless of navmesh saying he
 can. Like, I see corn field, I can't go there... vehicles are obstructions and the system needs to keep
@@ -422,6 +426,13 @@ this banner on 2026-08-19 — #77/#78/#26/#79/#80 — already has tests.)
   shared map holds refused ground on:" line. Test: a heading with 20 m of air but a patch 1 m out
   carries `memory_stop_cm`≈100 and is named in the text; a clear heading carries no mark; missing
   location marks nothing.
+- **#96 survey mission mode (2026-09-01):** `survey_mission.py` ring order (center-out, clockwise
+  from north, deterministic ties); `next_target` skips done/unreachable and returns None only when
+  every cell is answered; `_pulse_mission` offers exactly one survey interrupt and never re-offers
+  over an active one; a completed sweep yields exactly ONE LLM checkpoint (router stub: zero LLM
+  calls on travel/sweep ticks); an abandoned-travel cell is skipped, mission continues; start
+  placement picks a swept, good-footing neighbor of the first target and does nothing on a fresh
+  world or when already adjacent.
 
 **Paid off 2026-08-20:** `scripts/agent_runtime/test_move_plan.py`, **24 tests / 67 checks**, suite **65/65**.
 Pins **#90** (the step is the measured reach; an unmeasured step is labelled a guess; the model may
@@ -4983,6 +4994,65 @@ it, kept the fat radius, and dragged its centre onto the new spot. Compounding, 
 * Dufus leaves the dumpster pocket south or east on the first try, and the A↔B round trip is gone.
 * A tick's radar block shows the "BUT your shared map…" line only where a refusal actually sits.
 * No new patch anywhere exceeds 300 cm with `source='measured'`.
+
+## 96. Survey Mission Mode — coverage is a code job, one LLM checkpoint per cell
+
+**Status:** **PHASE 1 BUILT 2026-09-01 (no tests — speed mode, see the Needs-tests ledger) —
+needs live run SR55.**
+**Source:** `plan/survey_mission_plan.md` (approved direction, 2026-08-29) + user 2026-09-01:
+*"get Dufus to keep trying to survey and look past already surveyed grids to find more survey
+work"*. **Numbering:** the plan doc numbers its items #93–#97; those numbers were already taken
+in this backlog, so the plan's five items are **#96–#100** here (mission mode = #96, geometry
+layer = #97, corpus completeness = #98, doctrine = #99, overnight harness = #100).
+
+### What was built (Phase 1 + start placement)
+
+* **`Python/agent_runtime/survey_mission.py`** — pure ring policy: cells ordered center-out
+  (Chebyshev rings from the world-bounds center cell, clockwise from north, deterministic);
+  `next_target` skips swept/refused/unreachable cells, so as coverage grows the first un-done
+  cell in ring order IS the frontier — looking past covered ground is the data structure, not a
+  judgement. None = mission complete, said loudly.
+* **`Agent.mission`** (`state.json` `"mission": "survey"`) — opt-in per APC. Dufus is opted in;
+  Maren and every personality APC are untouched, and facts-not-blockers still governs them.
+  Mission mode is a different authority regime by design and says so in the code.
+* **The mission bucket** in `_tick_impl` (after sweep/walk buckets): a mission APC with no
+  active survey, no walk, and no checkpoint owed gets `_pulse_mission` — deterministic,
+  bridge-only. It picks the next target and offers it as an ordinary **survey interruption**
+  (`_offer_survey_interrupt` grew `target`/`source`/`reason` params) — from there the EXISTING
+  machinery does everything: travel to the far cell (goto-center + wedge/abandon handling),
+  the 4-heading sweep, `mark_swept`, and the `_force_next_decide` debt.
+* **The checkpoint = `_force_next_decide`.** While that debt stands the mission bucket declines
+  the APC, so it falls through to the ordinary observe/perceive/decide path exactly once per
+  finished cell. One LLM call per cell, zero new prompt machinery. The prompt gains one section
+  (`_mission_text`): coverage, next target, and "spend this decision on MEANING — name, refuse,
+  observe; do not order travel". A cell whose travel is abandoned is marked unreachable and the
+  mission just picks the next cell — no checkpoint, no LLM, never ends on a wedge.
+* **Start placement** (`_mission_start_placement`, called once in `start_simulation` after the
+  normal reposition): the APC is teleported to the center of a **swept** neighbor cell of its
+  first target (preferring one with good walked footing), i.e. the edge of covered ground one
+  step from the work. Fresh world (no swept neighbor) or already adjacent → no teleport, walk
+  as before. Mid-run there is no teleport, ever — walking covered ground is cheap (grown steps)
+  and still feeds the VLM corpus.
+* **"Where is Don's Donuts" stays served** (user requirement): mission mode chooses *targets*,
+  not roads — travel rides the same locomotion stack (`route_planner.make_route` cell paths,
+  walk plans, hop execution) any APC uses for named-place `walk_to`. Nothing was forked.
+
+### Deliberately NOT built (Phase 1 scope)
+
+* The trimmed ~5-section checkpoint prompt (#84's contract). The full decision prompt already
+  carries the survey verdict, naming actions and refusal actions; trimming is a cost
+  optimization, deferred until a live run shows the checkpoint working.
+* Phases 2–5 (#97 geometry layer, #98 corpus, #99 doctrine, #100 overnight harness).
+* The plan's open decisions run on their stated defaults: unreachable ring cell → skip and
+  continue; checkpoint stays on the current decision model; Maren gets no mission.
+
+### Watch for (SR55)
+
+* Ring-shaped coverage growth on /map; decision calls per cell ≤ 1.5; cells/hour ≥ 1.
+* The run starts with Dufus beside the frontier, not commuting from the town start.
+* `SURVEY MISSION COMPLETE` never fires while unsurveyed reachable ground remains.
+* Known risk: the web UI's agent save may not preserve the `mission` key in `state.json` —
+  do not edit Dufus via the UI until checked.
 
 ## Notes
 

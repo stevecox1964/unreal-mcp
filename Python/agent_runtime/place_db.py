@@ -612,6 +612,14 @@ class PlaceDB:
             return None
         return {"name": r["name"], "swept_at": r["swept_at"], "swept_by": r["swept_by"]}
 
+    def swept_cells(self) -> list[tuple[int, int]]:
+        """Every cell with a survey breadcrumb — the mission driver's done set (#96)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT col, row FROM place_cells WHERE swept_at IS NOT NULL"
+            ).fetchall()
+        return [(r["col"], r["row"]) for r in rows]
+
     def mark_swept(self, agent_id: str, col: int, row: int, world_time: str) -> bool:
         """Drop a community place-cell breadcrumb after a 360 sweep of a cell.
 
