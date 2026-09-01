@@ -743,35 +743,50 @@ class PlaceDB:
 
         ``source`` says who wrote it (#91). ``'stated'`` is the mind's judgement
         and keeps forever; ``'measured'`` is the body's own engine reading and is
-        believed only for a while, because the thing it read can move. An update
-        carries the newer source and the higher proof count — a wall the body
-        keeps re-proving must not have its evidence reset by the update, and a
-        judgement stated over a stale measurement supersedes it.
+        believed only for a while, because the thing it read can move. They are
+        different claims with different lifetimes, so a patch merges ONLY with a
+        patch of its own source — SR54 showed what merging across them does: a
+        1.1 m measured seal landed inside a stale 4.5 m stated circle, inherited
+        its radius, and walled off three of a pocket's four exits.
 
-        The radius only ever GROWS on update. A wall that stopped the APC three
-        times is not narrowed back to one body's width by a fourth reading taken
-        from further away.
+        Within a source the radius only ever GROWS on update, and the update
+        keeps the higher proof count — a wall that stopped the APC three times
+        is not narrowed back to one body's width by a fourth reading taken from
+        further away. A ``'measured'`` radius is additionally clamped to
+        ``dead_end.MAX_RADIUS_CM``: the body's evidence never spans more than a
+        body-scale volume, whatever the caller states.
         """
+        from . import dead_end
         why = str(reason or "").strip()
         if not why:
             return False
+        kind = str(source)
+        radius = float(radius_cm)
+        if kind == "measured":
+            radius = min(radius, dead_end.MAX_RADIUS_CM)
         with self._lock, self._connect() as conn:
             own = conn.execute(
-                "SELECT id, x, y, radius_cm, proofs FROM no_go_patches WHERE refused_by=?",
+                "SELECT id, x, y, radius_cm, proofs, source FROM no_go_patches "
+                "WHERE refused_by=?",
                 (agent_id,),
             ).fetchall()
             for row in own:
+                if str(row["source"] or "stated") != kind:
+                    continue
                 if math.hypot(x - row["x"], y - row["y"]) <= row["radius_cm"]:
                     # The centre moves too. A widening patch that keeps its old
                     # centre swallows the APC that widened it — the caller slid
                     # the circle clear on purpose (#91) and dropping that here
                     # puts the APC back inside its own mark.
+                    merged = max(radius, float(row["radius_cm"]))
+                    if kind == "measured":
+                        merged = min(merged, dead_end.MAX_RADIUS_CM)
                     conn.execute(
                         "UPDATE no_go_patches SET x=?, y=?, reason=?, refused_at=?, "
                         "  updated_at=?, radius_cm=?, source=?, proofs=? WHERE id=?",
                         (float(x), float(y), why, str(world_time or ""), _iso_now(),
-                         max(float(radius_cm), float(row["radius_cm"])),
-                         str(source), max(int(proofs), int(row["proofs"] or 0)),
+                         merged,
+                         kind, max(int(proofs), int(row["proofs"] or 0)),
                          row["id"]),
                     )
                     return True
@@ -779,8 +794,8 @@ class PlaceDB:
                 "INSERT INTO no_go_patches (x, y, radius_cm, refused_by, reason, "
                 "refused_at, updated_at, source, proofs) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (float(x), float(y), float(radius_cm), agent_id, why,
-                 str(world_time or ""), _iso_now(), str(source), int(proofs)),
+                (float(x), float(y), radius, agent_id, why,
+                 str(world_time or ""), _iso_now(), kind, int(proofs)),
             )
         return True
 

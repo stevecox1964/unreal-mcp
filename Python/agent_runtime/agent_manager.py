@@ -200,6 +200,7 @@ _RADAR_HEADINGS = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
 # UE yaw: 0 = +X = East, 90 = South, 180 = West, 270 = North.
 _COMPASS_ABS_YAW = {"E": 0.0, "SE": 45.0, "S": 90.0, "SW": 135.0,
                     "W": 180.0, "NW": 225.0, "N": 270.0, "NE": 315.0}
+_WORD_ABS_YAW = {_COMPASS_LETTER_WORD[k]: v for k, v in _COMPASS_ABS_YAW.items()}
 
 # Walking a grown step (#86). The engine is never handed a target further than
 # one nominal step, so the navmesh has almost no room to route around something
@@ -1716,6 +1717,7 @@ class AgentManager:
         # after it had already stopped. Cheap to read, and the ring closing is
         # what a trap looks like from the inside while there is still a way out.
         observation["radar"] = self._radar(agent, observation)
+        self._mark_memory_stops(observation, observation["radar"])
         # Forward path sense (B7): trace ahead on every moving tick, not just when
         # already wedged — a mobile blocker (someone crossing the path) becomes a
         # fact the LLM can sidestep *before* the collision, and when stuck,
@@ -2146,6 +2148,37 @@ class AgentManager:
                for h in radar if h["range_cm"] >= move_plan.MIN_STEP_CM]
         out.sort(key=lambda h: (h["turn_deg"], -h["clearance_cm"]))
         return out
+
+    def _mark_memory_stops(self, observation: dict, ring: list[dict]) -> None:
+        """Overlay the shared map on the radar ring: air is not permission (#94).
+
+        SR53 and SR54 each spent a paid decision the same way — the ring said
+        "south 20.0 m, room to travel", the order went south, and `move_plan`
+        HELD it at zero because refused ground sat directly ahead. The radar was
+        honest about air and silent about permission, which is the same class of
+        lie #92 was built to kill, one layer up.
+
+        This walks `_scan_ahead` down each measured heading — the identical scan
+        the step planner will run if that heading is ordered — and files where
+        memory stops the step (`memory_stop_cm`) and why (`memory_reason`).
+        Facts only: nothing is removed from the ring and no heading is
+        forbidden; the APC that wants the refused ground anyway still walks to
+        its edge.
+        """
+        xyz = _loc_xyz(observation.get("location"))
+        if xyz is None:
+            return
+        for h in ring:
+            yaw = _WORD_ABS_YAW.get(h.get("heading"))
+            if yaw is None:
+                continue
+            limit = min(float(h.get("range_cm", 0.0)), move_plan.MAX_STEP_CM)
+            if limit <= 0:
+                continue
+            scan = self._scan_ahead(xyz, yaw, limit)
+            if scan["stop_short_cm"] is not None:
+                h["memory_stop_cm"] = scan["stop_short_cm"]
+                h["memory_reason"] = scan["stop_reason"]
 
     def _nearby_agent_ids(self, agent_id: str, xyz) -> frozenset[str]:
         """Nearby APC ids from cached transforms; no bridge or model work."""

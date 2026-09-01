@@ -991,6 +991,17 @@ def _radar_text(radar: list | None) -> str:
                  "short. You are in an enclosed space.")
     if tight:
         line += f"\n  Up against something (under 3 m): {', '.join(tight)}."
+    vetoed = [h for h in radar if h.get("memory_stop_cm") is not None]
+    if vetoed:
+        marks = "; ".join(
+            f"{h['heading']} — refused ground "
+            f"{h['memory_stop_cm'] / 100:.1f} m in "
+            f"({h.get('memory_reason') or 'refused'})"
+            for h in vetoed)
+        line += (f"\n  BUT your shared map holds refused ground on: {marks}. "
+                 f"Air is not permission — a step that way STOPS at the "
+                 f"refused edge, however open the radar reads. Do not count "
+                 f"these headings as ways to new ground.")
     return line
 
 

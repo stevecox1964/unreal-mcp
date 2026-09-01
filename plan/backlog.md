@@ -414,6 +414,14 @@ feature as it lands; the suite catches up here later. (Everything built before
 this banner on 2026-08-19 — #77/#78/#26/#79/#80 — already has tests.)
 
 - *(the #86-#90 locomotion lane is now covered - see below)*
+- **#95 merge rule (2026-09-01):** `refuse_patch` merges only within a `source`; a `measured`
+  radius is clamped to `dead_end.MAX_RADIUS_CM` on insert AND on merge. Test: a 110 cm measured
+  seal landing inside a 450 cm stated circle must insert its own row, not inherit 450; a stated
+  re-refusal inside a measured patch likewise; a measured row can never exceed 300.
+- **#95 radar memory overlay (2026-09-01):** `_mark_memory_stops` + the `_radar_text` "BUT your
+  shared map holds refused ground on:" line. Test: a heading with 20 m of air but a patch 1 m out
+  carries `memory_stop_cm`≈100 and is named in the text; a clear heading carries no mark; missing
+  location marks nothing.
 
 **Paid off 2026-08-20:** `scripts/agent_runtime/test_move_plan.py`, **24 tests / 67 checks**, suite **65/65**.
 Pins **#90** (the step is the measured reach; an unmeasured step is labelled a guess; the model may
@@ -4933,6 +4941,48 @@ unsatisfiable.
   *air* and silent about *permission*, and the model spent a decision on it. Marking
   memory-vetoed headings in `_radar_text` is a candidate if it recurs.
 * **The same objective wording is shared by any future surveyor APC.** Only Dufus was fixed.
+
+## 95. A no-go patch that grew fat — a measured seal must never inherit a stated radius
+
+**Status:** **BUILT 2026-09-01 (no tests — speed mode, see the Needs-tests ledger) — needs a live run.**
+**Source:** SR54 read-back (2026-08-29 handoff): the #94 goal fix worked — Dufus deliberately
+routed back across covered ground — and the step was then HELD anyway, because a no-go patch at
+`(-102, -1696)` was 450 cm wide when its own SR53 log said 1.1 m. That one fat circle vetoed
+south, east and southeast out of the dumpster pocket; the only long exit left led back to A.
+**That was the remaining cause of the A↔B loop.** The user's standing goal: Dufus keeps
+surveying, and covered ground is a road to new ground, never a wall.
+
+### Why the patch got fat
+
+`PlaceDB.refuse_patch` merged any new patch into any overlapping own patch and kept
+`max(radius_cm, row["radius_cm"])` — "the radius only ever GROWS". Right within one kind of
+evidence, wrong across kinds: a stale 450 cm `stated` circle (itself born before
+`dead_end.MAX_RADIUS_CM` existed) swallowed every small precise `measured` seal that landed in
+it, kept the fat radius, and dragged its centre onto the new spot. Compounding, run after run.
+
+### What changed (2026-09-01)
+
+* `PlaceDB.refuse_patch` (`Python/agent_runtime/place_db.py`): a patch merges ONLY with a patch
+  of the same `source` — `measured` with `measured`, `stated` with `stated`. They are different
+  claims with different TTLs. A `measured` radius is additionally clamped to
+  `dead_end.MAX_RADIUS_CM` (300) on insert and on merge.
+* The live fat row (id 5) in `Python/worlds/MCP_World/world_places.db` shrunk 450 → 110 cm, the
+  radius its own SR53 log states. This reopens south, east and southeast out of the pocket.
+  Backup: session scratchpad `world_places.db.bak`.
+* **Radar memory overlay** (the #94 open question, now built): `_mark_memory_stops`
+  (`agent_manager.py`) walks `_scan_ahead` down every measured radar heading — the identical
+  scan the step planner runs — and files `memory_stop_cm` / `memory_reason` on the ring entry.
+  `_radar_text` (`llm_router.py`) then adds: *"BUT your shared map holds refused ground on:
+  south — refused ground 0.0 m in (…). Air is not permission…"* Facts only: the dial still
+  reports the air honestly, no heading is forbidden, and a step that way still walks to the
+  refused edge. This kills the SR53/SR54 wasted decision where the ring advertised 20 m and the
+  order was HELD at zero.
+
+### Watch for (next live run)
+
+* Dufus leaves the dumpster pocket south or east on the first try, and the A↔B round trip is gone.
+* A tick's radar block shows the "BUT your shared map…" line only where a refusal actually sits.
+* No new patch anywhere exceeds 300 cm with `source='measured'`.
 
 ## Notes
 
