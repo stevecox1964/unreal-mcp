@@ -97,6 +97,10 @@ happened. The 2026-08-12 reframe (grade on social) is suspended until the exit c
 
 ### #101 — Walkable ground is a measurement: the body's ground sense, path test, and footing reflex
 
+**Status: BUILT 2026-09-01 (commit 094c2d9), NOT live-verified.** Plugin rebuild required before SR57
+(`MCPGameProject\Build.bat`, editor closed). Review fix: ground probes start at the FEET, not the capsule
+centre (the first draft would have read "not on ground" every tick). Tests flagged, not written.
+
 **Source:** user, 2026-09-01: *"When Dufus moves into an area with no nav mesh he gets stuck. I have
 noticed in the world there are places where the nav mesh is broken as well. We need a better perception
 AI that can stop Dufus or any APC from going into places where it can't fit or nav mesh is broken. We
@@ -185,6 +189,10 @@ flagged, not written): radar text with ground shorter than air; path→abandon r
 seals a measured patch.
 
 ### #102 — Sim mode: **Survey** (default) or **Play**
+
+**Status: BUILT 2026-09-01 (merge 40811f6), NOT live-verified.** `explore` mode and `_pulse_explore`
+removed; `test_explore_tick.py`, `test_frontier_blocking.py`, `test_runner_api.py`, `test_sim_controller.py`,
+`test_spool_up.py` reference the removed mode and need updating when tests are next written.
 
 **Source:** user, 2026-09-01: *"we need a 'survey mode' and a 'play mode' so the APCs can just move
 around and use the grid information and not bother with building new grids. Update the web UI and make
