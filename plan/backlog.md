@@ -91,6 +91,122 @@ happened. The 2026-08-12 reframe (grade on social) is suspended until the exit c
 > wedges, zero errors. The four-year throughput ceiling is broken; next is a longer run, then
 > #97 the persistent geometry layer. The plan doc's #93–#97 are #96–#100 here.
 
+> **2026-09-01 evening, SR56 (stopped by the user at tick 94):** the mission worked until Dufus
+> stood on ground the body cannot walk from — twice — and every sense stayed silent. Fix is
+> **#101** (walkable ground is a measurement) and **#102** (Survey / Play sim mode). Both below.
+
+### #101 — Walkable ground is a measurement: the body's ground sense, path test, and footing reflex
+
+**Source:** user, 2026-09-01: *"When Dufus moves into an area with no nav mesh he gets stuck. I have
+noticed in the world there are places where the nav mesh is broken as well. We need a better perception
+AI that can stop Dufus or any APC from going into places where it can't fit or nav mesh is broken. We
+need to have lizard brain figure this out since the AI can't know what a nav mesh is."*
+
+**SR56 evidence (`logs/sim_runner.log` 17:31–17:35 local, `agent_decisions.log` 22:31–22:35 UTC):**
+
+- **Stuck 1 — the slab at (5,8).** After the (5,8) sweep Dufus stood at `(-9553, 7366, z=268.9)`.
+  Ground everywhere else in the run is `z≈90`, so he was 1.8 m up on a raised slab (his own capture
+  `SR56_observation_20260901_223207.png` shows the tan slab edge under his feet). Move orders to
+  (5,7), (5,4), (5,3) each came back `{"success": true}` and he moved **0 cm** — 12 ticks, ~100 s,
+  three cells falsely marked unreachable. (5,4) was reached minutes later, so the cells were fine;
+  the *start point* was the problem.
+- **Stuck 2 — the carport at (5,4).** At `(-9516, -2519, z=91)` under the mobile home's carport
+  (`SR56_observation_20260901_223415.png`: car on the right, siding on the left, roof overhead). The
+  user's editor screenshot of the same spot shows the walkable-ground mesh has a **hole** in the carport
+  floor between the car and the wall; Dufus stood in the hole. Orders to (5,2) and (6,2): accepted,
+  15 cm moved, two more cells marked unreachable.
+- **Why every sense was silent.** `command_character_move_to` calls `SimpleMoveToLocation` and
+  returns success without testing whether a path exists. The radar (#92) sweeps a capsule — it
+  measures **air**, and air was plentiful in both traps. Nothing measures **ground the body can walk
+  on**, so "standing where no walk can start" is invisible to the body, to memory, and to the model.
+
+**Doctrine fit.** [[architecture_lizard_brain_sensing]]: the body may use any engine primitive; the
+output is a generic label. [[architecture_sense_all_directions]]: entrapment is a missing measurement;
+prevention beats bail-out. [[architecture_body_writes_no_go]]: the body seals what it learns in world
+coordinates. The word "navmesh" never reaches the prompt — the model hears **"walkable ground"**.
+
+**Spec — plugin (`UnrealMCPCharacterCommands.cpp`; `NavigationSystem` is already a Build.cs dependency):**
+
+1. **Radar grows a ground column.** `get_character_radar` adds, per sector, `ground_cm`: sample the
+   heading from the body outward every 50 cm to `distance_cm`; each sample is projected to walkable
+   ground (`UNavigationSystemV1::ProjectPointToNavigation`, extent ≈ (30, 30, step_up + 60)); the
+   first sample that does not project ends walkable ground at that distance. Also at result level:
+   `ground_under_feet` (bool — the body's own location projects within (30, 30, 60)) and, when it is
+   false, `nearest_ground` `{x, y, z, distance_cm, world_yaw}` from a wide projection (extent 400).
+2. **Move orders test the path first.** `command_character_move_to` runs
+   `FindPathToLocationSynchronously` from the body before issuing the move and returns
+   `path: "full" | "partial" | "none"`, `path_length_cm`, `path_end {x,y,z}`, `path_end_gap_cm`
+   (path end → destination). On `none` **no move is issued** (`moved: false`) — there is nothing to
+   walk. `success` stays true; the answer is the fact.
+3. **Footing reflex primitive.** New `command_character_step_to_ground`: if `ground_under_feet` is
+   false, place the body on `nearest_ground` when it is within 400 cm (sweep-teleport; log it loud);
+   return `{stepped: bool, from, to, distance_cm}`. Beyond 400 cm: `stepped: false`, reason. A real body
+   steps down off a slab; this is that, not a rescue from across the map.
+
+**Spec — Python:**
+
+4. `unreal_bridge.radar` passes `ground_cm` / `ground_under_feet` / `nearest_ground` through.
+   `_radar_text` (llm_router) states ground where it is shorter than air, e.g.
+   `W: air 20.0 m but walkable ground ends at 1.8 m`. Plain words, no engine names.
+5. **Footing fact + reflex, code-side, no LLM.** In `_observe_agent`, when `ground_under_feet` is
+   false: call `step_to_ground`; log WARNING `[dufus] footing: stood on unwalkable ground at (x,y,z) —
+   stepped 1.8 m SW back onto walkable ground`; seal a **measured** refuse patch at the bad spot
+   (radius = distance stepped + body radius, reason `unwalkable ground`) so the shared map remembers
+   it; write an episode; count `footing_recoveries` in the run summary and decision log. If the step
+   fails, add the fact to the prompt: `Sense: FOOTING — you stand on ground your body cannot walk from;
+   nearest walkable ground 5.2 m to the SW` and let the model decide (facts, not blocking).
+6. **Survey travel uses the path answer on tick 1.** Plumb the move result to the sweep
+   (`_survey_travel_is_wedged` or its caller): `none` → abandon now and mark unreachable; `partial`
+   with `path_end` outside the target cell → abandon now; `partial` with `path_end` inside the cell →
+   walk to `path_end` and survey from there; `full` → today's 4-tick progress rule stays as the
+   backstop. This alone turns SR56's 100 s of dead ticks into one tick.
+7. **Step planner respects ground.** Where `move_plan` / `_scan_ahead` shortens a step for memory
+   stops, also shorten it to `ground_cm − body radius` on the ordered heading and state the fact
+   (`walkable ground ends 1.8 m that way`). Prevention for LLM-driven walks; the model may still ask
+   for less, never more.
+8. Decision log gains `path`, `ground_under_feet`, `footing_recovery` where present.
+
+**Non-goals:** no navmesh rebuilds, no editor scripts, no world edits — the carport hole and the slab
+stay; the body must handle them. No new LLM calls.
+
+**Verification (live, SR57+):** no APC sits more than 2 ticks with `moved_cm < 150`; every abandoned
+cell carries `path: none|partial` in the log; approaching the (5,8) slab and the (5,4) carport shows
+`ground_cm < clearance_cm` on those headings before the body gets there. **Needs tests** (speed mode:
+flagged, not written): radar text with ground shorter than air; path→abandon rules; footing reflex
+seals a measured patch.
+
+### #102 — Sim mode: **Survey** (default) or **Play**
+
+**Source:** user, 2026-09-01: *"we need a 'survey mode' and a 'play mode' so the APCs can just move
+around and use the grid information and not bother with building new grids. Update the web UI and make
+survey mode default. This idea goes way back to the beginning of the project."*
+
+**Today:** the runner's `mode` is `live` | `explore` (`/api/sim/start`, `sim.html` dropdown,
+`agent_manager.mode`). `explore` is the legacy frontier-mapping loop (`_pulse_explore`) — the earlier
+incarnation of this idea. Survey work is gated per APC by `state.json` `"mission": "survey"` and by
+`_should_sweep_here` for community cells.
+
+**Spec:**
+
+1. `mode` values become **`survey`** (default) and **`play`**. `live` is accepted as an alias of
+   `survey` (old callers, `runner_client.start`, batch files). `explore` and `_pulse_explore` are
+   removed; an unknown mode logs a WARNING and runs `survey`.
+2. **Survey** = exactly today's behaviour. Missions run, community cells are swept, place visuals are
+   captured.
+3. **Play** = live the day on the grid already built. `_should_sweep_here` → False; `_pulse_mission` /
+   `_offer_survey_interrupt` offer nothing; `_wake_sweep` is skipped; no place visuals are written.
+   Navigation, named-place resolution, agenda, chat, per-tick observation captures: unchanged. An APC
+   whose `state.json` mission is `survey` gets one prompt fact instead of the mission block:
+   `Survey work is paused today. Move about and use what the shared map already knows.`
+4. **Web UI (`sim.html`):** the Mode dropdown reads **Survey** (selected) / **Play** with a one-line
+   helper under it: *Survey — APCs build the world grid cell by cell. Play — APCs live their day on the
+   grid already built; no new cells.* The status line already shows `mode`; keep it.
+5. `=== SIMULATION START ===` and the run-start record already log `mode`; nothing else to add.
+
+**Verification:** start in Play with Dufus active → zero `sweep:` / `mission:` lines in the runner
+log, zero `survey_*` events in the decision log, Dufus still walks and observes. Start with no mode →
+`mode=survey`. **Needs tests** (flagged): mode normalisation; play gates.
+
 **Source:** user, 2026-08-19: *"concentrate on perception and how Dufus can explore/survey the world
 from center of world out... not go into areas that can get him stuck regardless of navmesh saying he
 can. Like, I see corn field, I can't go there... vehicles are obstructions and the system needs to keep
