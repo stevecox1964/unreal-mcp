@@ -86,8 +86,10 @@ happened. The 2026-08-12 reframe (grade on social) is suspended until the exit c
 ### Now (groomed 2026-08-19) — perception-guided exploration, bounded, then Phase B
 
 > **2026-09-01: the headline is #96 Survey Mission Mode** (see item 96 below and
-> `plan/survey_mission_plan.md`) — Phase 1 + start placement BUILT, needs live run SR55.
-> It is the instrument for THE EXIT CONDITION; the plan doc's #93–#97 are #96–#100 here.
+> `plan/survey_mission_plan.md`) — Phase 1 + start placement BUILT and **LIVE VERIFIED SR55**:
+> **17 cells in 25 minutes** (coverage 20 → 37 of 150) at **1.06 decisions per cell**, zero
+> wedges, zero errors. The four-year throughput ceiling is broken; next is a longer run, then
+> #97 the persistent geometry layer. The plan doc's #93–#97 are #96–#100 here.
 
 **Source:** user, 2026-08-19: *"concentrate on perception and how Dufus can explore/survey the world
 from center of world out... not go into areas that can get him stuck regardless of navmesh saying he
@@ -4997,8 +4999,9 @@ it, kept the fat radius, and dragged its centre onto the new spot. Compounding, 
 
 ## 96. Survey Mission Mode — coverage is a code job, one LLM checkpoint per cell
 
-**Status:** **PHASE 1 BUILT 2026-09-01 (no tests — speed mode, see the Needs-tests ledger) —
-needs live run SR55.**
+**Status:** ✅ **PHASE 1 BUILT + LIVE VERIFIED SR55 2026-09-01** — 17 cells in 25 minutes at
+1.06 decisions/cell, zero wedges (see the SR55 block below). No tests yet (speed mode, see the
+Needs-tests ledger).
 **Source:** `plan/survey_mission_plan.md` (approved direction, 2026-08-29) + user 2026-09-01:
 *"get Dufus to keep trying to survey and look past already surveyed grids to find more survey
 work"*. **Numbering:** the plan doc numbers its items #93–#97; those numbers were already taken
@@ -5046,13 +5049,54 @@ layer = #97, corpus completeness = #98, doctrine = #99, overnight harness = #100
 * The plan's open decisions run on their stated defaults: unreachable ring cell → skip and
   continue; checkpoint stays on the current decision model; Maren gets no mission.
 
-### Watch for (SR55)
+### SR55 (2026-09-01, 25 min, 11:20–11:45) — LIVE VERIFIED. All four checks passed.
 
-* Ring-shaped coverage growth on /map; decision calls per cell ≤ 1.5; cells/hour ≥ 1.
-* The run starts with Dufus beside the frontier, not commuting from the town start.
+**User: "Dufus is doing WAY better."** Every Phase-1 claim held on the first live run.
+
+| | before SR55 | SR55 |
+|---|---|---|
+| cells surveyed | 20 across **54 runs** | **+17 in one 25-minute run** |
+| total coverage | 20 / 150 | **37 / 150** |
+| decision calls per cell | 2+ | **1.06** (18 LLM calls, 17 cells) |
+| wedges / errors | the recurring failure | **0 / 0** (3 warnings all run) |
+
+* **Start placement fired:** `[dufus] Mission start placement: swept cell (8, 5) beside first
+  target (9, 4)` — no commute, first sweep began ~80 s into the run.
+* **Code drove travel:** 19 `mission: next survey target` lines, **zero** LLM calls between a
+  target and its sweep. 17 `visual saved; breadcrumb dropped`.
+* **Exactly one checkpoint per cell** (17 `observe`/`idle` decisions), and the model never
+  ordered travel at one — `_mission_text` did its job, quoted back in his own words: *"the
+  mission moves me on to 9,4"*, *"mission will move me to 6,3 next"*.
+* **The skip path worked:** `sweep: cell (11,6) abandoned — 4 travel ticks moved less than
+  150cm; marking it unreachable`, and the very next tick selected (11,7). The mission did not
+  stop, stall or loop — the failure mode every prior run died on.
+* **No A↔B loop, 0 WEDGED, 0 new self-inflicted seals.** All 37 swept cells carry names.
+* **`mission` key survived the live run** — the web-UI open question is answered for the run
+  path at least (`state.json` still reads `"mission": "survey"` after 25 minutes).
+
+### Open after SR55
+
+* **The checkpoint buys almost nothing.** All 17 read as *"already surveyed, nothing new to do
+  here"*. Naming happens in the sweep/composite pipeline, not at the checkpoint, so those 17
+  paid decisions produced no name and no refusal. This is a **cost** question, not a
+  correctness one — the survey works. Two shapes, neither chosen: **(a)** fire the checkpoint
+  only when the sweep found something worth ruling on (unknown footing, a refusal candidate);
+  **(b)** keep it every cell and trim the prompt (#84's contract, Phase 1's deferred item).
+  **Decision: gather one longer run first** — the sample is 17 cells on ground that was mostly
+  already named.
+* **The #95 `measured` clamp was never exercised** — Dufus wrote zero new seals this run. Still
+  untested in the live path. (DB check after SR55: no `measured` patch exceeds 300 cm; the
+  shrunk row is still 110.)
+* **Cell (11,6) is now marked unreachable** in Dufus's spatial map. Correct behaviour, but it is
+  a per-agent verdict that no other APC can see — the #97 geometry layer is where that belongs.
+* Maren idled the run (6 decision entries, 5 LLM calls). Parked per user, noted so a future
+  reader does not misread it as a mission-mode regression.
+
+### Watch for (next run)
+
+* Coverage keeps climbing at roughly 40 cells/hour as rings push into unnamed ground.
 * `SURVEY MISSION COMPLETE` never fires while unsurveyed reachable ground remains.
-* Known risk: the web UI's agent save may not preserve the `mission` key in `state.json` —
-  do not edit Dufus via the UI until checked.
+* A checkpoint that actually names or refuses something, once the rings reach unnamed cells.
 
 ## Notes
 
