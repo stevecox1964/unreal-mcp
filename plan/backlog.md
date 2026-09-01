@@ -120,6 +120,15 @@ need to have lizard brain figure this out since the AI can't know what a nav mes
   measures **air**, and air was plentiful in both traps. Nothing measures **ground the body can walk
   on**, so "standing where no walk can start" is invisible to the body, to memory, and to the model.
 
+- **Why the #86–#95 guards did not fire (user asked, 2026-09-01).** They never ran. The step
+  planner (`_plan_move`: radar, body fit, memory stops, step shortening) runs only for `wander` and
+  `walk_to` **with a direction** — the model's walks. The mission travel leg is `walk_to` **with a
+  location** (the cell center, up to 112 m away in SR56) handed straight to engine pathfinding. That
+  is #96's design (coverage is a code job) and it bypasses every guard. Not a bug in the guards; a
+  gap. #101 closes it with checks that apply to BOTH kinds of walk: the path test on every move order
+  (point 2/6) and the per-tick footing reflex (point 5). Even had the guards run, the radar measures
+  air, not ground — the ground column (point 1) is the missing sense.
+
 **Doctrine fit.** [[architecture_lizard_brain_sensing]]: the body may use any engine primitive; the
 output is a generic label. [[architecture_sense_all_directions]]: entrapment is a missing measurement;
 prevention beats bail-out. [[architecture_body_writes_no_go]]: the body seals what it learns in world
