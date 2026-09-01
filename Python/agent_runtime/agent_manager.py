@@ -14,7 +14,6 @@ from typing import Optional
 from .agent import Agent
 from .action_validator import validate
 from . import agenda
-from . import explorer
 from . import interruptions
 from .perception import VisionPerceiver
 from . import cell_sweep
@@ -477,7 +476,7 @@ class AgentManager:
         self.running = False
         self.paused = False
         self.tick_seconds = 1
-        self.mode = "live"                       # "live" = LLM-driven; "explore" = frontier mapping
+        self.mode = "survey"                      # "survey" = build the grid; "play" = live on it (#102)
         self._sim_task: Optional[asyncio.Task] = None
         self._tick_count = 0
         self._started_at: float | None = None
@@ -562,11 +561,28 @@ class AgentManager:
 
     # Lifecycle
 
+    @staticmethod
+    def _normalize_mode(mode: str) -> str:
+        """Canonicalise a requested sim mode to ``survey`` or ``play`` (#102).
+
+        ``live`` is the pre-#102 name for today's default behaviour and is the
+        only accepted alias, mapped here and nowhere else. Anything else
+        unrecognised warns and falls back to ``survey`` rather than silently
+        misbehaving.
+        """
+        normalized = (mode or "survey").strip().lower()
+        if normalized == "live":
+            normalized = "survey"  # legacy alias (#102)
+        if normalized not in ("survey", "play"):
+            logger.warning(f"Unknown sim mode {mode!r} — defaulting to survey")
+            return "survey"
+        return normalized
+
     async def start_simulation(
         self,
         tick_seconds: int = 1,
         active_agents: list[str] | None = None,
-        mode: str = "live",
+        mode: str = "survey",
     ) -> dict:
         if (isinstance(tick_seconds, bool)
                 or not isinstance(tick_seconds, (int, float))
@@ -575,7 +591,7 @@ class AgentManager:
         if self.running:
             return {"status": "already_running", "tick_seconds": self.tick_seconds}
 
-        self.mode = (mode or "live").strip().lower()
+        self.mode = self._normalize_mode(mode)
 
         # Truncate the log file so each run starts with a clean slate.
         for _h in logging.root.handlers:
@@ -701,9 +717,10 @@ class AgentManager:
 
         # Survey-mission start placement (#96): after the reposition, move each
         # mission APC to the edge of covered ground next to its first target —
-        # once, before the first tick. Mid-run the body always walks.
+        # once, before the first tick. Mid-run the body always walks. Play mode
+        # (#102) never pursues a mission target, so this placement is moot there.
         for agent in active:
-            if agent.mission != "survey":
+            if agent.mission != "survey" or self.mode != "survey":
                 continue
             placement = self._mission_start_placement(agent)
             if placement is None:
@@ -960,11 +977,11 @@ class AgentManager:
         return ", ".join(parts)
 
     async def _loop(self) -> None:
-        if self.mode == "live":
-            # Spool-up: each agent wakes and orients itself before the first tick.
-            await self._wake_agents()
-            self._print_sim_status()
-            self._flush_model_pie()
+        # Spool-up: each agent wakes and orients itself before the first tick.
+        # Both modes (#102) need this; only the removed "explore" mode skipped it.
+        await self._wake_agents()
+        self._print_sim_status()
+        self._flush_model_pie()
         logger.info(
             f"Simulation loop running — base tick {self.tick_seconds}s; the sleep starts "
             f"only after each tick's processing, so the interval expands with observation/LLM time"
@@ -1143,10 +1160,15 @@ class AgentManager:
                     for a in self.agents.values()
                     if a.agent_id != agent.agent_id and a.has_unreal_binding
                 ]
-                views = self._wake_sweep(agent, loc, rot, known_chars)
-                place_image = self._ingest_wake_views(
-                    agent.agent_id, col, row, views, world_time, visual_place_name
-                )
+                if self.mode == "survey":
+                    views = self._wake_sweep(agent, loc, rot, known_chars)
+                    place_image = self._ingest_wake_views(
+                        agent.agent_id, col, row, views, world_time, visual_place_name
+                    )
+                else:
+                    # Play (#102): live on the grid already built — no new
+                    # place visuals, so the wake look-around is skipped.
+                    views, place_image = [], None
 
                 memories = self.memory.get_relevant_memories(agent.agent_id)
                 context = {
@@ -1583,8 +1605,6 @@ class AgentManager:
         if self._has_active_survey(agent):
             return self._pulse_sweep(agent)
         self._end_walk_plan(agent_id, "operator pulsed this APC")
-        if self.mode == "explore":
-            return self._pulse_explore(agent)
         self._set_activity(agent, "sampling")
         # This endpoint is an explicit operator pulse. It intentionally bypasses
         # settled-agent suppression so "pulse" still means "think now".
@@ -1708,7 +1728,11 @@ class AgentManager:
         # — tell it so, or it spends the one paid decision planning travel the
         # mission will run itself.
         if agent.mission == "survey":
-            observation["mission"] = self._mission_fact(agent_id)
+            observation["mission"] = (
+                self._mission_fact(agent_id) if self.mode == "survey"
+                # Play (#102): the mission is on hold, not gone.
+                else {"kind": "paused"}
+            )
         observation["travel"] = self._travel_fact(agent_id, observation.get("location"), grid)
         # Standing inside a no-go patch is its own fact (SR44: Dufus stood in
         # the pergola yard and re-refused it eight ticks running, because the
@@ -3974,8 +3998,11 @@ class AgentManager:
         This is the schedule-agnostic spatial/storage gate. The act-phase caller
         applies #34's routine policy plus the per-APC survey-priority override.
         Needs a bounded grid (a cell center to walk to) and a PlaceDB (somewhere
-        to drop the breadcrumb).
+        to drop the breadcrumb). Always False in Play mode (#102): no new cells
+        get swept, however the cell would otherwise score.
         """
+        if self.mode != "survey":
+            return False
         col, row = self._cell_col_row(observation.get("grid"))
         if col is None or self.place_db is None:
             return False
@@ -5275,8 +5302,10 @@ class AgentManager:
 
         No when a checkpoint is owed (`_force_next_decide`): that one tick
         belongs to the LLM — it is the entire model budget of a surveyed cell.
+        No in Play mode (#102) either: the mission is paused, not cancelled.
         """
-        return (agent.mission == "survey" and agent.has_unreal_binding
+        return (self.mode == "survey" and agent.mission == "survey"
+                and agent.has_unreal_binding
                 and agent.agent_id not in self._force_next_decide)
 
     def _pulse_mission(self, agent: Agent) -> dict:
@@ -5438,127 +5467,6 @@ class AgentManager:
             return None
         return {"location": [center[0], center[1], xyz[2]],
                 "cell": candidates[0], "target": target}
-
-    def _pulse_explore(self, agent: Agent) -> dict:
-        """One exploration tick: see → perceive → map → pick frontier → walk.
-
-        The avatar's own position (path integration) and a screenshot are the
-        only engine inputs. Gemini turns the screenshot into landmark labels;
-        a deterministic frontier policy — never the LLM — chooses where to walk.
-        The visual-diff gate only skips re-labelling an unchanged view; the
-        avatar still maps its cell and moves, so it can never get stuck idling.
-        """
-        agent_id = agent.agent_id
-        observation = self.bridge.get_observation(
-            agent.bound_unreal_actor_name, agent_id, self._agents_dir
-        )
-        xyz = _loc_xyz(observation.get("location"))
-        if xyz is None:
-            agent.mark_ticked(self._agents_dir)
-            logger.warning(f"[{agent_id}] explore: no location — skipping tick")
-            return {"agent_id": agent_id, "action": "idle", "reason": "no_location"}
-        x, y, z = xyz
-
-        image_path = observation.get("image_path")
-        known = [
-            a.bound_unreal_actor_label or a.unreal_actor_name
-            for a in self.agents.values()
-            if a.agent_id != agent_id and a.has_unreal_binding
-        ]
-
-        # Perceive only when the view changed — otherwise reuse "nothing new seen".
-        landmarks, caption = [], ""
-        if image_path and self.bridge.is_scene_changed(agent_id, image_path):
-            perceived = self.perceiver.perceive(image_path, known)
-            landmarks = perceived.get("landmarks", [])
-            caption = perceived.get("caption", "")
-            if perceived.get("error"):
-                logger.warning(f"[{agent_id}] perception error: {perceived['error']}")
-            self._record_perception_pair(
-                agent_id, image_path, perceived,
-                location=observation.get("location"),
-                yaw=_yaw_of(observation.get("rotation")),
-                grid=self.world_grid.locate(x, y),
-                world_time=self.world_clock.now_text(), context="explore")
-
-        # Map: record the occupied cell + what was seen, link the traversed edge.
-        smap = self._spatial_map(agent_id)
-        cell = smap.ingest(x, y, landmarks)
-        prev = self._last_cell.get(agent_id)
-        if prev and prev != cell:
-            smap.link(prev, cell)
-        self._last_cell[agent_id] = cell
-
-        # Route: deterministic frontier choice → walk there.
-        target = explorer.next_target(smap, x, y, z)
-        if target:
-            result = self.bridge.execute_action(
-                agent.bound_unreal_actor_name,
-                {"type": "walk_to", "location": target["location"]},
-            )
-            failures = self._frontier_failures.setdefault(agent_id, {})
-            if result.get("error") or result.get("success") is False:
-                # Block only with evidence the cell itself is unreachable: the
-                # avatar is standing next to it and still can't enter, or the
-                # same cell keeps failing. A transient no-path / never-started
-                # error must not permanently poison the frontier.
-                tx, ty = smap.cell_center(target["cell"])
-                adjacent = math.hypot(tx - x, ty - y) <= smap.cell_size * 1.5
-                attempts = failures.get(target["cell"], 0) + 1
-                if adjacent or attempts >= _MAX_FRONTIER_FAILURES:
-                    smap.mark_blocked(target["cell"])
-                    failures.pop(target["cell"], None)
-                    why = "adjacent and obstructed" if adjacent else f"{attempts} failed attempts"
-                    logger.info(
-                        f"[{agent_id}] frontier {target['cell']} blocked ({why}): {result.get('error')}"
-                    )
-                else:
-                    failures[target["cell"]] = attempts
-                    logger.info(
-                        f"[{agent_id}] frontier {target['cell']} walk failed "
-                        f"(attempt {attempts}/{_MAX_FRONTIER_FAILURES}, not blocking): {result.get('error')}"
-                    )
-            else:
-                failures.pop(target["cell"], None)
-        else:
-            result = {"status": "accepted", "action": "idle", "note": "no frontier"}
-
-        smap.save(self._agents_dir / agent_id / "spatial_map.json")
-
-        # Fixed world-grid cell + known place — reported even when perception skipped.
-        grid = self.world_grid.locate(x, y)
-        place = smap.place_labels(cell)
-
-        action = {"type": "walk_to", "target_cell": target["cell"]} if target else {"type": "idle"}
-        observation["_thought"] = caption
-        observation["grid"] = grid
-        observation["place"] = place
-        observation["world_time"] = self.world_clock.now_text()
-        self.memory.record(
-            agent_id=agent_id, observation=observation, action=action,
-            result=result, memory_update=None, importance=0.3,
-        )
-        agent.mark_ticked(self._agents_dir)
-
-        stats = smap.stats()
-        logger.info(
-            f"[{agent_id}] explore grid={grid['key']}"
-            f"{' (col ' + str(grid['col']) + ',row ' + str(grid['row']) + ')' if 'col' in grid else ''} "
-            f"place={place or 'unknown'} saw={len(landmarks)} "
-            f"target={target['cell'] if target else None} "
-            f"visited={stats['cells_visited']} labels={stats['distinct_labels']}"
-        )
-        return {
-            "agent_id": agent_id,
-            "cell": cell,
-            "grid": grid,
-            "place": place,
-            "caption": caption,
-            "landmarks_seen": len(landmarks),
-            "target_cell": target["cell"] if target else None,
-            "result": result,
-            "map_stats": stats,
-        }
 
     async def restart_day(self) -> dict:
         """Restart the sim from morning — a fresh day that keeps the world.

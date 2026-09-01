@@ -88,7 +88,7 @@ def build_control_app(manager) -> FastAPI:
         return await manager.start_simulation(
             tick_seconds=tick_seconds,
             active_agents=body.get("active_agents"),
-            mode=body.get("mode", "live"),
+            mode=body.get("mode", "survey"),
         )
 
     @app.post("/stop")

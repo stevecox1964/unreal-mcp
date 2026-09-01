@@ -23,9 +23,11 @@ debugging.</small></p>
 <div class="grid">
   <label>Tick seconds <input type="number" id="tick_seconds" value="2" min="1"></label>
   <label>Mode
-    <select id="mode"><option value="live">live</option><option value="explore">explore</option></select>
+    <select id="mode"><option value="survey" selected>Survey</option><option value="play">Play</option></select>
   </label>
 </div>
+<small style="color:#666;">Survey &mdash; APCs build the world grid cell by cell. Play &mdash; APCs live their
+day on the grid already built; no new cells.</small>
 <div role="group">
   <button id="btn-start">▶ Start</button>
   <button id="btn-step" class="secondary">⏭ Step (1 tick)</button>

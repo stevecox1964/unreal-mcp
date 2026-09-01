@@ -967,8 +967,17 @@ def _mission_text(mission: dict | None) -> str:
     place the prompt is allowed to steer instead of only stating facts: mission
     mode is a different authority regime by design (plan/survey_mission_plan.md),
     and only APCs that opted in via ``"mission": "survey"`` ever see it.
+
+    In Play mode (#102) the manager sends ``{"kind": "paused"}`` instead — the
+    mission is on hold, not cancelled.
     """
-    if not isinstance(mission, dict) or mission.get("kind") != "survey":
+    if not isinstance(mission, dict):
+        return ""
+    if mission.get("kind") == "paused":
+        # Play (#102): the mission is on hold, not gone — one plain fact
+        # instead of the checkpoint block below.
+        return "Survey work is paused today. Move about and use what the shared map already knows."
+    if mission.get("kind") != "survey":
         return ""
     target = mission.get("next_target")
     where = (f"cell ({target[0]},{target[1]})" if isinstance(target, (list, tuple))
