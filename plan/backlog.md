@@ -216,6 +216,36 @@ incarnation of this idea. Survey work is gated per APC by `state.json` `"mission
 log, zero `survey_*` events in the decision log, Dufus still walks and observes. Start with no mode →
 `mode=survey`. **Needs tests** (flagged): mode normalisation; play gates.
 
+### #103 — The survey stand point is the best open spot in the cell, not the cell center
+
+**Source:** user, 2026-09-01: *"When an unsurveyed grid becomes available for inspection, we can't always
+rely on the 'center' of the grid being navigable. We need to find the best open space to add the blue dot
+so that when we do a scan, we have a clean 4 image sample. I noticed Dufus going almost right up to the
+back of a home then sampling."* Queued **next after #101 / #102**; not started.
+
+**Today:** `_sweep_step` walks to `world_grid.cell_center(col, row)` and shoots E/S/W/N from wherever
+the walk ends. If the center is inside or against a building, the four images are a wall, a wall, a
+wall, and a corner — a bad training sample and a bad place visual.
+
+**Spec sketch (refine when picked up):**
+
+1. **Candidates.** The cell center plus a ring of 8 points at ~1/3 of the cell half-width (≈10 m for a
+   30 m cell), plus a second ring at ~2/3 if the first ring has no good spot. All inside the cell.
+2. **Score each candidate from the body, no LLM.** Uses the #101 senses from that point (a radar
+   probe can be issued at a location, not only at the body — add `location` to `get_character_radar`):
+   walkable ground under the point (hard requirement), a full path to it (hard requirement), then the
+   **minimum** air clearance across the 8 headings (a spot 2 m from a wall scores 2 m) and the count
+   of headings with ≥ 10 m of air. Best = largest minimum clearance, ties by open-heading count, ties
+   by distance to the true center.
+3. **Walk to the winner; survey from there.** Store the chosen stand point on the place cell
+   (`stand_point`) so re-surveys and the /map blue dot use it. Log
+   `[dufus] sweep: (5,4) stand point moved 9.4 m NE of center — center had 1.1 m of air to the S`.
+4. **No candidate passes** (whole cell built-over or unwalkable) → cell is `refused: no open ground`,
+   the same terminal state as today's unreachable, with the reason in the log.
+
+**Depends on #101** (ground column, path test). **Needs tests** (flagged): scoring picks the widest
+minimum clearance; hard requirements veto; no-candidate refusal.
+
 **Source:** user, 2026-08-19: *"concentrate on perception and how Dufus can explore/survey the world
 from center of world out... not go into areas that can get him stuck regardless of navmesh saying he
 can. Like, I see corn field, I can't go there... vehicles are obstructions and the system needs to keep
