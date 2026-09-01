@@ -97,9 +97,22 @@ happened. The 2026-08-12 reframe (grade on social) is suspended until the exit c
 
 ### #101 — Walkable ground is a measurement: the body's ground sense, path test, and footing reflex
 
-**Status: BUILT 2026-09-01 (commit 094c2d9), NOT live-verified.** Plugin rebuild required before SR57
-(`MCPGameProject\Build.bat`, editor closed). Review fix: ground probes start at the FEET, not the capsule
-centre (the first draft would have read "not on ground" every tick). Tests flagged, not written.
+**Status: VERIFIED LIVE — SR57 PASS (2026-09-01 18:28–18:49, 127 ticks, survey mode).** Plugin built
+clean (`build_results.txt` 18:23). Verdict against the pass marks:
+- Stuck: **zero**. Worst run of ticks with `moved_cm < 150` is 1 (SR56 had two multi-tick wedges).
+- Footing reflex: `footing_recoveries=0` at SIMULATION STOP; no `footing:` WARNING lines. Ground under feet
+  read `true` on every logged tick.
+- Path test: 7 cells abandoned on **tick 1** with a path reason — (5,4), (6,2), (11,1), (12,9), (11,9),
+  (9,9) `none`; (12,1) `partial` ending outside the cell. (5,4) is the SR56 carport wedge; it is now refused
+  before a step is taken. A `partial` path INSIDE the cell ((5,2), 18:31:54) walked to `path_end` and the
+  cell was surveyed.
+- Output: 28 cells surveyed, 0 errors, 8 warnings (7 abandons + 1 dropped narration).
+- **Gap:** the pass mark "every abandoned cell carries `path` in the decision log" is NOT met. The
+  `sim_runner.log` WARNING carries the reason, but `agent_decisions.log` only logs `interrupt_failed` with
+  `outcome: "survey capture incomplete"` — no `path` value. `path` appears once in the whole run (a wake
+  walk). Small fix: `_abandon_survey_travel` should add `path` / `path_end_gap_cm` to the `interrupt_failed`
+  event. Needs a test.
+Review fix kept: ground probes start at the FEET, not the capsule centre. Tests flagged, not written.
 
 **Source:** user, 2026-09-01: *"When Dufus moves into an area with no nav mesh he gets stuck. I have
 noticed in the world there are places where the nav mesh is broken as well. We need a better perception
@@ -190,7 +203,7 @@ seals a measured patch.
 
 ### #102 — Sim mode: **Survey** (default) or **Play**
 
-**Status: BUILT 2026-09-01 (merge 40811f6), NOT live-verified.** `explore` mode and `_pulse_explore`
+**Status: VERIFIED LIVE — SR57 ran `mode=survey` end to end (2026-09-01).** `explore` mode and `_pulse_explore`
 removed; `test_explore_tick.py`, `test_frontier_blocking.py`, `test_runner_api.py`, `test_sim_controller.py`,
 `test_spool_up.py` reference the removed mode and need updating when tests are next written.
 
