@@ -65,6 +65,7 @@ STOP_SHORT_MARGIN_CM = 100.0
 def plan_step(prefer: str | None = None,
               reach_cm: float | None = None,
               stop_short_cm: float | None = None,
+              ground_cm: float | None = None,
               open_run_cm: float = 0.0,
               standoff_cm: float = 300.0,
               nominal_cm: float = NOMINAL_STEP_CM,
@@ -82,6 +83,12 @@ def plan_step(prefer: str | None = None,
     ``stop_short_cm`` is the first ground somebody REFUSED — a no-go patch, a
     refused cell. The engine cannot know about that: it is a social fact, not a
     physical one, so it caps the engine's answer.
+
+    ``ground_cm`` is where WALKABLE GROUND itself ends on this heading, body
+    radius already subtracted (#101) — the radar's air can read clear for 20 m
+    over a slab or a hole that only goes 1.8 m before it stops being ground a
+    body can stand on. This is a fact about the world, like ``stop_short_cm``,
+    not a preference, so it caps the same way and can only shrink the step.
 
     ``prefer`` is the model's coarse word, and it is only ever a **ceiling**. The
     model may ask to stop sooner than the ground requires ("close" — I can see the
@@ -117,6 +124,15 @@ def plan_step(prefer: str | None = None,
         if limit < distance:
             distance = limit
             capped_by = "refused ground"
+
+    # #101: walkable ground can end shorter than either of the caps above —
+    # neither the engine's air-sweep (``reach_cm``) nor the shared map's
+    # refusals know about a slab the body cannot step off or a hole in a
+    # carport floor. Whichever cap binds tightest wins; this one applies last
+    # so it always gets the final say on the number handed to the caller.
+    if ground_cm is not None and ground_cm < distance:
+        distance = max(ground_cm, 0.0)
+        capped_by = "unwalkable ground"
 
     if distance < min_cm:
         return {"distance_cm": 0.0, "wanted_cm": round(wanted, 1),
@@ -174,6 +190,9 @@ def _why(distance: float, capped_by: str | None, measured: bool,
     known ground and crossing new ground are different acts, and the APC should
     be able to tell them apart without having to infer it.
     """
+    if capped_by == "unwalkable ground":
+        return (f"your step was {_m(distance)}: walkable ground ends there — "
+                f"past that point there is nothing to walk on")
     if capped_by:
         return (f"your step was {_m(distance)}, stopped short of the clear ground "
                 f"because {capped_by} lies ahead")

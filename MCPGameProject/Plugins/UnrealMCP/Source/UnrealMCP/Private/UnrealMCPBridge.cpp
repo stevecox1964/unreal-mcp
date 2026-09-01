@@ -315,7 +315,8 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("command_character_interact") ||
                      CommandType == TEXT("command_character_play_animation") ||
                      CommandType == TEXT("command_character_say") ||
-                     CommandType == TEXT("command_character_set_ai_state"))
+                     CommandType == TEXT("command_character_set_ai_state") ||
+                     CommandType == TEXT("command_character_step_to_ground")) // #101
             {
                 ResultJson = CharacterCommands->HandleCommand(CommandType, Params);
             }

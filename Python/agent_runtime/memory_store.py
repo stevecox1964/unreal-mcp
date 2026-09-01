@@ -371,6 +371,16 @@ class MemoryStore:
         if isinstance(last_move, dict) and last_move.get("stalled"):
             entry["stalled_order"] = {"intent": last_move.get("intent"),
                                       "moved_cm": last_move.get("moved_cm")}
+        # #101: the path answer (a move order tests the path before it walks)
+        # and the footing facts, when either was measured this tick — so an
+        # abandoned cell is auditable from the log alone, without replaying
+        # sim_runner.log to see why.
+        if result.get("path") is not None:
+            entry["path"] = result.get("path")
+        if observation.get("ground_under_feet") is not None:
+            entry["ground_under_feet"] = observation.get("ground_under_feet")
+        if observation.get("footing_recovery") is not None:
+            entry["footing_recovery"] = observation.get("footing_recovery")
         here = _xy(observation.get("location"))
         if here is not None:
             self._last_xy[agent_id] = here

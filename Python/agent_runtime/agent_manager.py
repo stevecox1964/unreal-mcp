@@ -517,6 +517,8 @@ class AgentManager:
         self._stall_run: dict[str, int] = {}        # agent_id -> consecutive stalled orders (#65)
         self._walls: dict[str, list[dict]] = {}     # agent_id -> volumes the body has proved impassable (#91)
         self._last_raster: dict[str, float] = {}    # agent_id -> last probe blocked_fraction, sets seal width (#91)
+        self._last_ground: dict[str, dict] = {}     # agent_id -> {ground_under_feet, nearest_ground} from the last radar (#101)
+        self._footing_recoveries: dict[str, int] = {}  # agent_id -> lifetime count of footing reflex recoveries (#101)
         self._no_progress: dict[str, int] = {}      # agent_id -> consecutive "moving but didn't advance" ticks
         self._last_grid_place: dict[str, tuple] = {}  # agent_id -> (grid, place), reported even when LLM skipped
         self._routes: dict[str, dict] = {}          # agent_id -> cached grid-first route (#17/WP8)
@@ -601,6 +603,8 @@ class AgentManager:
         self._stall_run.clear()
         self._walls.clear()
         self._last_raster.clear()
+        self._last_ground.clear()
+        self._footing_recoveries.clear()
         self._no_progress.clear()
         self._routes.clear()
         self._live_pos.clear()
@@ -765,7 +769,13 @@ class AgentManager:
             self._sim_task = None
         elapsed = time.monotonic() - self._started_at if self._started_at else 0.0
         if was_running:
-            logger.info(f"=== SIMULATION STOP === ticks={self._tick_count} elapsed={elapsed:.1f}s")
+            # #101: how many times a body had to step itself off ground it
+            # could not walk from — zero is the healthy number; SR56 needed a
+            # count of this to exist at all.
+            footing_total = sum(self._footing_recoveries.values())
+            logger.info(
+                f"=== SIMULATION STOP === ticks={self._tick_count} elapsed={elapsed:.1f}s "
+                f"footing_recoveries={footing_total}")
         else:
             logger.info("=== SIMULATION STOP === (was not running)")
         self._started_at = None
@@ -1763,6 +1773,15 @@ class AgentManager:
         # what a trap looks like from the inside while there is still a way out.
         observation["radar"] = self._radar(agent, observation)
         self._mark_memory_stops(observation, observation["radar"])
+        # Footing reflex (#101): SR56 stood Dufus on unwalkable ground twice — a
+        # raised slab, a carport floor with a hole — and every other sense here
+        # stayed silent because they all measure AIR. ground_under_feet is the
+        # one measurement taken AT the body, and this is the body doing
+        # something about it on its own, before the LLM is ever asked
+        # ([[architecture_body_writes_no_go]]): step clear, seal the spot on the
+        # shared map, and only bother the model when the step itself fails.
+        if observation.get("ground_under_feet") is False:
+            observation["footing_recovery"] = self._recover_footing(agent, observation)
         # Forward path sense (B7): trace ahead on every moving tick, not just when
         # already wedged — a mobile blocker (someone crossing the path) becomes a
         # fact the LLM can sidestep *before* the collision, and when stuck,
@@ -2096,6 +2115,11 @@ class AgentManager:
             return []
         ring = self._radar_one_trip(agent, facing, distance_cm)
         if ring is not None:
+            # #101: ground_under_feet / nearest_ground are result-level, not
+            # per-heading, so they ride the observation rather than the ring.
+            ground_facts = self._last_ground.get(agent.agent_id)
+            if ground_facts:
+                observation.update(ground_facts)
             return ring
         volume = getattr(self.bridge, "forward_volume", None)
         if not callable(volume) or self._volume_probe_unavailable:
@@ -2154,6 +2178,7 @@ class AgentManager:
         sectors = result.get("ring")
         if not result.get("success") or not isinstance(sectors, list):
             self._radar_command_unavailable = True
+            self._last_ground.pop(agent.agent_id, None)
             logger.warning(
                 "one-trip radar (#92) unavailable — falling back to eight "
                 "separate sweeps for the rest of this run. The radar still "
@@ -2162,17 +2187,35 @@ class AgentManager:
                 "UnrealMCP plugin to get the fast path.",
                 result.get("error") or result)
             return None
+        # #101: the ground-column facts live at result level (ground_under_feet,
+        # nearest_ground), not per sector, and an un-rebuilt plugin simply omits
+        # them — absence means "not measured", never "not walkable" (rule 12).
+        if "ground_under_feet" in result:
+            ground_facts: dict = {"ground_under_feet": bool(result["ground_under_feet"])}
+            nearest = result.get("nearest_ground")
+            if isinstance(nearest, dict):
+                ground_facts["nearest_ground"] = nearest
+            self._last_ground[agent.agent_id] = ground_facts
+        else:
+            self._last_ground.pop(agent.agent_id, None)
         out: list[dict] = []
         for letter, sector in zip(_RADAR_HEADINGS, sectors):
             if not isinstance(sector, dict) or sector.get("fits") is None:
                 continue
             offset = ((_COMPASS_ABS_YAW[letter] - facing + 180.0) % 360.0) - 180.0
-            out.append({
+            heading = {
                 "heading": _COMPASS_LETTER_WORD[letter],
                 "range_cm": float(sector.get("clearance_cm", 0.0) or 0.0),
                 "clear_to_end": bool(sector.get("fits")),
                 "turn_deg": abs(offset),
-            })
+            }
+            # #101: how far the WALKABLE ground goes this way, which can end
+            # short of the air the sweep measured (SR56's slab and carport
+            # hole were both cases where the air was clear and the ground
+            # was not).
+            if sector.get("ground_cm") is not None:
+                heading["ground_cm"] = float(sector["ground_cm"])
+            out.append(heading)
         return out
 
     def _open_headings(self, radar: list[dict]) -> list[dict]:
@@ -2224,6 +2267,95 @@ class AgentManager:
             if scan["stop_short_cm"] is not None:
                 h["memory_stop_cm"] = scan["stop_short_cm"]
                 h["memory_reason"] = scan["stop_reason"]
+
+    def _recover_footing(self, agent: Agent, observation: dict) -> dict:
+        """Step the body off unwalkable ground, code-side, no LLM call (#101).
+
+        SR56: Dufus stood on a raised slab and in a carport floor's hole, both
+        invisible to every other sense because they all measure air. This runs
+        the instant ``ground_under_feet`` reads false — a real body steps down
+        off a slab on its own, it does not wait for a paid decision to notice
+        its feet are wrong. The spot is sealed as a MEASURED no-go patch (same
+        write path #91/#95 already use) so the shared map remembers the trap,
+        an episode is written, and a lifetime count is kept for the run
+        summary. Only a failed step (beyond the reflex's 400 cm reach, or no
+        walkable ground found at all) leaves a fact for the prompt — a
+        successful one needs no decision, the body already fixed it.
+
+        Returns the outcome dict that also rides into the decision log
+        (``footing_recovery``, #101 point 8).
+        """
+        agent_id = agent.agent_id
+        step = getattr(self.bridge, "step_to_ground", None)
+        if not callable(step):
+            return {"stepped": False, "reason": "step_to_ground not available — rebuild the plugin"}
+        try:
+            result = step(agent.bound_unreal_actor_name) or {}
+        except Exception as e:
+            logger.warning("[%s] footing: step_to_ground failed: %s", agent_id, e)
+            return {"stepped": False, "reason": str(e)}
+
+        stepped = bool(result.get("stepped"))
+        from_xyz = result.get("from")
+        distance_cm = result.get("distance_cm")
+        outcome: dict = {"stepped": stepped}
+        if from_xyz is not None:
+            outcome["from"] = from_xyz
+        if distance_cm is not None:
+            outcome["distance_cm"] = distance_cm
+
+        if not stepped:
+            outcome["reason"] = result.get("reason", "")
+            nearest = observation.get("nearest_ground")
+            if nearest is not None:
+                outcome["nearest_ground"] = nearest
+            logger.warning("[%s] footing: could not step clear — %s",
+                           agent_id, outcome["reason"])
+            return outcome
+
+        to_xyz = result.get("to") or {}
+        outcome["to"] = to_xyz
+        stepped_cm = float(distance_cm or 0.0)
+
+        def _fmt(v) -> str:
+            return f"({v.get('x', 0):.0f}, {v.get('y', 0):.0f}, {v.get('z', 0):.0f})" \
+                if isinstance(v, dict) else "(?)"
+
+        heading = ""
+        if isinstance(from_xyz, dict) and to_xyz:
+            dx = to_xyz.get("x", 0.0) - from_xyz.get("x", 0.0)
+            dy = to_xyz.get("y", 0.0) - from_xyz.get("y", 0.0)
+            if dx or dy:
+                heading = _COMPASS_LETTER_WORD.get(
+                    yaw_to_compass(math.degrees(math.atan2(dy, dx))), "")
+        logger.warning(
+            "[%s] footing: stood on unwalkable ground at %s — stepped %.1f m "
+            "%sonto walkable ground at %s",
+            agent_id, _fmt(from_xyz), stepped_cm / 100.0,
+            f"{heading} " if heading else "", _fmt(to_xyz))
+
+        # Seal it exactly like a measured wall (#91/#95): body-scale radius,
+        # source="measured" so it merges only with other engine readings and
+        # expires like one — the ground may be fixed under it later.
+        if self.place_db and isinstance(from_xyz, dict):
+            radius_cm = stepped_cm + dead_end.BASE_RADIUS_CM
+            self.place_db.refuse_patch(
+                agent_id, from_xyz.get("x", 0.0), from_xyz.get("y", 0.0),
+                "unwalkable ground", str(observation.get("world_time") or ""),
+                radius_cm=radius_cm, source="measured", proofs=1,
+            )
+
+        self._episodic(agent_id).record({
+            "world_time": observation.get("world_time", ""),
+            "grid_cell": _cell_label(observation.get("grid")),
+            "event": "footing_recovery",
+            "from": from_xyz,
+            "to": to_xyz,
+            "distance_cm": stepped_cm,
+        })
+        self._footing_recoveries[agent_id] = self._footing_recoveries.get(agent_id, 0) + 1
+        outcome["count"] = self._footing_recoveries[agent_id]
+        return outcome
 
     def _nearby_agent_ids(self, agent_id: str, xyz) -> frozenset[str]:
         """Nearby APC ids from cached transforms; no bridge or model work."""
@@ -2888,6 +3020,7 @@ class AgentManager:
             agent.set_active_interrupt_preemptible(False, self._agents_dir)
 
         result = self._execute_world_action(agent, action, observation)
+        self._note_survey_travel_result(agent_id, action, result)
         self._note_movement_order(agent_id, action, observation)
         self._mark_first_walk_accepted(agent_id, action, result)
         self._apply_task_completion_confirmation(
@@ -3803,12 +3936,17 @@ class AgentManager:
                 return None
             if self._survey_travel_is_wedged(agent_id, active, (xyz[0], xyz[1])):
                 return None
+            # #101: a partial path proven to end inside the target cell is
+            # aimed at directly — the engine already measured that the literal
+            # centre is not what is reachable.
+            target_xy = active.get("travel_target") or center
+            aim = "the path-tested point" if active.get("travel_target") else "that cell's center"
             logger.info(
                 f"[{agent_id}] sweep: standing in ({here_col},{here_row}) but surveying "
-                f"({active['col']},{active['row']}) — walking to that cell's center "
+                f"({active['col']},{active['row']}) — walking to {aim} "
                 f"(travel tick {active['travel_ticks']}/{_MAX_SURVEY_TRAVEL_TICKS})"
             )
-            return {"type": "walk_to", "location": [center[0], center[1], xyz[2]],
+            return {"type": "walk_to", "location": [target_xy[0], target_xy[1], xyz[2]],
                     "_sweep": "goto_center", "_sweep_interrupt": True}
         active["travel_ticks"] = 0
 
@@ -3863,6 +4001,24 @@ class AgentManager:
             logger.info(f"[{agent_id}] sweep: facing restored to "
                         f"{yaw_to_compass(entry_yaw)} ({entry_yaw:.0f})")
 
+    def _abandon_survey_travel(self, agent_id: str, active: dict, reason: str) -> None:
+        """Mark the target cell unreachable and drop the local sweep state (#91/#101).
+
+        Shared by the distance-based backstop and the #101 path-answer check
+        below — both reach the same conclusion by different evidence, and both
+        need the same cleanup.
+        """
+        center = self.world_grid.cell_center(active["col"], active["row"])
+        if center is not None:
+            self._spatial_map(agent_id).mark_blocked(
+                self.world_grid.locate(center[0], center[1])["key"]
+            )
+        logger.warning(
+            f"[{agent_id}] sweep: cell ({active['col']},{active['row']}) abandoned — "
+            f"{reason}; marking it unreachable"
+        )
+        self._cell_sweeps.pop(agent_id, None)
+
     def _survey_travel_is_wedged(self, agent_id: str, active: dict,
                                  xy: tuple[float, float]) -> bool:
         """Give up on a survey whose target cell cannot actually be walked into.
@@ -3873,7 +4029,37 @@ class AgentManager:
         moved, not in orders accepted. On the last allowed tick the cell is
         marked blocked in the APC's own map so exploration stops choosing it,
         and the caller resolves the interruption as an incomplete survey.
+
+        #101 (SR56): before falling back to that 4-tick, metres-moved backstop,
+        this reads the PATH ANSWER the previous goto-center order already got
+        back on tick 1 — ``_note_survey_travel_result`` stashed it onto this
+        same ``active`` dict right after the order was executed. ``none`` or a
+        ``partial`` path ending outside the target cell abandon immediately,
+        the way SR56's 100 s of dead ticks on the (5,8) slab never had to
+        happen. A ``partial`` path ending INSIDE the cell is not a failure —
+        the engine has already proven that point reachable, so the next walk
+        order aims at it instead of the literal centre. A ``full`` path (or no
+        plugin new enough to answer at all) leaves the old backstop in place
+        exactly as before.
         """
+        path = active.pop("last_path", None)
+        path_end = active.pop("last_path_end", None)
+        active.pop("last_path_end_gap_cm", None)
+        if path in ("none", "partial"):
+            end_col, end_row = (None, None)
+            if isinstance(path_end, dict):
+                end_col, end_row = self._cell_col_row(
+                    self.world_grid.locate(path_end.get("x", 0.0), path_end.get("y", 0.0)))
+            inside_target = (end_col, end_row) == (active["col"], active["row"])
+            if path == "partial" and inside_target:
+                active["travel_target"] = [path_end["x"], path_end["y"]]
+                active["travel_ticks"] = 0
+                return False
+            reason = ("no path to the cell centre" if path == "none"
+                      else "the reachable path ends outside the target cell")
+            self._abandon_survey_travel(agent_id, active, f"{reason} (measured on tick 1)")
+            return True
+
         previous = active.get("travel_from")
         moved = (math.hypot(xy[0] - previous[0], xy[1] - previous[1])
                  if previous is not None else None)
@@ -3886,20 +4072,28 @@ class AgentManager:
         if active["travel_ticks"] <= _MAX_SURVEY_TRAVEL_TICKS:
             return False
 
-        # Spatial-map keys are raw grid indices; survey targets are bounds-
-        # relative col/row. Round-trip through the cell center to get the key.
-        center = self.world_grid.cell_center(active["col"], active["row"])
-        if center is not None:
-            self._spatial_map(agent_id).mark_blocked(
-                self.world_grid.locate(center[0], center[1])["key"]
-            )
-        logger.warning(
-            f"[{agent_id}] sweep: cell ({active['col']},{active['row']}) abandoned — "
+        self._abandon_survey_travel(
+            agent_id, active,
             f"{_MAX_SURVEY_TRAVEL_TICKS} travel ticks moved less than "
-            f"{_SURVEY_TRAVEL_PROGRESS_CM:.0f}cm; marking it unreachable"
-        )
-        self._cell_sweeps.pop(agent_id, None)
+            f"{_SURVEY_TRAVEL_PROGRESS_CM:.0f}cm")
         return True
+
+    def _note_survey_travel_result(self, agent_id: str, action: dict, result: dict) -> None:
+        """Stash a goto-center move's path answer for next tick's wedge check (#101).
+
+        ``_execute_world_action`` runs the walk order this tick and gets the
+        path answer back immediately; the sweep only re-examines its travel on
+        the NEXT tick's ``_sweep_step`` call, so the answer has to ride on the
+        active sweep's own dict to survive until then.
+        """
+        if action.get("_sweep") != "goto_center":
+            return
+        active = self._cell_sweeps.get(agent_id)
+        if active is None or "path" not in result:
+            return
+        active["last_path"] = result.get("path")
+        active["last_path_end"] = result.get("path_end")
+        active["last_path_end_gap_cm"] = result.get("path_end_gap_cm")
 
     def _cell_survey_fact(self, agent: Agent, observation: dict) -> dict | None:
         """Authoritative survey verdict for the cell the APC is standing in (#40).
@@ -4916,7 +5110,7 @@ class AgentManager:
         """Compute this step's length from world evidence (#86).
 
         The model chose the heading; everything about the distance is decided
-        here, from what the map and the body already know. Three inputs, each
+        here, from what the map and the body already know. Four inputs, each
         skipped when it was not measured rather than guessed at:
 
         * the shared map ahead (``_scan_ahead``) — grows or caps the step;
@@ -4924,6 +5118,8 @@ class AgentManager:
           looking the way we are about to walk. ``_probe_ahead`` traces along the
           avatar's *facing*; a clearance measured east says nothing about north,
           and using it anyway would shorten every sideways step for no reason;
+        * walkable ground itself (#101) — caps it on the same terms, for the
+          eight named compass directions the radar's ring actually measured;
         * the model's coarse ``distance`` word, when it offered one.
         """
         yaw = self._direction_yaw(observation, direction)
@@ -4939,10 +5135,23 @@ class AgentManager:
         # when nothing could be measured, and a step taken that way says so.
         reach = self._look_along(agent, observation, yaw, _PLAN_PROBE_MAX_CM)
 
+        # #101: air can read clear well past where walkable ground itself ends
+        # (SR56's slab, SR56's carport hole). Only a named compass direction
+        # lines up exactly with one of the radar's eight fixed sectors — a
+        # body-relative word ("left") does not, and is left unmeasured here
+        # rather than guessed from the nearest sector.
+        ground_cm = None
+        heading_word = str(direction or "").strip().lower()
+        for h in observation.get("radar") or []:
+            if h.get("heading") == heading_word and h.get("ground_cm") is not None:
+                ground_cm = max(float(h["ground_cm"]) - dead_end.BASE_RADIUS_CM, 0.0)
+                break
+
         plan = move_plan.plan_step(
             prefer=action.get("distance"),
             reach_cm=reach,
             stop_short_cm=scan["stop_short_cm"],
+            ground_cm=ground_cm,
             open_run_cm=scan["open_run_cm"],
             standoff_cm=_STANDOFF_CM,
             nominal_cm=_STEP_DISTANCE,
@@ -5264,6 +5473,7 @@ class AgentManager:
 
         agent.set_active_interrupt_preemptible(False, self._agents_dir)
         result = self._execute_world_action(agent, action, observation)
+        self._note_survey_travel_result(agent_id, action, result)
         if action.get("type") == "observe_heading":
             self._finish_survey_heading(agent, result)
         agent.mark_ticked(self._agents_dir)
@@ -5341,6 +5551,7 @@ class AgentManager:
 
         agent.set_active_interrupt_preemptible(False, self._agents_dir)
         result = self._execute_world_action(agent, action, observation)
+        self._note_survey_travel_result(agent_id, action, result)
         if action.get("type") == "observe_heading":
             self._finish_survey_heading(agent, result)
         agent.mark_ticked(self._agents_dir)
@@ -5660,6 +5871,8 @@ class AgentManager:
         self._stall_run.clear()
         self._walls.clear()
         self._last_raster.clear()
+        self._last_ground.clear()
+        self._footing_recoveries.clear()
         self._no_progress.clear()
         self._routes.clear()
         self._cell_sweeps.clear()

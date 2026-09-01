@@ -136,13 +136,32 @@ class UnrealBridge:
         Raw engine data only — semantic classification belongs in the caller.
 
         Result: {'ring': [{'yaw_offset_deg', 'world_yaw', 'fits', 'clearance_cm',
-                 'contact': {...}}, ...], 'sectors', 'distance_cm', 'facing_yaw'}
+                 'contact': {...}, 'ground_cm'}, ...], 'sectors', 'distance_cm',
+                 'facing_yaw', 'ground_under_feet', 'nearest_ground': {'x','y','z',
+                 'distance_cm','world_yaw'}}
+
+        ``ground_cm`` / ``ground_under_feet`` / ``nearest_ground`` are the
+        walkable-ground measurement (#101) — passed through as-is from the
+        engine. An older plugin build simply omits them; callers must read
+        their absence as "not measured", never as "not walkable" (fail loud).
         """
         return self._send("get_character_radar", {
             "character_name": actor_name,
             "distance_cm": distance_cm,
             "sectors": sectors,
             "yaw_offset_deg": yaw_offset_deg,
+        })
+
+    def step_to_ground(self, actor_name: str) -> dict:
+        """Footing reflex (#101): step the body onto the nearest walkable ground.
+
+        Only meaningful when ``radar()`` reported ``ground_under_feet: False``.
+        The engine sweep-teleports the body at most 400 cm — beyond that it
+        refuses and leaves the fact for the model instead of rescuing across
+        the map. Result: {'stepped': bool, 'from', 'to', 'distance_cm', 'reason'}.
+        """
+        return self._send("command_character_step_to_ground", {
+            "character_name": actor_name,
         })
 
     def get_character_transform(self, actor_name: str) -> dict:

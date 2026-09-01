@@ -51,4 +51,5 @@ private:
     TSharedPtr<FJsonObject> HandleCommandPlayAnimation(const TSharedPtr<FJsonObject>& Params);
     TSharedPtr<FJsonObject> HandleCommandSay(const TSharedPtr<FJsonObject>& Params);
     TSharedPtr<FJsonObject> HandleCommandSetAIState(const TSharedPtr<FJsonObject>& Params);
+    TSharedPtr<FJsonObject> HandleCommandStepToGround(const TSharedPtr<FJsonObject>& Params);      // #101
 };

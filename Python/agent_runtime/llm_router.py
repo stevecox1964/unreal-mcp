@@ -890,6 +890,9 @@ def _sense_note(observation: dict) -> str:
     wedge = _wedge_text(observation.get("wedge"))
     if wedge:
         lines.append(wedge)
+    footing = _footing_text(observation.get("footing_recovery"))
+    if footing:
+        lines.append(footing)
     here_no_go = observation.get("here_no_go")
     if isinstance(here_no_go, dict):
         # SR44: the patch only rendered on step targets, so the APC stood in
@@ -1036,6 +1039,21 @@ def _radar_text(radar: list | None) -> str:
                  f"Air is not permission — a step that way STOPS at the "
                  f"refused edge, however open the radar reads. Do not count "
                  f"these headings as ways to new ground.")
+    # #101: walkable ground can end well short of the air the sweep measured —
+    # SR56's raised slab and carport hole both read as open air on every
+    # heading. A tolerance of 1 m keeps sample-grid rounding from reporting a
+    # false shortfall on ground that is, in practice, all the way open.
+    ground_short = [h for h in radar
+                    if h.get("ground_cm") is not None
+                    and h["ground_cm"] < h["range_cm"] - 100.0]
+    if ground_short:
+        marks = "; ".join(
+            f"{h['heading']}: air {h['range_cm'] / 100:.1f} m but walkable "
+            f"ground ends at {h['ground_cm'] / 100:.1f} m"
+            for h in ground_short)
+        line += (f"\n  Walkable ground is SHORTER than the air on: {marks}. "
+                 f"Past that point there is nothing to walk on, whatever the "
+                 f"air reads.")
     return line
 
 
@@ -1112,6 +1130,29 @@ def _wedge_text(wedge: dict | None) -> str:
         line += (" No neighbouring cell has recorded footing anybody has walked —"
                  " nothing proven is available; you are choosing from the view alone.")
     return line
+
+
+def _footing_text(footing: dict | None) -> str:
+    """FOOTING fact (#101): the reflex tried to step off unwalkable ground and
+    could not — beyond the 400 cm a footing reflex is allowed to move, or
+    nowhere walkable was found at all. The reflex already tried on its own
+    (code-side, no LLM call); this is only reached when it failed, and the
+    decision of what to do about it stays the model's ([[feedback_facts_not_blocking]]).
+
+    Silent when there is nothing to report: no reflex ran this tick, or it
+    ran and succeeded (the body has already been moved and needs no fact).
+    """
+    if not isinstance(footing, dict) or footing.get("stepped"):
+        return ""
+    nearest = footing.get("nearest_ground")
+    if isinstance(nearest, dict) and nearest.get("distance_cm") is not None:
+        word = _COMPASS_WORD.get(yaw_to_compass(float(nearest.get("world_yaw", 0.0))), "")
+        distance_m = nearest["distance_cm"] / 100.0
+        where = f"; nearest walkable ground {distance_m:.1f} m to the {word}" if word \
+            else f"; nearest walkable ground {distance_m:.1f} m away"
+    else:
+        where = "; no walkable ground was found nearby"
+    return f"Sense: FOOTING — you stand on ground your body cannot walk from{where}."
 
 
 def _active_interrupt_note(record: dict | None) -> str:

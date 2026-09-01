@@ -14,6 +14,8 @@
 #include "Components/CapsuleComponent.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "GameFramework/Pawn.h"
+#include "NavigationSystem.h"
+#include "NavigationPath.h"
 
 FUnrealMCPCharacterCommands::FUnrealMCPCharacterCommands()
 {
@@ -56,6 +58,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommand(const FString
     if (CommandType == TEXT("command_character_play_animation")) return HandleCommandPlayAnimation(Params);
     if (CommandType == TEXT("command_character_say"))         return HandleCommandSay(Params);
     if (CommandType == TEXT("command_character_set_ai_state")) return HandleCommandSetAIState(Params);
+    if (CommandType == TEXT("command_character_step_to_ground")) return HandleCommandStepToGround(Params); // #101
 
     return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Unknown character command: %s"), *CommandType));
 }
@@ -436,6 +439,27 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterForwardVo
 // replaces, while measuring twice as many headings, on every tick instead of
 // only after a collision.
 // ---------------------------------------------------------------------------
+
+// #101 — walkable ground is a measurement, not an assumption. The radar above
+// measures AIR: SR56 stood Dufus on a raised slab and in a carport floor with
+// a hole, and both times the ring reported room to travel because the air
+// really was clear — nothing had ever asked whether the ground under a point
+// is ground the body can walk FROM. UNavigationSystemV1::ProjectPointToNavigation
+// is that question, and it is the same test the move commands already route
+// on, so this is the body reading its own sense, not inventing a new one.
+// The word "navmesh" stops here — every JSON field and every log line below
+// says "walkable ground" or "ground", because that is the only vocabulary
+// that is allowed to reach Python or the prompt ([[architecture_lizard_brain_sensing]]).
+static bool ProjectToWalkableGround(UNavigationSystemV1* NavSys, const FVector& Point,
+                                    const FVector& Extent, FVector& OutGround)
+{
+    if (!NavSys) return false;
+    FNavLocation NavLoc;
+    if (!NavSys->ProjectPointToNavigation(Point, NavLoc, Extent)) return false;
+    OutGround = NavLoc.Location;
+    return true;
+}
+
 TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterRadar(const TSharedPtr<FJsonObject>& Params)
 {
     FString Error;
@@ -487,10 +511,21 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterRadar(con
     // calls every kerb a wall, and a radar that does that reports a pavement
     // edge as an enclosing ring.
     const float SweepHalfHeight = FMath::Max(HalfHeight - StepUpCm * 0.5f, Radius + 1.0f);
-    const FVector Start = Actor->GetActorLocation() + FVector::UpVector * (StepUpCm * 0.5f);
+    const FVector Base  = Actor->GetActorLocation();
+    const FVector Start = Base + FVector::UpVector * (StepUpCm * 0.5f);
 
     FCollisionQueryParams QueryParams(TEXT("Radar"), /*bTraceComplex=*/false, Actor);
     QueryParams.bReturnPhysicalMaterial = true;
+
+    // #101: the actor location is the capsule CENTRE, HalfHeight above the
+    // soles. Every ground projection below starts at the feet — a 60 cm reach
+    // from the centre would miss the very floor the body stands on.
+    const FVector Feet = Base - FVector::UpVector * HalfHeight;
+    // #101: the ground sense reads whatever nav system this world has, if any.
+    // A world with none simply gets no ground_cm/ground_under_feet/nearest_ground
+    // fields — silence, not a false "not walkable", is the honest answer when
+    // nothing was measured (rule 12).
+    UNavigationSystemV1* NavSys = UNavigationSystemV1::GetCurrent(World);
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("success"), true);
@@ -501,8 +536,35 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterRadar(con
     Result->SetNumberField(TEXT("step_up_cm"), (double)StepUpCm);
     Result->SetNumberField(TEXT("facing_yaw"), (double)Actor->GetActorRotation().Yaw);
 
+    if (NavSys)
+    {
+        // "Standing where no walk can start" (SR56) is invisible to a probe that
+        // only ever looks outward, so this is the one measurement taken AT the
+        // body rather than away from it.
+        FVector UnderFeet;
+        const bool bGroundedHere = ProjectToWalkableGround(
+            NavSys, Feet, FVector(30.0f, 30.0f, StepUpCm + 30.0f), UnderFeet);
+        Result->SetBoolField(TEXT("ground_under_feet"), bGroundedHere);
+        if (!bGroundedHere)
+        {
+            FVector NearestGround;
+            if (ProjectToWalkableGround(NavSys, Feet, FVector(400.0f, 400.0f, 400.0f), NearestGround))
+            {
+                const FVector ToGround = NearestGround - Feet;
+                TSharedPtr<FJsonObject> Nearest = MakeVec3Field(NearestGround);
+                Nearest->SetNumberField(TEXT("distance_cm"), (double)ToGround.Size());
+                Nearest->SetNumberField(TEXT("world_yaw"), (double)ToGround.Rotation().Yaw);
+                Result->SetObjectField(TEXT("nearest_ground"), Nearest);
+            }
+            // No entry within 400 cm either — nearest_ground is simply absent,
+            // which the caller must read as "not measured", never as "none".
+        }
+    }
+
     TArray<TSharedPtr<FJsonValue>> Ring;
     const double Span = 360.0 / (double)Sectors;
+    const float GroundStepCm = 50.0f;
+    const float GroundExtentZ = StepUpCm + 60.0f;
     for (int32 i = 0; i < Sectors; ++i)
     {
         const double Offset = YawOffsetDeg + Span * (double)i;
@@ -529,6 +591,29 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterRadar(con
             FillHitIdentity(SweepHit, Contact);
             Sector->SetObjectField(TEXT("contact"), Contact);
         }
+
+        // #101: the ground column. Air is not permission to walk (a lesson
+        // #94 already taught memory) and this is the same lesson taught to the
+        // radar itself — walk this heading outward every 50 cm until a sample
+        // no longer projects onto walkable ground, and that is where the
+        // ground, not the air, ends.
+        if (NavSys)
+        {
+            double GroundEndCm = DistanceCm;
+            for (float D = GroundStepCm; D <= (float)DistanceCm; D += GroundStepCm)
+            {
+                FVector Sample = Feet + Forward * D;
+                FVector Ignored;
+                if (!ProjectToWalkableGround(
+                        NavSys, Sample, FVector(30.0f, 30.0f, GroundExtentZ), Ignored))
+                {
+                    GroundEndCm = (double)D;
+                    break;
+                }
+            }
+            Sector->SetNumberField(TEXT("ground_cm"), GroundEndCm);
+        }
+
         Ring.Add(MakeShared<FJsonValueObject>(Sector));
     }
     Result->SetArrayField(TEXT("ring"), Ring);
@@ -826,6 +911,15 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterMemory(co
 // Action Commands
 // ---------------------------------------------------------------------------
 
+// #101 — SR56: this handler used to call SimpleMoveToLocation and report
+// success without ever asking whether a path exists. Both SR56 traps (Dufus
+// on a raised slab, Dufus in a carport floor with a hole under him) are
+// exactly this: the order was accepted, the AI state said "moving", and the
+// body advanced 0-15 cm across twelve ticks and ~100 s because there was
+// nothing to walk on FROM where it stood. `FindPathToLocationSynchronously`
+// is the same pathfinder the move itself would use, asked first instead of
+// discovered by watching the body fail to arrive. `success` stays true —
+// the path test is the answer, not a reason to fail the call.
 TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommandMoveTo(const TSharedPtr<FJsonObject>& Params)
 {
     FString Error;
@@ -838,37 +932,79 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommandMoveTo(const T
     AController* Controller = Character->GetController();
     if (!Controller) return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Character has no Controller — ensure an AIController is assigned"));
 
+    UWorld* World = Actor->GetWorld();
+    if (!World) return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("No world"));
+
     FVector Destination = FVector::ZeroVector;
+    AActor* TargetActor = nullptr;   // set only for the target_actor form, so a valid path still tracks a moving target
 
     if (Params->HasField(TEXT("location")))
     {
         Destination = FUnrealMCPCommonUtils::GetVectorFromJson(Params, TEXT("location"));
-        UAIBlueprintHelperLibrary::SimpleMoveToLocation(Controller, Destination);
     }
     else if (Params->HasField(TEXT("target_actor")))
     {
         FString TargetName;
         Params->TryGetStringField(TEXT("target_actor"), TargetName);
-        AActor* Target = FindActorByName(TargetName);
-        if (!Target) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Target actor not found: %s"), *TargetName));
-        UAIBlueprintHelperLibrary::SimpleMoveToActor(Controller, Target);
-        Destination = Target->GetActorLocation();
+        TargetActor = FindActorByName(TargetName);
+        if (!TargetActor) return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Target actor not found: %s"), *TargetName));
+        Destination = TargetActor->GetActorLocation();
     }
     else
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Provide 'location' [x,y,z] or 'target_actor' name"));
     }
 
-    UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
-    if (Comp)
+    const FVector StartLoc = Actor->GetActorLocation();
+    FString PathKind = TEXT("none");
+    double PathLengthCm = 0.0;
+    FVector PathEnd = StartLoc;   // "none" leaves the answer at the body — it never left
+
+    if (UNavigationPath* NavPath = UNavigationSystemV1::FindPathToLocationSynchronously(
+            World, StartLoc, Destination, Actor))
     {
-        Comp->AIState = TEXT("moving");
-        Comp->CurrentAction = FString::Printf(TEXT("moving_to [%.0f, %.0f, %.0f]"), Destination.X, Destination.Y, Destination.Z);
+        if (NavPath->IsValid() && NavPath->PathPoints.Num() > 0)
+        {
+            PathKind = NavPath->IsPartial() ? TEXT("partial") : TEXT("full");
+            PathLengthCm = NavPath->GetPathLength();
+            PathEnd = NavPath->PathPoints.Last();
+        }
+    }
+    const double PathEndGapCm = FVector::Dist(PathEnd, Destination);
+
+    const bool bMoved = PathKind != TEXT("none");
+    if (bMoved)
+    {
+        if (TargetActor)
+            UAIBlueprintHelperLibrary::SimpleMoveToActor(Controller, TargetActor);
+        else
+            UAIBlueprintHelperLibrary::SimpleMoveToLocation(Controller, Destination);
+
+        UAPCCharacterComponent* Comp = GetAPCComponent(Actor);
+        if (Comp)
+        {
+            Comp->AIState = TEXT("moving");
+            Comp->CurrentAction = FString::Printf(TEXT("moving_to [%.0f, %.0f, %.0f]"), Destination.X, Destination.Y, Destination.Z);
+        }
+    }
+    else
+    {
+        // Nothing to walk (#101) — no move is issued. This is the fact SR56
+        // needed on tick 1 instead of a hundred seconds of standing still.
+        UE_LOG(LogTemp, Warning,
+            TEXT("[UnrealMCP] %s: no path to (%.0f, %.0f, %.0f) from (%.0f, %.0f, %.0f) — move not issued"),
+            *Actor->GetName(), Destination.X, Destination.Y, Destination.Z,
+            StartLoc.X, StartLoc.Y, StartLoc.Z);
     }
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("success"), true);
     Result->SetObjectField(TEXT("destination"), MakeVec3Field(Destination));
+    Result->SetBoolField(TEXT("moved"), bMoved);
+    Result->SetStringField(TEXT("path"), PathKind);
+    Result->SetNumberField(TEXT("path_length_cm"), PathLengthCm);
+    Result->SetObjectField(TEXT("path_end"), MakeVec3Field(PathEnd));
+    Result->SetNumberField(TEXT("path_end_gap_cm"), PathEndGapCm);
     return Result;
 }
 
@@ -1208,5 +1344,102 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommandSetAIState(con
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("success"), true);
     Result->SetStringField(TEXT("ai_state"), NewState);
+    return Result;
+}
+
+// ---------------------------------------------------------------------------
+// #101 — the footing reflex. SR56's carport hole and raised slab are both
+// cases where the body stood somewhere ProjectPointToNavigation cannot walk
+// FROM — the radar's ground_under_feet is what discovers it. This is the
+// primitive that does something about it: a real body steps down off a slab
+// or out of a hole onto the nearest ground it can actually reach, it does not
+// get rescued from across the map. Anything past 400 cm is left alone —
+// that is not a footing correction, that is a teleport, and the fact goes
+// back to Python instead so the model can decide.
+// ---------------------------------------------------------------------------
+TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleCommandStepToGround(const TSharedPtr<FJsonObject>& Params)
+{
+    FString Error;
+    AActor* Actor = ResolveCharacter(Params, Error);
+    if (!Actor) return FUnrealMCPCommonUtils::CreateErrorResponse(Error);
+
+    UWorld* World = Actor->GetWorld();
+    if (!World) return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("No world"));
+
+    UNavigationSystemV1* NavSys = UNavigationSystemV1::GetCurrent(World);
+    if (!NavSys) return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("No navigation system in this world"));
+
+    const FVector From = Actor->GetActorLocation();
+
+    // Actor location is the capsule centre; project from the soles — the same
+    // origin the radar's ground_under_feet used to raise this reflex.
+    float HalfHeight = 88.0f;
+    float StepUpCm = 45.0f;
+    if (ACharacter* AsCharacter = Cast<ACharacter>(Actor))
+    {
+        if (UCapsuleComponent* Capsule = AsCharacter->GetCapsuleComponent())
+            HalfHeight = Capsule->GetScaledCapsuleHalfHeight();
+        if (UCharacterMovementComponent* Move = AsCharacter->GetCharacterMovement())
+            StepUpCm = Move->MaxStepHeight;
+    }
+    const FVector Feet = From - FVector::UpVector * HalfHeight;
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("success"), true);
+    Result->SetObjectField(TEXT("from"), MakeVec3Field(From));
+
+    FVector UnderFeet;
+    if (ProjectToWalkableGround(NavSys, Feet, FVector(30.0f, 30.0f, StepUpCm + 30.0f), UnderFeet))
+    {
+        Result->SetBoolField(TEXT("stepped"), false);
+        Result->SetStringField(TEXT("reason"), TEXT("already on walkable ground"));
+        return Result;
+    }
+
+    FVector NearestGround;
+    if (!ProjectToWalkableGround(NavSys, Feet, FVector(400.0f, 400.0f, 400.0f), NearestGround))
+    {
+        Result->SetBoolField(TEXT("stepped"), false);
+        Result->SetStringField(TEXT("reason"), TEXT("no walkable ground within 400 cm"));
+        return Result;
+    }
+
+    const double DistanceCm = FVector::Dist(Feet, NearestGround);
+    if (DistanceCm > 400.0)
+    {
+        Result->SetBoolField(TEXT("stepped"), false);
+        Result->SetNumberField(TEXT("distance_cm"), DistanceCm);
+        Result->SetStringField(TEXT("reason"), FString::Printf(
+            TEXT("nearest walkable ground is %.0f cm away — beyond the 400 cm step"), DistanceCm));
+        return Result;
+    }
+
+    // Keep the body's own height above the ground point rather than dropping
+    // it to the nav mesh surface itself — the capsule stands ON the ground,
+    // it does not sink into it.
+    const FVector StepTarget = NearestGround + FVector::UpVector * HalfHeight;
+
+    // Cancel any in-flight move first, same reasoning as HandleCommandTeleport —
+    // an AI controller must not resume a stale path from the spot just left.
+    if (ACharacter* Character = Cast<ACharacter>(Actor))
+    {
+        if (AAIController* AIController = Cast<AAIController>(Character->GetController()))
+            AIController->StopMovement();
+        if (UCharacterMovementComponent* Movement = Character->GetCharacterMovement())
+            Movement->StopMovementImmediately();
+    }
+
+    if (!Actor->TeleportTo(StepTarget, Actor->GetActorRotation(), false, true))
+        return FUnrealMCPCommonUtils::CreateErrorResponse(
+            FString::Printf(TEXT("TeleportTo failed stepping to ground for: %s"), *Actor->GetName()));
+
+    const FVector Landed = Actor->GetActorLocation();
+    UE_LOG(LogTemp, Warning,
+        TEXT("[UnrealMCP] %s footing: stepped %.1f cm from (%.0f, %.0f, %.0f) onto walkable ground at (%.0f, %.0f, %.0f)"),
+        *Actor->GetName(), DistanceCm, From.X, From.Y, From.Z, Landed.X, Landed.Y, Landed.Z);
+
+    Result->SetBoolField(TEXT("stepped"), true);
+    Result->SetObjectField(TEXT("to"), MakeVec3Field(Landed));
+    Result->SetNumberField(TEXT("distance_cm"), DistanceCm);
     return Result;
 }
