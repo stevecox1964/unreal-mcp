@@ -267,6 +267,60 @@ wall, and a corner — a bad training sample and a bad place visual.
 **Depends on #101** (ground column, path test). **Needs tests** (flagged): scoring picks the widest
 minimum clearance; hard requirements veto; no-candidate refusal.
 
+**Build slice (spec'd 2026-09-01, Fable — after SR57 PASS). Picked up because Play-mode experiments
+start now and #103 should be ready the day a new world is loaded.**
+
+1. **C++ — radar at a location** (`HandleGetCharacterRadar`, `UnrealMCPCharacterCommands.cpp`). New
+   optional param `location` `[x,y,z]`. When present: project it onto walkable ground with
+   `ProjectToWalkableGround(NavSys, location, Extent(30,30,200))`; `Feet` = that ground point,
+   `Base` = `Feet + Up*HalfHeight`; the sector sweep and the ground column run from there exactly as
+   they do from the body. `ground_under_feet` reports whether the projection succeeded (false → still
+   return the ring; the caller vetoes). Additionally when `location` is given, run the same
+   `FindPathToLocationSynchronously(World, ActorLocation, ProjectedPoint, Actor)` that `move_to` runs and
+   add `path: full|partial|none`, `path_length_cm`, `path_end_gap_cm` to the result — one round trip
+   answers "can I stand there, can I get there, how much air is there". Result also carries
+   `probe_origin: {x,y,z}` (the projected feet). No `location` → behaviour unchanged. No NavSys →
+   unchanged (fields absent). No new command; no whitelist change.
+2. **Python bridge** (`unreal_bridge.radar`): optional `location: tuple | list | None`; pass through
+   when set; docstring lists the new fields.
+3. **Pure scorer — new module `Python/agent_runtime/stand_point.py`** (no engine, no LLM):
+   - `candidates(center_xy, cell_size, here_xy=None) -> list[(x,y,label)]`: the centre, then 8 points
+     on a ring at `cell_size/6` (≈1/3 of the half-width), then 8 at `cell_size/3`. All inside the cell.
+     `here_xy` (the body, if already inside the cell) is prepended with label `"here"`.
+   - `score(probe: dict) -> tuple | None`: **veto** (`None`) when `ground_under_feet` is false, or
+     `path` is `none`, or `path` is `partial` with `path_end_gap_cm > 150`. Otherwise
+     `(min_clearance_cm, open_headings, -dist_to_center_cm)` where min clearance is the smallest
+     `clearance_cm` across the ring and open headings counts sectors with `clearance_cm >= 1000`.
+     A probe missing `ground_under_feet` (old plugin) returns the sentinel `"unmeasured"`.
+   - `choose(scored: list[(label, xy, score)]) -> (label, xy, score) | None`: best score. **Stay rule:**
+     if `"here"` passes and its min clearance is ≥ 0.8 × the best candidate's, `"here"` wins — an
+     explorer standing in an acceptable spot does not double back for a marginal gain.
+4. **Sweep** (`agent_manager._sweep_step`, on the tick a sweep is created): probe the centre + ring 1
+   (+ `"here"` when inside the cell) with `radar(location=…, yaw_offset_deg=-facing)`; ring 2 only when
+   nothing passed. Stop early on the first `"unmeasured"` → log one WARNING
+   `[dufus] sweep: stand point not measured — plugin has no ground sense; using the cell centre` and
+   proceed exactly as today. Winner → `active["stand_point"] = xy`, `active["travel_target"] = xy`, and
+   `active["sweep"]` is built with that point as its `center` (so `CellSweep` walks to it, not to the
+   geometric centre). Log
+   `[dufus] sweep: (5,4) stand point 9.4 m NE of centre — centre had 1.1 m of air to the S (min air
+   here 7.8 m)` or `… stand point is the centre` or `… staying here (min air 6.2 m vs best 7.1 m)`.
+   No candidate passes → `_abandon_survey_travel(agent_id, active, "no open ground in the cell")` and
+   the cell is marked blocked exactly like an unreachable one. Budget note in the log line: probes
+   issued and ms.
+5. **Persist**: `place_cells` gains `stand_x REAL`, `stand_y REAL` via `_migrate`; `mark_swept` (or a
+   sibling `set_stand_point`) writes them when the survey completes. `/map` cell payload includes
+   `stand_x/stand_y` when present and the blue survey marker is placed there instead of the centre.
+6. **Not in scope**: re-scoring old surveys; re-surveying; any prompt/LLM text. The decision log gains
+   `stand_point` on the sweep-start tick only if a one-line hook already exists; otherwise skip.
+
+**Tests (flagged, NOT written — speed mode):** `test_stand_point.py`: centre wins when all equal;
+widest minimum clearance wins over a higher mean; ground veto; `none`/far-`partial` veto; near-`partial`
+passes; stay rule at 0.8; `"unmeasured"` sentinel; 17 candidates all inside the cell.
+
+**Verification (next survey run):** grep `sweep: .* stand point` lines; at least one cell moves off
+centre; the four captures for that cell show no wall closer than the logged min air; blue dot on /map
+sits at the logged point; a fully built-over cell logs `no open ground in the cell` and is not retried.
+
 ### #104 — Survey what is *interesting*, not just the next empty grid cell
 
 **Source:** user, 2026-09-01: *"The survey APC doesn't really care about what is 'interesting' in the
