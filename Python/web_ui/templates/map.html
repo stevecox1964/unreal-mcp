@@ -370,9 +370,14 @@
         d.type = "button";
         d.className = "survey-mark";
         d.setAttribute("aria-label", `Open survey for cell (${cell.col}, ${cell.row})`);
+        // #103: the survey may have stood somewhere other than the geometric
+        // centre — stand_x/stand_y (present only when it did) is where the
+        // blue dot belongs; absent falls back to the centre exactly as before.
+        const hasStand = cell.stand_x !== undefined && cell.stand_y !== undefined
+          && cell.stand_x !== null && cell.stand_y !== null;
         placePoint(d,
-          data.origin_x + (cell.col + 0.5) * data.cell_size,
-          data.origin_y + (cell.row + 0.5) * data.cell_size);
+          hasStand ? cell.stand_x : data.origin_x + (cell.col + 0.5) * data.cell_size,
+          hasStand ? cell.stand_y : data.origin_y + (cell.row + 0.5) * data.cell_size);
         d.addEventListener("click", e => { e.stopPropagation(); if (!dragged) showSurvey(cell); });
         placesEl.appendChild(d);
       }

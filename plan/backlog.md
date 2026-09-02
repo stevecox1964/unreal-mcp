@@ -270,6 +270,15 @@ minimum clearance; hard requirements veto; no-candidate refusal.
 **Build slice (spec'd 2026-09-01, Fable — after SR57 PASS). Picked up because Play-mode experiments
 start now and #103 should be ready the day a new world is loaded.**
 
+**Status: BUILT 2026-09-01 (Sonnet agent, reviewed by Fable), NOT compiled, NOT live-verified.** Plugin
+rebuild required (`MCPGameProject\Build.bat`, editor closed) — `get_character_radar` gained the
+`location` probe. Review fix by Fable: the explorer arrive tolerance (a whole cell) would have let the
+sweep shoot from wherever the body entered the cell even after a ring point won — a chosen non-`here`
+point now rebuilds the `CellSweep` with a 200 cm tolerance so the body actually walks there.
+Agent judgment calls (accepted): `dist_to_center_cm` injected into the probe by the caller; a probe with
+ground but no `path` field vetoes; the probes/ms budget rides inside the abandon reason. Tests flagged,
+not written.
+
 1. **C++ — radar at a location** (`HandleGetCharacterRadar`, `UnrealMCPCharacterCommands.cpp`). New
    optional param `location` `[x,y,z]`. When present: project it onto walkable ground with
    `ProjectToWalkableGround(NavSys, location, Extent(30,30,200))`; `Feet` = that ground point,

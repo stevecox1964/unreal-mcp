@@ -126,7 +126,8 @@ class UnrealBridge:
         })
 
     def radar(self, actor_name: str, distance_cm: float = 2000.0,
-              sectors: int = 8, yaw_offset_deg: float = 0.0) -> dict:
+              sectors: int = 8, yaw_offset_deg: float = 0.0,
+              location: tuple | list | None = None) -> dict:
         """Sweep the body all the way round the compass in one round trip (#92).
 
         The same capsule sweep ``forward_volume`` runs, repeated on every sector
@@ -144,13 +145,24 @@ class UnrealBridge:
         walkable-ground measurement (#101) — passed through as-is from the
         engine. An older plugin build simply omits them; callers must read
         their absence as "not measured", never as "not walkable" (fail loud).
+
+        ``location`` (#103, the survey stand-point search): when given, the
+        ring, ground column and ``ground_under_feet`` are measured at that
+        point instead of at the body, and the result additionally carries
+        ``probe_origin`` (the projected feet) and ``path`` / ``path_length_cm``
+        / ``path_end_gap_cm`` — the same path test ``move_to`` runs, from the
+        body to ``location``. Omitted → behaviour is exactly the body-radar
+        above.
         """
-        return self._send("get_character_radar", {
+        params: dict[str, Any] = {
             "character_name": actor_name,
             "distance_cm": distance_cm,
             "sectors": sectors,
             "yaw_offset_deg": yaw_offset_deg,
-        })
+        }
+        if location is not None:
+            params["location"] = _xyz_list(location)
+        return self._send("get_character_radar", params)
 
     def step_to_ground(self, actor_name: str) -> dict:
         """Footing reflex (#101): step the body onto the nearest walkable ground.

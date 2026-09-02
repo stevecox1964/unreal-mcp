@@ -308,6 +308,14 @@ class PlaceDB:
         if "proofs" not in have:
             conn.execute("ALTER TABLE no_go_patches "
                          "ADD COLUMN proofs INTEGER NOT NULL DEFAULT 0")
+        # stand_x/stand_y (#103): where the survey actually stood, when that
+        # differs from the geometric cell centre. NULL on every pre-#103 row
+        # and on any cell whose stand point WAS the centre — never guess a
+        # point a survey did not measure and choose.
+        have = {r[1] for r in conn.execute("PRAGMA table_info(place_cells)")}
+        for col in ("stand_x", "stand_y"):
+            if col not in have:
+                conn.execute(f"ALTER TABLE place_cells ADD COLUMN {col} REAL")
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
@@ -500,8 +508,8 @@ class PlaceDB:
         with self._connect() as conn:
             cells = conn.execute(
                 "SELECT c.col, c.row, c.name, c.named_by, c.named_at, c.swept_at, "
-                "c.swept_by, c.updated_at, c.place_image_id, p.revision, "
-                "p.description, p.captured_by, p.captured_at "
+                "c.swept_by, c.updated_at, c.place_image_id, c.stand_x, c.stand_y, "
+                "p.revision, p.description, p.captured_by, p.captured_at "
                 "FROM place_cells c LEFT JOIN place_images p "
                 "ON p.place_image_id=c.place_image_id "
                 "WHERE c.name IS NOT NULL OR c.swept_at IS NOT NULL "
@@ -539,6 +547,13 @@ class PlaceDB:
                 "place_image_captured_by": r["captured_by"],
                 "place_image_captured_at": r["captured_at"],
             }
+            # stand_x/stand_y (#103): present only when the survey stood off
+            # the geometric centre — absent (not zero) on every older row and
+            # on a centre stand point, so the map falls back to the centre
+            # exactly as before rather than guessing a point never measured.
+            if r["stand_x"] is not None and r["stand_y"] is not None:
+                cell["stand_x"] = r["stand_x"]
+                cell["stand_y"] = r["stand_y"]
             metrics = visual_counts.get((r["col"], r["row"]))
             if metrics:
                 cell.update({
@@ -645,6 +660,26 @@ class PlaceDB:
                 (col, row, world_time, agent_id, _iso_now()),
             )
         return True
+
+    def set_stand_point(self, col: int, row: int, x: float, y: float) -> None:
+        """Record where a survey actually stood, for re-surveys and the map (#103).
+
+        Sibling to ``mark_swept`` rather than a parameter on it, but written
+        at the same moment — when the survey completes — so a sweep that is
+        abandoned mid-way (no completed capture) never leaves a stand point
+        behind for a cell nothing was recorded of. Always overwrites (unlike
+        ``mark_swept``'s first-write-wins): a stand point is a plain fact
+        about the current survey, not a breadcrumb to protect from a second
+        sweep.
+        """
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                "INSERT INTO place_cells (col, row, stand_x, stand_y, updated_at) "
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(col, row) DO UPDATE SET "
+                "  stand_x = excluded.stand_x, stand_y = excluded.stand_y",
+                (col, row, x, y, _iso_now()),
+            )
 
     def touch(self, agent_id: str, col: int, row: int) -> None:
         """Record a visit for this agent; upsert agent_visits."""

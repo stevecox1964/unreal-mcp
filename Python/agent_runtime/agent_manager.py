@@ -29,6 +29,7 @@ from . import recognition
 from . import route_map
 from . import route_planner
 from . import sim_run
+from . import stand_point
 from . import survey_mission
 from .episodic_memory import EpisodicLog
 from .memory_store import _MOVEMENT_ACTIONS, movement_summary, movement_trace
@@ -196,6 +197,9 @@ _OPEN_HEADING_OFFSETS = (-90.0, -45.0, 45.0, 90.0)
 # what tells an alcove from a square is the SHAPE of the ring, and that only
 # shows up past where the next step would land.
 _RADAR_RANGE_CM = 2000.0
+# #103: how close the body must get to a measured stand point before the
+# survey starts shooting. Tight on purpose — the whole point is standing THERE.
+_STAND_POINT_ARRIVE_CM = 200.0
 _RADAR_HEADINGS = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
 # UE yaw: 0 = +X = East, 90 = South, 180 = West, 270 = North.
 _COMPASS_ABS_YAW = {"E": 0.0, "SE": 45.0, "S": 90.0, "SW": 135.0,
@@ -3897,6 +3901,128 @@ class AgentManager:
         self._cell_sweeps.pop(agent.agent_id, None)
         return None
 
+    def _choose_stand_point(self, agent_id: str, agent, col: int, row: int,
+                            xyz: tuple[float, float, float],
+                            facing: float | None) -> tuple[str, tuple[float, float] | None]:
+        """Probe the cell for the best open survey stand point (#103).
+
+        A survey used to walk to the literal geometric centre of the cell and
+        shoot its four frames from wherever that landed — SR-noted: sometimes
+        against the back of a house. This probes a handful of candidate spots
+        with ``radar(location=...)`` (the #101 ground+path measurement, not a
+        guess) and picks the one with the most breathing room, per
+        ``stand_point.score``/``choose``.
+
+        Returns one of:
+          - ``("ok", xy)`` — a real choice was measured; the caller walks the
+            sweep to ``xy`` instead of the centre and persists it later.
+          - ``("here", xy)`` — the body's own spot won (stay rule); nothing to
+            walk, the caller keeps the explorer's forgiving arrival.
+          - ``("fallback", center_xy)`` — an old plugin never measured ground
+            at all (the search stopped on the first ``UNMEASURED`` probe, one
+            WARNING already logged); the caller proceeds exactly as before
+            #103, walking to the geometric centre, storing no stand point.
+          - ``("abandon", None)`` — nothing in the cell passed both hard
+            requirements; the cell is already marked blocked and the
+            abandonment logged (via ``_abandon_survey_travel``) before this
+            returns, so the caller only needs to stop.
+        """
+        center = self.world_grid.cell_center(col, row)
+        if center is None:
+            return "abandon", None
+        if agent is None or not agent.has_unreal_binding or facing is None:
+            # Nothing to probe with (no bound body, or facing unknown) —
+            # behave exactly as the sweep did before #103 existed.
+            return "fallback", center
+
+        here_col, here_row = self._cell_col_row(self.world_grid.locate(xyz[0], xyz[1]))
+        here_xy = (xyz[0], xyz[1]) if (here_col, here_row) == (col, row) else None
+
+        all_candidates = stand_point.candidates(center, self.world_grid.cell_size, here_xy=here_xy)
+        ring1 = [c for c in all_candidates if not c[2].startswith("ring2")]
+        ring2 = [c for c in all_candidates if c[2].startswith("ring2")]
+
+        probes = 0
+        center_probe: dict | None = None
+        t0 = time.perf_counter()
+
+        def probe_ring(ring):
+            nonlocal probes, center_probe
+            scored = []
+            for x, y, label in ring:
+                result = self.bridge.radar(
+                    agent.bound_unreal_actor_name, distance_cm=_RADAR_RANGE_CM,
+                    yaw_offset_deg=-facing, location=(x, y, xyz[2]),
+                ) or {}
+                probes += 1
+                if label == "center":
+                    center_probe = result
+                probe = dict(result)
+                probe["dist_to_center_cm"] = math.hypot(x - center[0], y - center[1])
+                s = stand_point.score(probe)
+                if s == stand_point.UNMEASURED:
+                    return None
+                scored.append((label, (x, y), s))
+            return scored
+
+        scored = probe_ring(ring1)
+        if scored is None:
+            logger.warning(
+                f"[{agent_id}] sweep: stand point not measured — plugin has no "
+                "ground sense; using the cell centre"
+            )
+            return "fallback", center
+
+        chosen = stand_point.choose(scored)
+        if chosen is None:
+            scored = probe_ring(ring2)
+            if scored is None:
+                logger.warning(
+                    f"[{agent_id}] sweep: stand point not measured — plugin has no "
+                    "ground sense; using the cell centre"
+                )
+                return "fallback", center
+            chosen = stand_point.choose(scored)
+
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        budget = f"{probes} probes, {elapsed_ms:.0f} ms"
+
+        if chosen is None:
+            self._abandon_survey_travel(
+                agent_id, {"col": col, "row": row},
+                f"no open ground in the cell ({budget})",
+            )
+            return "abandon", None
+
+        label, xy, sc = chosen
+        min_air_m = sc[0] / 100.0
+        if label == "center":
+            logger.info(f"[{agent_id}] sweep: ({col},{row}) stand point is the "
+                        f"centre — {budget}")
+        elif label == "here":
+            best = max((t for t in scored if t[2] is not None), key=lambda t: t[2])
+            logger.info(
+                f"[{agent_id}] sweep: ({col},{row}) stand point staying here "
+                f"(min air {min_air_m:.1f} m vs best {best[2][0] / 100.0:.1f} m) — {budget}"
+            )
+        else:
+            dx, dy = xy[0] - center[0], xy[1] - center[1]
+            winner_dir = yaw_to_compass(math.degrees(math.atan2(dy, dx)) % 360.0)
+            dist_m = math.hypot(dx, dy) / 100.0
+            center_ring = (center_probe or {}).get("ring") or []
+            if center_ring:
+                tight = min(center_ring, key=lambda s: s.get("clearance_cm", 0.0))
+                center_dir = yaw_to_compass(float(tight.get("world_yaw", 0.0)))
+                center_min_m = float(tight.get("clearance_cm", 0.0)) / 100.0
+                center_clause = f"centre had {center_min_m:.1f} m of air to the {center_dir} "
+            else:
+                center_clause = ""
+            logger.info(
+                f"[{agent_id}] sweep: ({col},{row}) stand point {dist_m:.1f} m {winner_dir} "
+                f"of centre — {center_clause}(min air here {min_air_m:.1f} m) — {budget}"
+            )
+        return ("here" if label == "here" else "ok"), xy
+
     def _sweep_step(self, agent_id: str, observation: dict, start: bool = True,
                     target: tuple[int, int] | None = None) -> dict | None:
         """One step of the shared sweep capability (#11.1).
@@ -3955,10 +4081,34 @@ class AgentManager:
             )
             if sweep is None:
                 return None
+            # #103: the geometric centre `default_sweep` just aimed at is not
+            # always open ground — probe the cell for the best spot and walk
+            # the sweep there instead. An abandonment (nothing passed) is
+            # fully handled inside the helper; a fallback (old plugin) leaves
+            # `sweep` untouched, walking to the centre exactly as before.
+            mode, stand_xy = self._choose_stand_point(
+                agent_id, self.agents.get(agent_id), col, row, xyz,
+                _yaw_of(observation.get("rotation")),
+            )
+            if mode == "abandon":
+                return None
             # The survey turns the avatar through all four cardinals, so the
             # facing it arrived with must be remembered now or it is gone (#56).
             active = {"sweep": sweep, "col": col, "row": row, "views": [],
                       "entry_yaw": _yaw_of(observation.get("rotation"))}
+            if mode in ("ok", "here"):
+                active["stand_point"] = stand_xy
+                active["travel_target"] = stand_xy
+            if mode == "ok":
+                # A measured point elsewhere in the cell is only worth anything
+                # if the body actually goes there. The explorer tolerance above
+                # (a whole cell) would let the sweep shoot from wherever the
+                # body entered the cell — SR-noted: the back of a house.
+                sweep = cell_sweep.CellSweep(
+                    center=stand_xy, z=xyz[2], headings=remaining,
+                    arrive_tolerance=_STAND_POINT_ARRIVE_CM,
+                )
+                active["sweep"] = sweep
             self._cell_sweeps[agent_id] = active
             logger.info(f"[{agent_id}] sweep: unexplored cell ({col},{row}) — sweeping")
 
@@ -4000,6 +4150,13 @@ class AgentManager:
                     agent_id, active["col"], active["row"],
                     observation.get("world_time", self.world_clock.now_text())
                 )
+                # #103: persisted alongside the breadcrumb, on completion only —
+                # an abandoned or incomplete sweep never measured a "final"
+                # stand point worth recording.
+                stand = active.get("stand_point")
+                if stand is not None:
+                    self.place_db.set_stand_point(
+                        active["col"], active["row"], stand[0], stand[1])
             self._cell_sweeps.pop(agent_id, None)
             # A finished survey is a decision point: without this the view is
             # unchanged, the scene gate idles the APC, and the run reads as

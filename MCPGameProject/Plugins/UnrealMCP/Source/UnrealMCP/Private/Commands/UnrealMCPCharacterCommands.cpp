@@ -511,8 +511,20 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterRadar(con
     // calls every kerb a wall, and a radar that does that reports a pavement
     // edge as an enclosing ring.
     const float SweepHalfHeight = FMath::Max(HalfHeight - StepUpCm * 0.5f, Radius + 1.0f);
-    const FVector Base  = Actor->GetActorLocation();
-    const FVector Start = Base + FVector::UpVector * (StepUpCm * 0.5f);
+    const FVector ActorLoc = Actor->GetActorLocation();
+
+    // #103: the caller may ask "what would this ring look like if I stood
+    // somewhere else" — the survey stand-point search needs the same ground
+    // and air senses at a handful of candidate spots, not just at the body.
+    // An explicit optional 'location' probes there instead of at the actor;
+    // everything below is identical either way.
+    const bool bLocationProbe = Params->HasField(TEXT("location"));
+    FVector Base = ActorLoc;
+    if (bLocationProbe)
+    {
+        Base = FUnrealMCPCommonUtils::GetVectorFromJson(Params, TEXT("location"));
+    }
+    FVector Start = Base + FVector::UpVector * (StepUpCm * 0.5f);
 
     FCollisionQueryParams QueryParams(TEXT("Radar"), /*bTraceComplex=*/false, Actor);
     QueryParams.bReturnPhysicalMaterial = true;
@@ -520,7 +532,7 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterRadar(con
     // #101: the actor location is the capsule CENTRE, HalfHeight above the
     // soles. Every ground projection below starts at the feet — a 60 cm reach
     // from the centre would miss the very floor the body stands on.
-    const FVector Feet = Base - FVector::UpVector * HalfHeight;
+    FVector Feet = Base - FVector::UpVector * HalfHeight;
     // #101: the ground sense reads whatever nav system this world has, if any.
     // A world with none simply gets no ground_cm/ground_under_feet/nearest_ground
     // fields — silence, not a false "not walkable", is the honest answer when
@@ -535,6 +547,45 @@ TSharedPtr<FJsonObject> FUnrealMCPCharacterCommands::HandleGetCharacterRadar(con
     Result->SetBoolField(TEXT("capsule_from_engine"), bCapsuleFromEngine);
     Result->SetNumberField(TEXT("step_up_cm"), (double)StepUpCm);
     Result->SetNumberField(TEXT("facing_yaw"), (double)Actor->GetActorRotation().Yaw);
+
+    if (bLocationProbe && NavSys)
+    {
+        // #103: project the requested point onto walkable ground FIRST — the
+        // ring and ground column below then run from the projected feet, the
+        // same "measure, don't assume" rule #101 already applies at the body.
+        FVector ProjectedGround;
+        const bool bProjected = ProjectToWalkableGround(
+            NavSys, Base, FVector(30.0f, 30.0f, 200.0f), ProjectedGround);
+        if (bProjected)
+        {
+            Feet = ProjectedGround;
+            Base = Feet + FVector::UpVector * HalfHeight;
+            Start = Base + FVector::UpVector * (StepUpCm * 0.5f);
+        }
+        // bProjected == false: Feet/Base stay at the raw requested point so the
+        // ring below still reports something; ground_under_feet (set below)
+        // carries the false, and the caller (the stand-point scorer) is the
+        // one that vetoes — this handler never decides that for it.
+        Result->SetObjectField(TEXT("probe_origin"), MakeVec3Field(Feet));
+
+        FString PathKind = TEXT("none");
+        double PathLengthCm = 0.0;
+        FVector PathEnd = ActorLoc;
+        if (UNavigationPath* NavPath = UNavigationSystemV1::FindPathToLocationSynchronously(
+                World, ActorLoc, bProjected ? ProjectedGround : Base, Actor))
+        {
+            if (NavPath->IsValid() && NavPath->PathPoints.Num() > 0)
+            {
+                PathKind = NavPath->IsPartial() ? TEXT("partial") : TEXT("full");
+                PathLengthCm = NavPath->GetPathLength();
+                PathEnd = NavPath->PathPoints.Last();
+            }
+        }
+        const double PathEndGapCm = FVector::Dist(PathEnd, bProjected ? ProjectedGround : Base);
+        Result->SetStringField(TEXT("path"), PathKind);
+        Result->SetNumberField(TEXT("path_length_cm"), PathLengthCm);
+        Result->SetNumberField(TEXT("path_end_gap_cm"), PathEndGapCm);
+    }
 
     if (NavSys)
     {
