@@ -358,6 +358,27 @@ passes; stay rule at 0.8; `"unmeasured"` sentinel; 17 candidates all inside the 
 centre; the four captures for that cell show no wall closer than the logged min air; blue dot on /map
 sits at the logged point; a fully built-over cell logs `no open ground in the cell` and is not retried.
 
+### #105 — Dufus is a townsperson now; the surveyor persona is a template folder
+
+**Done 2026-09-01 (user + Fable).** The survey is finished for this world (SR58: every unsurveyed
+cell left is a map-edge hill). Play mode is the work now.
+
+- `agents/surveyor/` — the SR1–SR58 survey persona (character / goals / rules / agenda / tools /
+  state) with `is_active: false`, `agent_id: surveyor`, actor `APC_Surveyor_BP`, and a README saying
+  how to activate it in a new world. Runtime memory files (observations, episodes, spatial map, …)
+  were NOT copied — they are Dufus's, not the template's.
+- `agents/dufus/` — rewritten as a villager who walks a schedule and talks: `survey_priority: false`,
+  no `mission`; `speak_to` added to tools, `survey_here` removed; `doctrine/survey.md` import dropped;
+  eight-task agenda over home / Don's Donuts / village square / the vegetable truck / sheriff station
+  square — every place verified to resolve against `world_places.db` offline. He is at the vegetable
+  truck 10:00–12:00 while Maren works there, and at Don's 12:00–13:00 when she eats lunch, so the two
+  meet twice a day by schedule.
+
+**Next (Play mode, in order):** (1) run Play with both APCs and only watch; (2) chat with Dufus from
+the cockpit and ask him to "go to Don's Donuts" — chat endpoints (`/agents/{id}/chat/*`) and
+named-place `walk_to` both exist but have never been exercised together live; scan the logs and fix
+what breaks. **Needs a test** (flagged): a chat message naming a place produces a resolved `walk_to`.
+
 ### #104 — Survey what is *interesting*, not just the next empty grid cell
 
 **Source:** user, 2026-09-01: *"The survey APC doesn't really care about what is 'interesting' in the

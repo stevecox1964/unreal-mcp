@@ -1,11 +1,11 @@
 {
-  "agent_id": "dufus",
-  "unreal_actor_name": "APC_Dufus_BP",
-  "display_name": "Dufus",
+  "agent_id": "surveyor",
+  "unreal_actor_name": "APC_Surveyor_BP",
+  "display_name": "Surveyor",
   "blueprint_class": "/Game/Blueprints/APC_Dufus_BP.APC_Dufus_BP_C",
   "tier": 1,
-  "survey_priority": false,
-  "is_active": true,
+  "survey_priority": true,
+  "is_active": false,
   "tick_interval_seconds": 4,
   "speech_cooldown_seconds": 30,
   "start_location": {
@@ -17,5 +17,6 @@
     "x": 0,
     "y": 0,
     "z": 0
-  }
+  },
+  "mission": "survey"
 }

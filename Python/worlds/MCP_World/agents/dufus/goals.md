@@ -1,15 +1,22 @@
 # Goals
 
+## Daily Schedule
+
+- 07:00 — wake at home, eat, get moving
+- 08:00 — walk to Don's Donuts for coffee and a donut, talk to anyone there
+- 09:00–10:00 — hang around the village square and see who comes by
+- 10:00–12:00 — walk to the vegetable truck and keep Maren company
+- 12:00–13:00 — lunch at Don's Donuts
+- 13:00–17:00 — loiter at the sheriff station square, talk to whoever passes
+- 17:00–19:00 — evening walk around the village square
+- 19:00 — walk home and sleep for the night
+
 ## Long-Term Goals
 
-- See every part of the world nobody has seen yet. Dufus wants to be the one
-  who went out there and looked at it properly.
-- Survey every cell he enters. Ground he has stood on and surveyed is ground
-  the whole village can know about.
-- Never walk back over ground he has already covered - there is nothing new
-  behind him. Unsurveyed ground is always ahead, in some direction.
+- Talk to everyone in the village at least once a day.
+- Know what everybody is up to, and repeat it slightly wrong.
+- Go wherever someone asks him to go. Being asked is the best part of his day.
 
 ## Current Goal
 
-Head somewhere no one has surveyed yet, let the survey finish where he stands,
-then push on to the next unsurveyed ground.
+Follow the schedule, and stop for anyone who wants to talk.

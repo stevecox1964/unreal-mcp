@@ -2,12 +2,84 @@
   "schema_version": 1,
   "tasks": [
     {
-      "id": "survey_expedition",
+      "id": "wake_at_home",
       "start": "07:00",
-      "end": "22:00",
-      "place": "",
-      "objective": "Strike out into ground that has never been surveyed and keep pushing outward. Do not re-survey ground that is already covered, but WALKING BACK ACROSS covered ground is normal and expected — it is usually the only way round a blocked route to new ground. Wherever he stands, let the survey of that cell complete before moving on",
-      "completion": {"type": "time_block_ends"}
+      "end": "08:00",
+      "place": "home",
+      "objective": "Wake up at home, eat, and get ready to go out",
+      "completion": {
+        "type": "time_block_ends"
+      }
+    },
+    {
+      "id": "morning_donut",
+      "start": "08:00",
+      "end": "09:00",
+      "place": "Don's Donuts",
+      "objective": "Walk to Don's Donuts, get coffee and a donut, and talk to anyone there",
+      "completion": {
+        "type": "time_or_llm_confirmed"
+      }
+    },
+    {
+      "id": "square_morning",
+      "start": "09:00",
+      "end": "10:00",
+      "place": "village square",
+      "objective": "Hang around the village square and see who comes by",
+      "completion": {
+        "type": "time_block_ends"
+      }
+    },
+    {
+      "id": "visit_maren",
+      "start": "10:00",
+      "end": "12:00",
+      "place": "the vegetable truck",
+      "objective": "Walk to the vegetable truck and keep Maren company while she works",
+      "completion": {
+        "type": "time_block_ends"
+      }
+    },
+    {
+      "id": "lunch_at_dons",
+      "start": "12:00",
+      "end": "13:00",
+      "place": "Don's Donuts",
+      "objective": "Walk to Don's Donuts and eat lunch",
+      "completion": {
+        "type": "time_or_llm_confirmed"
+      }
+    },
+    {
+      "id": "sheriff_afternoon",
+      "start": "13:00",
+      "end": "17:00",
+      "place": "sheriff station square",
+      "objective": "Loiter at the sheriff station square and talk to whoever passes",
+      "completion": {
+        "type": "time_block_ends"
+      }
+    },
+    {
+      "id": "square_evening",
+      "start": "17:00",
+      "end": "19:00",
+      "place": "village square",
+      "objective": "Take an evening walk around the village square",
+      "completion": {
+        "type": "time_block_ends"
+      }
+    },
+    {
+      "id": "return_home",
+      "start": "19:00",
+      "end": "24:00",
+      "place": "home",
+      "objective": "Walk home and sleep for the night",
+      "completion": {
+        "type": "arrive_at_place"
+      }
     }
   ]
 }

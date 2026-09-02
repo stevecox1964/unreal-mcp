@@ -3,7 +3,7 @@
     "idle",
     "wander",
     "walk_to",
-    "speak_to",
+    "survey_here",
     "refuse_cell",
     "allow_cell",
     "observe",
