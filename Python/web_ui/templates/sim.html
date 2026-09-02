@@ -54,7 +54,8 @@ async function refreshStatus(){
   const line = document.getElementById('status-line');
   if(!s.online){ line.textContent = 'no sim runner running'; document.getElementById('agents').textContent = ''; return; }
   line.textContent = `${s.running ? 'running' : 'idle'} · tick ${s.tick_count ?? 0} · ${s.agent_count ?? 0} agents · ${s.mode ?? ''}`;
-  const agents = s.agents || [];
+  // Inactive APCs (template folders like `surveyor`) are loaded but never run — keep them off the cockpit.
+  const agents = (s.agents || []).filter(a => a.is_active !== false);
   document.getElementById('agents').innerHTML = agents.map(a => {
     const p = a.survey_progress;
     const survey = p ? ` · survey ${p.completed_headings?.length || 0}/4${p.current_heading ? ` heading ${p.current_heading}` : ''}` : '';
