@@ -959,7 +959,7 @@ async def api_sim_start(request: Request):
     return JSONResponse(get_runner().start(
         tick_seconds=int(body.get("tick_seconds", 1)),
         active_agents=body.get("active_agents"),
-        mode=body.get("mode", "survey"),
+        mode=body.get("mode", "play"),
     ))
 
 

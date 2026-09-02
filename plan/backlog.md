@@ -201,9 +201,9 @@ cell carries `path: none|partial` in the log; approaching the (5,8) slab and the
 flagged, not written): radar text with ground shorter than air; path→abandon rules; footing reflex
 seals a measured patch.
 
-### #102 — Sim mode: **Survey** (default) or **Play**
+### #102 — Sim mode: **Play** (default since 2026-09-01) or **Survey**
 
-**Status: VERIFIED LIVE — SR57 ran `mode=survey` end to end (2026-09-01).** `explore` mode and `_pulse_explore`
+**Status: VERIFIED LIVE — SR57 ran `mode=survey` end to end (2026-09-01).** **Default flipped to `play` 2026-09-01** (user, after #105): `runner_app.py`, `runner_client.py`, `web_ui/main.py`, `sim.html` dropdown, and `_normalize_mode`'s fallback; `live` still aliases `survey`. `explore` mode and `_pulse_explore`
 removed; `test_explore_tick.py`, `test_frontier_blocking.py`, `test_runner_api.py`, `test_sim_controller.py`,
 `test_spool_up.py` reference the removed mode and need updating when tests are next written.
 

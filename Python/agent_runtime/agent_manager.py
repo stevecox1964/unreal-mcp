@@ -574,15 +574,15 @@ class AgentManager:
 
         ``live`` is the pre-#102 name for today's default behaviour and is the
         only accepted alias, mapped here and nowhere else. Anything else
-        unrecognised warns and falls back to ``survey`` rather than silently
+        unrecognised warns and falls back to ``play`` rather than silently
         misbehaving.
         """
-        normalized = (mode or "survey").strip().lower()
+        normalized = (mode or "play").strip().lower()
         if normalized == "live":
             normalized = "survey"  # legacy alias (#102)
         if normalized not in ("survey", "play"):
-            logger.warning(f"Unknown sim mode {mode!r} — defaulting to survey")
-            return "survey"
+            logger.warning(f"Unknown sim mode {mode!r} — defaulting to play")
+            return "play"
         return normalized
 
     async def start_simulation(

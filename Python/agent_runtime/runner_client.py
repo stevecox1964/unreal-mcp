@@ -43,7 +43,7 @@ class RunnerClient:
         return self._client.post("/events/clear").json()
 
     def start(self, tick_seconds: int = 1, active_agents: list[str] = None,
-              mode: str = "survey") -> dict:
+              mode: str = "play") -> dict:
         return self._client.post("/start", json={
             "tick_seconds": tick_seconds, "active_agents": active_agents, "mode": mode,
         }).json()
