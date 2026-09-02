@@ -430,7 +430,7 @@ class MemoryStore:
         snapshot = {
             key: interrupt.get(key)
             for key in ("interrupt_id", "kind", "source", "reason", "priority", "status",
-                        "preemptible", "requested_at", "outcome")
+                        "preemptible", "requested_at", "outcome", "path", "path_end_gap_cm")
             if key in interrupt
         }
         entry = {

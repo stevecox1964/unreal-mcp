@@ -494,6 +494,7 @@ class AgentManager:
         self._social_mem: dict[str, SocialMemory] = {}  # agent_id -> acquaintance store (cache)
         self._episodic_log: dict[str, EpisodicLog] = {}  # agent_id -> episodic event log (cache)
         self._cell_sweeps: dict[str, dict] = {}      # agent_id -> in-progress unexplored-cell sweep
+        self._survey_abandons: dict[str, dict] = {}  # agent_id -> why the last survey travel was abandoned (#101)
         self._mission_complete: set[str] = set()     # agent_ids whose survey mission found no work left (#96)
         self._last_cell: dict[str, str] = {}        # agent_id -> previous cell key, for nav edges
         self._frontier_failures: dict[str, dict[str, int]] = {}  # agent_id -> cell key -> consecutive failed walks
@@ -3625,10 +3626,17 @@ class AgentManager:
             self._record_interrupt_event(agent, "activated", result.get("active"))
 
     def _terminate_active_interrupt(self, agent: Agent, status: str, outcome: str,
-                                    resolved_at: str) -> dict:
-        """Resolve an active record and make the terminal state auditable."""
+                                    resolved_at: str, extra: dict | None = None) -> dict:
+        """Resolve an active record and make the terminal state auditable.
+
+        ``extra`` rides on the decision-log event only (#101: the path answer
+        behind an abandoned survey travel); the persisted record is unchanged.
+        """
         result = agent.terminate_interrupt(status, outcome, self._agents_dir, resolved_at)
-        self._record_interrupt_event(agent, status, result.get("last_interrupt"))
+        logged = result.get("last_interrupt")
+        if extra and isinstance(logged, dict):
+            logged = {**logged, **extra}
+        self._record_interrupt_event(agent, status, logged)
         if result.get("active") is not None:
             self._record_interrupt_event(agent, "activated", result.get("active"))
             self._pause_for_open_chat(agent)
@@ -3873,11 +3881,18 @@ class AgentManager:
         self._update_survey_progress(
             agent, phase="complete" if complete else "incomplete", current_heading=None,
         )
+        abandon = self._survey_abandons.pop(agent.agent_id, None)
+        extra = None
+        outcome = "survey completed" if complete else "survey capture incomplete"
+        if not complete and abandon is not None:
+            outcome = abandon["outcome"]
+            extra = {"path": abandon["path"], "path_end_gap_cm": abandon["path_end_gap_cm"]}
         self._terminate_active_interrupt(
             agent,
             "resolved" if complete else "failed",
-            "survey completed" if complete else "survey capture incomplete",
+            outcome,
             str(observation.get("world_time") or self.world_clock.now_text()),
+            extra=extra,
         )
         self._cell_sweeps.pop(agent.agent_id, None)
         return None
@@ -4025,13 +4040,22 @@ class AgentManager:
             logger.info(f"[{agent_id}] sweep: facing restored to "
                         f"{yaw_to_compass(entry_yaw)} ({entry_yaw:.0f})")
 
-    def _abandon_survey_travel(self, agent_id: str, active: dict, reason: str) -> None:
+    def _abandon_survey_travel(self, agent_id: str, active: dict, reason: str,
+                               path: str | None = None,
+                               path_end_gap_cm: float | None = None) -> None:
         """Mark the target cell unreachable and drop the local sweep state (#91/#101).
 
         Shared by the distance-based backstop and the #101 path-answer check
         below — both reach the same conclusion by different evidence, and both
-        need the same cleanup.
+        need the same cleanup. The reason and the path answer are stashed so
+        the ``interrupt_failed`` decision-log event carries them (SR57 showed
+        only the runner log did).
         """
+        self._survey_abandons[agent_id] = {
+            "outcome": f"survey abandoned — {reason}",
+            "path": path,
+            "path_end_gap_cm": path_end_gap_cm,
+        }
         center = self.world_grid.cell_center(active["col"], active["row"])
         if center is not None:
             self._spatial_map(agent_id).mark_blocked(
@@ -4068,7 +4092,7 @@ class AgentManager:
         """
         path = active.pop("last_path", None)
         path_end = active.pop("last_path_end", None)
-        active.pop("last_path_end_gap_cm", None)
+        path_end_gap_cm = active.pop("last_path_end_gap_cm", None)
         if path in ("none", "partial"):
             end_col, end_row = (None, None)
             if isinstance(path_end, dict):
@@ -4081,7 +4105,8 @@ class AgentManager:
                 return False
             reason = ("no path to the cell centre" if path == "none"
                       else "the reachable path ends outside the target cell")
-            self._abandon_survey_travel(agent_id, active, f"{reason} (measured on tick 1)")
+            self._abandon_survey_travel(agent_id, active, f"{reason} (measured on tick 1)",
+                                        path=path, path_end_gap_cm=path_end_gap_cm)
             return True
 
         previous = active.get("travel_from")

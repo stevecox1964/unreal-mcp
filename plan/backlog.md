@@ -107,11 +107,11 @@ clean (`build_results.txt` 18:23). Verdict against the pass marks:
   before a step is taken. A `partial` path INSIDE the cell ((5,2), 18:31:54) walked to `path_end` and the
   cell was surveyed.
 - Output: 28 cells surveyed, 0 errors, 8 warnings (7 abandons + 1 dropped narration).
-- **Gap:** the pass mark "every abandoned cell carries `path` in the decision log" is NOT met. The
-  `sim_runner.log` WARNING carries the reason, but `agent_decisions.log` only logs `interrupt_failed` with
-  `outcome: "survey capture incomplete"` — no `path` value. `path` appears once in the whole run (a wake
-  walk). Small fix: `_abandon_survey_travel` should add `path` / `path_end_gap_cm` to the `interrupt_failed`
-  event. Needs a test.
+- **Gap (FIXED 2026-09-01, not live-verified):** the pass mark "every abandoned cell carries `path` in the
+  decision log" was NOT met in SR57 — `agent_decisions.log` only had `interrupt_failed` with
+  `outcome: "survey capture incomplete"`. Now `_abandon_survey_travel` stashes the reason + path answer and
+  the `interrupt_failed` event carries `outcome: "survey abandoned — <reason>"`, `path`, `path_end_gap_cm`.
+  Needs a test. Check on the next survey run: every `interrupt_failed` for an abandoned cell has `path`.
 Review fix kept: ground probes start at the FEET, not the capsule centre. Tests flagged, not written.
 
 **Source:** user, 2026-09-01: *"When Dufus moves into an area with no nav mesh he gets stuck. I have
@@ -266,6 +266,43 @@ wall, and a corner — a bad training sample and a bad place visual.
 
 **Depends on #101** (ground column, path test). **Needs tests** (flagged): scoring picks the widest
 minimum clearance; hard requirements veto; no-candidate refusal.
+
+### #104 — Survey what is *interesting*, not just the next empty grid cell
+
+**Source:** user, 2026-09-01: *"The survey APC doesn't really care about what is 'interesting' in the
+world. It just goes about looking for grid cells to survey. Walking behind a house and into a grassy
+field is not 'interesting'. Following a path that has not been explored is interesting. Not sure if this
+is just for surveying and all APCs should have this behavior."* **Parked** — the user is switching to
+Play mode experiments; the world is largely surveyed. Pick up when a new world is loaded.
+
+**Today (#96):** the survey mission picks the nearest unsurveyed cell. Every cell is worth the same.
+Dufus walks behind a house into a grassy field with the same eagerness as down an unexplored road.
+The world gets covered, but the order is dumb and the captures from dull cells cost the same as
+captures from roads, squares and doorways.
+
+**Idea:** score candidate cells by *interest* and pick the best, not the nearest. Interest is a code-side
+measurement (lizard brain gives facts; no LLM in the ranking loop), for example:
+
+1. **Unexplored path continuation.** The eyes' `path_ahead: open` / a road or trail footing that runs
+   into an unsurveyed cell. A road that leads somewhere new outranks open grass.
+2. **Structure density.** Radar / ground column shows walls, doorways, vehicles, landmarks in or next to
+   the cell — places where people will later *do things*. Plain field or corn = low.
+3. **Novelty of footing.** A cell whose visible footing differs from its already-surveyed neighbours
+   (first pavement after a run of grass) scores higher than more of the same.
+4. **Frontier value.** Cells that open onto many unsurveyed neighbours (a road junction) beat a dead-end
+   corner behind a house.
+
+Nearest-first stays as the tiebreak so coverage still completes. Log the pick:
+`[dufus] sweep: chose (9,3) — road continues N into unsurveyed ground (score 7.2) over nearer (8,4)
+grass (score 1.0)`.
+
+**Open question (user):** is this survey-only, or do all APCs get it? Suggested answer: the *interest
+score* is a shared body measurement any APC can read as a fact (`the road north is unexplored`), and
+in Play mode it feeds curiosity / wandering; the *cell ranking* that consumes it is survey-mission only.
+Decide when picked up.
+
+**Depends on:** #96 (mission), #101 (ground column, path test), #77 (`path_ahead` / `ground_ahead`
+eyes facts). **Needs tests** (flagged).
 
 **Source:** user, 2026-08-19: *"concentrate on perception and how Dufus can explore/survey the world
 from center of world out... not go into areas that can get him stuck regardless of navmesh saying he
