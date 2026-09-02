@@ -379,6 +379,56 @@ the cockpit and ask him to "go to Don's Donuts" — chat endpoints (`/agents/{id
 named-place `walk_to` both exist but have never been exercised together live; scan the logs and fix
 what breaks. **Needs a test** (flagged): a chat message naming a place produces a resolved `walk_to`.
 
+### #106 — Run the world from the web app: roles, templates, active APCs, default mode — no CLI, no Claude
+
+**Source:** user, 2026-09-01, right after #105 and the Play-default flip were done by hand in a CLI
+session: *"We need a backlog item to make it easy to do all these things and not have to ask a cli to
+figure it out."* Direct child of [[drag-and-drop]]: an end user must be able to do everything this
+session did with clicks.
+
+**What this session did by hand (the checklist the page must cover):**
+
+1. Copy an APC's persona into a **template** folder, make it inactive, give it its own id/actor name.
+2. Turn an APC from **surveyor** into **townsperson** (or back): flip `survey_priority` / `mission`,
+   swap the tools list (`survey_here` ↔ `speak_to`), drop/add the `doctrine/survey.md` import, rewrite
+   character / goals / rules, author a new agenda.
+3. **Validate the agenda** — every `place` resolves against `world_places.db` before the run
+   (`preflight_places`, #63) — and see the answer *in the page*, not in a log.
+4. Set the **default sim mode** (Play / Survey) so the cockpit opens on it.
+5. Delete an APC's runtime memory (observations, episodes, spatial map, social) without touching the
+   persona files.
+
+**Today:** `/worlds/{level}/agents/{id}` (agent.html) edits character/goals/rules/agenda text and the
+`is_active` switch; `/worlds/{level}/agents/new` creates one from blank; `/settings` writes `.env`
+keys via `config_store`. Nothing knows about roles, templates, tools, doctrine imports, agenda
+validation, or the mode default. The `create-npc` skill and this session's hand edits are the only
+way to do 1–5.
+
+**Spec sketch:**
+
+- **Role = template.** `Python/worlds/_templates/<role>/` (start with `surveyor/` = today's
+  `agents/surveyor`, and `townsperson/` = the new Dufus persona with the name blanked). The agent page
+  gets a **Role** selector: choosing one copies that template's `rules.md` imports, `tools.json`,
+  `state.json` flags (`survey_priority`, `mission`) onto the APC and offers (never forces) the template's
+  character / goals / agenda text as a starting draft. "Save as template" does the reverse from any APC.
+- **Agenda editor with a live place check.** Each task's `place` field shows ✓ resolved-to-(col,row)
+  or ✗ "resolves to nothing" as you type, from the same chain `_resolve_place_endpoint` uses; a
+  ✗ blocks Save with the list of names that DO exist (community names + owned places).
+- **Active APCs** list on `/sim`: toggle `is_active`, see actor binding status (bound / actor missing
+  in level), "Reset memory" per APC (the runtime files only; persona untouched; confirm dialog).
+- **Default mode** on `/settings` (`SIM_DEFAULT_MODE=play|survey` via `config_store`); the cockpit
+  dropdown and the runner's `body.get("mode", …)` read it. Replaces the hard-coded `"play"` from
+  `45562d1`.
+- Everything the page writes is the same files a human would edit — no new store; `git diff` after a
+  UI session should read like this session's commits.
+
+**Not in scope:** placing actors in the Unreal level (still the editor's job — the page only reports
+"actor missing"); authoring landmarks (#23); the settings-page rename (#2).
+
+**Needs tests** (flagged): role switch produces exactly the #105 diff on a copy of the old Dufus
+folder; agenda save is refused when a place resolves to nothing; default-mode setting round-trips
+into `/api/sim/start`.
+
 ### #104 — Survey what is *interesting*, not just the next empty grid cell
 
 **Source:** user, 2026-09-01: *"The survey APC doesn't really care about what is 'interesting' in the
