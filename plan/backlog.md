@@ -270,8 +270,36 @@ minimum clearance; hard requirements veto; no-candidate refusal.
 **Build slice (spec'd 2026-09-01, Fable — after SR57 PASS). Picked up because Play-mode experiments
 start now and #103 should be ready the day a new world is loaded.**
 
-**Status: BUILT 2026-09-01 (Sonnet agent, reviewed by Fable), NOT compiled, NOT live-verified.** Plugin
-rebuild required (`MCPGameProject\Build.bat`, editor closed) — `get_character_radar` gained the
+**Status: LIVE SR58 (2026-09-01 19:45–19:51, 33 ticks, stopped by the user) — WORKS, with three fixes
+needed before it is trusted.** Plugin rebuilt clean. Stand points were chosen for (9,9), (8,9), (6,9),
+(4,9); (9,9) and (8,9) were surveyed 5 m off centre. Then Dufus walked up the hillside north-west of
+town and the run burned through 13 map-edge cells before the user stopped it.
+
+SR58 findings (log scan):
+- **Bug A — the walk target's z is the body's z, refreshed every tick.** `_sweep_step` re-issues the
+  goto order each travel tick as `[x, y, xyz[2]]`. On a slope the body climbs, the target's z drifts off
+  the walkable ground, and `move_to`'s path test answers `none` — (6,9): orders at z 193/210/201 were
+  `full`, the order at z 392 was `none` → abandoned "no path" falsely. Same for (4,9) (397 `full`, 418
+  `none`). Fix: carry the chosen probe's `probe_origin.z` as the travel z (Python), AND make `move_to`
+  project its destination onto walkable ground with a tall extent (≈ 500 cm) before the path test
+  (C++) so plain cell-centre walks on hilly ground stop failing the same way.
+- **Bug B — no floor on minimum air.** (6,9) chose a spot with `min air 0.0 m` (all candidates had a
+  sector at 0 cm: the ring origin sits inside a slope). Veto any candidate whose minimum clearance is
+  under 150 cm — you cannot even turn there.
+- **Bug C — a single walkable sliver lures the APC off the map.** (4,9) had 1 passing candidate of 17
+  (16 had no walkable ground); it won and pulled Dufus 3 m up the hill. Require ≥ 3 passing candidates
+  or abandon as "not enough open ground in the cell".
+- **Cost.** 13 edge cells × 17 probes ≈ 3.5 s each. When ring 1 (9 probes) has ZERO candidates with
+  walkable ground, skip ring 2 — nothing in that cell will pass.
+- **Not a wedge.** `ground_under_feet` was true on every body radar, `footing_recoveries=0`. After
+  19:49:25 Dufus stood at (-8892, 7904, z 418) while the mission abandoned (4,8), (4,7), (4,3), (4,2),
+  (4,1), (5,1), (6,1), (7,1), (8,0) in 90 s — every remaining unsurveyed cell is a map-edge hill with
+  no walkable ground (17/17 `ground_under_feet: false` each). That is the survey finishing, not Dufus
+  stuck. #104 (interesting-first) is the real answer to "why did he go up there at all".
+- SR58's 13 abandon marks did NOT persist to `spatial_map.json` (last blocked entry is SR57's); the
+  next survey run will re-probe them. Cheap once the ring-2 skip is in.
+
+Plugin rebuild required (`MCPGameProject\Build.bat`, editor closed) — `get_character_radar` gained the
 `location` probe. Review fix by Fable: the explorer arrive tolerance (a whole cell) would have let the
 sweep shoot from wherever the body entered the cell even after a ring point won — a chosen non-`here`
 point now rebuilds the `CellSweep` with a 200 cm tolerance so the body actually walks there.
